@@ -6,7 +6,7 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type DragEvent,
-} from "react";
+} from 'react';
 import {
   Grid2X2,
   Image as ImageIcon,
@@ -16,12 +16,12 @@ import {
   Plus,
   RotateCcw,
   Trash2,
-} from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { TextareaInput } from "@/shared/components/ui/TextAreaInput";
-import { BaseInput } from "@/shared/components/ui/input/BaseInput";
-import { DeleteConfirmModal } from "@/features/events/components/DeleteConfirmModal";
-import { toast } from "@/shared/components/ui/Toast";
+} from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { TextareaInput } from '@/shared/components/ui/TextAreaInput';
+import { BaseInput } from '@/shared/components/ui/input/BaseInput';
+import { DeleteConfirmModal } from '@/features/events/components/DeleteConfirmModal';
+import { toast } from '@/shared/components/ui/Toast';
 import {
   homepageContentKeys,
   useAdminHomepageContent,
@@ -30,23 +30,23 @@ import {
   useReorderCarousel,
   useUpdateCarouselImage,
   useUpdateHomepageText,
-} from "@/features/homepage/hooks/useHomepageContent";
+} from '@/features/homepage/hooks/useHomepageContent';
 import {
   buildHeroTitleWithAnimation,
   parseHeroTitleAnimation,
-} from "@/features/homepage/utils/heroTitleAnimation";
-import { DragHandle } from "./DragHandle";
-import type { HomepageImage, PagesContentTab } from "./types";
+} from '@/features/homepage/utils/heroTitleAnimation';
+import { DragHandle } from './DragHandle';
+import type { HomepageImage, PagesContentTab } from './types';
 
-type ImageUploadIntent = { type: "add" } | { type: "replace"; imageId: string };
-type CarouselViewMode = "grid" | "list";
+type ImageUploadIntent = { type: 'add' } | { type: 'replace'; imageId: string };
+type CarouselViewMode = 'grid' | 'list';
 
-const HERO_CAROUSEL_IMAGE_ACCEPT = "image/png,image/jpeg,image/jpg,image/webp";
+const HERO_CAROUSEL_IMAGE_ACCEPT = 'image/png,image/jpeg,image/jpg,image/webp';
 const HERO_CAROUSEL_ALLOWED_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
 ]);
 const HERO_CAROUSEL_RECOMMENDED_WIDTH = 1920;
 const HERO_CAROUSEL_RECOMMENDED_HEIGHT = 900;
@@ -55,33 +55,33 @@ const HERO_CAROUSEL_MIN_HEIGHT = 675;
 const HERO_CAROUSEL_TARGET_SIZE_MB = 2;
 const HERO_CAROUSEL_MAX_SIZE_MB = 5;
 const HERO_CAROUSEL_MAX_SIZE_BYTES = HERO_CAROUSEL_MAX_SIZE_MB * 1024 * 1024;
-const DEFAULT_HERO_GREETING_TITLE = "Welcome home";
-const DEFAULT_HERO_GREETING_ALTERNATE_WORD = "sisters";
+const DEFAULT_HERO_GREETING_TITLE = 'Welcome home';
+const DEFAULT_HERO_GREETING_ALTERNATE_WORD = 'members';
 const DEFAULT_HERO_GREETING_MESSAGE =
-  "A global sisterhood of Federal Government Girls' College alumnae connected by shared memories, driven by purpose, and committed to lifting the next generation.";
+  'A global community of alumni connected by shared memories, driven by purpose, and committed to lifting the next generation.';
 
 function normalizeAlternateLastWord(value: string) {
-  return value.trim().split(/\s+/)[0] ?? "";
+  return value.trim().split(/\s+/)[0] ?? '';
 }
 
 const heroCarouselImageSpecs = [
   {
-    label: "Recommended",
+    label: 'Recommended',
     value: `${HERO_CAROUSEL_RECOMMENDED_WIDTH} x ${HERO_CAROUSEL_RECOMMENDED_HEIGHT} px`,
     detail: `Minimum upload: ${HERO_CAROUSEL_MIN_WIDTH} x ${HERO_CAROUSEL_MIN_HEIGHT} px.`,
   },
   {
-    label: "Aspect ratio",
-    value: "Wide landscape",
-    detail: "Keep faces, logos, and key detail near the center.",
+    label: 'Aspect ratio',
+    value: 'Wide landscape',
+    detail: 'Keep faces, logos, and key detail near the center.',
   },
   {
-    label: "File type",
-    value: "JPG or WebP",
-    detail: "PNG is also accepted for artwork that needs it.",
+    label: 'File type',
+    value: 'JPG or WebP',
+    detail: 'PNG is also accepted for artwork that needs it.',
   },
   {
-    label: "File size",
+    label: 'File size',
     value: `${HERO_CAROUSEL_TARGET_SIZE_MB} MB target`,
     detail: `${HERO_CAROUSEL_MAX_SIZE_MB} MB maximum upload size.`,
   },
@@ -103,9 +103,8 @@ function normalizeCarouselOrder<T extends HomepageImage>(images: T[]): T[] {
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () =>
-      reject(reader.error ?? new Error("Unable to read selected image."));
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read selected image.'));
     reader.readAsDataURL(file);
   });
 }
@@ -122,18 +121,14 @@ function getImageDimensions(file: File) {
 
     image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(new Error("Unable to read selected image dimensions."));
+      reject(new Error('Unable to read selected image dimensions.'));
     };
 
     image.src = objectUrl;
   });
 }
 
-function createLocalCarouselImage(
-  file: File,
-  src: string,
-  sortOrder: number,
-): AdminHomepageImage {
+function createLocalCarouselImage(file: File, src: string, sortOrder: number): AdminHomepageImage {
   return {
     id: `carousel-local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     src,
@@ -153,9 +148,7 @@ function getComparableHomepageImages(images: AdminHomepageImage[]) {
     isHidden: image.isHidden,
     showGreetingMessage: image.showGreetingMessage,
     sortOrder: image.sortOrder,
-    hasLocalChange: Boolean(
-      image.isNew || image.localFile || image.replacementFile,
-    ),
+    hasLocalChange: Boolean(image.isNew || image.localFile || image.replacementFile),
   }));
 }
 
@@ -163,10 +156,8 @@ function areComparableValuesEqual(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function getImageAltText(
-  image: Pick<AdminHomepageImage, "altText" | "fileName">,
-) {
-  return image.altText || image.fileName || "";
+function getImageAltText(image: Pick<AdminHomepageImage, 'altText' | 'fileName'>) {
+  return image.altText || image.fileName || '';
 }
 
 function clampPosition(position: number, total: number) {
@@ -240,12 +231,12 @@ function PositionInput({
       }}
       onBlur={commitPosition}
       onKeyDown={(event) => {
-        if (event.key === "Enter") {
+        if (event.key === 'Enter') {
           event.preventDefault();
           event.currentTarget.blur();
         }
 
-        if (event.key === "Escape") {
+        if (event.key === 'Escape') {
           event.preventDefault();
           revertPosition();
           event.currentTarget.blur();
@@ -261,7 +252,7 @@ function ImageCardActions({
   onDelete,
   onEdit,
   onToggleHidden,
-  className = "",
+  className = '',
 }: {
   isHidden: boolean;
   onDelete: () => void;
@@ -272,9 +263,9 @@ function ImageCardActions({
   return (
     <div
       className={[
-        "flex items-center justify-end gap-5 border-t border-gray-200 pt-4 text-gray-500 lg:absolute lg:left-[411px] lg:top-[448px] lg:h-6 lg:w-[173px] lg:gap-6 lg:border-t-0 lg:pt-0",
+        'flex items-center justify-end gap-5 border-t border-gray-200 pt-4 text-gray-500 lg:absolute lg:left-[411px] lg:top-[448px] lg:h-6 lg:w-[173px] lg:gap-6 lg:border-t-0 lg:pt-0',
         className,
-      ].join(" ")}
+      ].join(' ')}
     >
       <button
         type="button"
@@ -284,15 +275,15 @@ function ImageCardActions({
       >
         <span
           className={[
-            "relative h-6 w-10 rounded-full transition-colors",
-            isHidden ? "bg-cms-tab-active/70" : "bg-[#BDBDBD]",
-          ].join(" ")}
+            'relative h-6 w-10 rounded-full transition-colors',
+            isHidden ? 'bg-cms-tab-active/70' : 'bg-[#BDBDBD]',
+          ].join(' ')}
         >
           <span
             className={[
-              "absolute top-1/2 h-7 w-7 -translate-y-1/2 rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.18)] ring-1 ring-black/5 transition-transform",
-              isHidden ? "left-[14px]" : "-left-1",
-            ].join(" ")}
+              'absolute top-1/2 h-7 w-7 -translate-y-1/2 rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.18)] ring-1 ring-black/5 transition-transform',
+              isHidden ? 'left-[14px]' : '-left-1',
+            ].join(' ')}
           />
         </span>
         Hide
@@ -320,7 +311,7 @@ function ImageCardActions({
 function GreetingVisibilityCheckbox({
   checked,
   onChange,
-  className = "",
+  className = '',
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -329,15 +320,15 @@ function GreetingVisibilityCheckbox({
   return (
     <label
       className={[
-        "inline-flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-gray-500 transition-colors hover:text-cms-tab-active",
+        'inline-flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-gray-500 transition-colors hover:text-cms-tab-active',
         className,
-      ].join(" ")}
+      ].join(' ')}
     >
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => {
-          console.log("Show greeting checkbox checked:", event.target.checked);
+          console.log('Show greeting checkbox checked:', event.target.checked);
           onChange(event.target.checked);
         }}
         className="h-5 w-5 rounded border-gray-300 text-cms-tab-active accent-cms-tab-active focus:ring-cms-tab-active/25"
@@ -347,22 +338,13 @@ function GreetingVisibilityCheckbox({
   );
 }
 
-export function HomeContentPanel({
-  activeTab,
-}: {
-  activeTab: PagesContentTab;
-}) {
+export function HomeContentPanel({ activeTab }: { activeTab: PagesContentTab }) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const carouselScrollRef = useRef<HTMLDivElement>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const autoScrollSpeedRef = useRef(0);
-  const {
-    data: homepageContent,
-    isLoading,
-    isError,
-    error,
-  } = useAdminHomepageContent();
+  const { data: homepageContent, isLoading, isError, error } = useAdminHomepageContent();
   const updateHomepageText = useUpdateHomepageText();
   const createCarouselImage = useCreateCarouselImage();
   const updateCarouselImage = useUpdateCarouselImage();
@@ -370,27 +352,18 @@ export function HomeContentPanel({
   const deleteCarouselImage = useDeleteCarouselImage();
   const [orderedImages, setOrderedImages] = useState<AdminHomepageImage[]>([]);
   const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
-  const [dropTargetImageId, setDropTargetImageId] = useState<string | null>(
-    null,
-  );
-  const [imageUploadIntent, setImageUploadIntent] =
-    useState<ImageUploadIntent | null>(null);
-  const [greetingTitle, setGreetingTitle] = useState("");
-  const [greetingTitleAlternateWord, setGreetingTitleAlternateWord] =
-    useState("");
-  const [greetingMessage, setGreetingMessage] = useState("");
-  const [saveStatus, setSaveStatus] = useState("");
+  const [dropTargetImageId, setDropTargetImageId] = useState<string | null>(null);
+  const [imageUploadIntent, setImageUploadIntent] = useState<ImageUploadIntent | null>(null);
+  const [greetingTitle, setGreetingTitle] = useState('');
+  const [greetingTitleAlternateWord, setGreetingTitleAlternateWord] = useState('');
+  const [greetingMessage, setGreetingMessage] = useState('');
+  const [saveStatus, setSaveStatus] = useState('');
   const [deletedImageIds, setDeletedImageIds] = useState<string[]>([]);
-  const [pendingDeleteImage, setPendingDeleteImage] =
-    useState<HomepageImage | null>(null);
-  const [carouselViewMode, setCarouselViewMode] = useState<CarouselViewMode>(
-    () => {
-      if (typeof window === "undefined") return "list";
-      return window.sessionStorage.getItem("home-carousel-view") === "grid"
-        ? "grid"
-        : "list";
-    },
-  );
+  const [pendingDeleteImage, setPendingDeleteImage] = useState<HomepageImage | null>(null);
+  const [carouselViewMode, setCarouselViewMode] = useState<CarouselViewMode>(() => {
+    if (typeof window === 'undefined') return 'list';
+    return window.sessionStorage.getItem('home-carousel-view') === 'grid' ? 'grid' : 'list';
+  });
 
   const stopAutoScroll = () => {
     autoScrollSpeedRef.current = 0;
@@ -410,8 +383,7 @@ export function HomeContentPanel({
     }
 
     container.scrollLeft += speed;
-    autoScrollFrameRef.current =
-      window.requestAnimationFrame(continueAutoScroll);
+    autoScrollFrameRef.current = window.requestAnimationFrame(continueAutoScroll);
   };
 
   const updateAutoScroll = (event: DragEvent<HTMLElement>) => {
@@ -425,21 +397,14 @@ export function HomeContentPanel({
     let nextSpeed = 0;
 
     if (distanceFromLeft < triggerZone) {
-      nextSpeed = -Math.max(
-        4,
-        ((triggerZone - distanceFromLeft) / triggerZone) * 22,
-      );
+      nextSpeed = -Math.max(4, ((triggerZone - distanceFromLeft) / triggerZone) * 22);
     } else if (distanceFromRight < triggerZone) {
-      nextSpeed = Math.max(
-        4,
-        ((triggerZone - distanceFromRight) / triggerZone) * 22,
-      );
+      nextSpeed = Math.max(4, ((triggerZone - distanceFromRight) / triggerZone) * 22);
     }
 
     autoScrollSpeedRef.current = nextSpeed;
     if (nextSpeed !== 0 && autoScrollFrameRef.current === null) {
-      autoScrollFrameRef.current =
-        window.requestAnimationFrame(continueAutoScroll);
+      autoScrollFrameRef.current = window.requestAnimationFrame(continueAutoScroll);
     } else if (nextSpeed === 0) {
       stopAutoScroll();
     }
@@ -461,24 +426,20 @@ export function HomeContentPanel({
         })),
       ),
     );
-    const parsedGreetingTitle = parseHeroTitleAnimation(
-      homepageContent.greetingTitle,
-    );
+    const parsedGreetingTitle = parseHeroTitleAnimation(homepageContent.greetingTitle);
     setGreetingTitle(parsedGreetingTitle.displayTitle);
     setGreetingTitleAlternateWord(
-      parsedGreetingTitle.hasStoredAlternate
-        ? parsedGreetingTitle.alternateLastWord
-        : "",
+      parsedGreetingTitle.hasStoredAlternate ? parsedGreetingTitle.alternateLastWord : '',
     );
     setGreetingMessage(homepageContent.greetingMessage);
     setDeletedImageIds([]);
-    setSaveStatus("");
+    setSaveStatus('');
   }, [homepageContent]);
 
   useEffect(() => stopAutoScroll, []);
 
   useEffect(() => {
-    window.sessionStorage.setItem("home-carousel-view", carouselViewMode);
+    window.sessionStorage.setItem('home-carousel-view', carouselViewMode);
   }, [carouselViewMode]);
 
   const moveImage = (fromId: string, toId: string) => {
@@ -492,37 +453,32 @@ export function HomeContentPanel({
 
       return moveImageToIndex(currentImages, fromId, toIndex);
     });
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
   const moveImageToPosition = (imageId: string, position: number) => {
     setOrderedImages((currentImages) =>
-      moveImageToIndex(
-        currentImages,
-        imageId,
-        clampPosition(position, currentImages.length) - 1,
-      ),
+      moveImageToIndex(currentImages, imageId, clampPosition(position, currentImages.length) - 1),
     );
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
   const startDrag = (event: DragEvent<HTMLElement>, imageId: string) => {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", imageId);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', imageId);
     setDraggedImageId(imageId);
   };
 
   const dragOverImage = (event: DragEvent<HTMLElement>, imageId: string) => {
     event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
+    event.dataTransfer.dropEffect = 'move';
     updateAutoScroll(event);
     setDropTargetImageId(imageId);
   };
 
   const dropOnImage = (event: DragEvent<HTMLElement>, imageId: string) => {
     event.preventDefault();
-    const sourceImageId =
-      event.dataTransfer.getData("text/plain") || draggedImageId;
+    const sourceImageId = event.dataTransfer.getData('text/plain') || draggedImageId;
     if (sourceImageId) moveImage(sourceImageId, imageId);
     setDraggedImageId(null);
     setDropTargetImageId(null);
@@ -540,24 +496,20 @@ export function HomeContentPanel({
     fileInputRef.current?.click();
   };
 
-  const handleImageFileChange = async (
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    event.target.value = "";
+    event.target.value = '';
 
     if (!file || !imageUploadIntent) return;
 
     if (!HERO_CAROUSEL_ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
-      toast.error("Use a JPG, PNG, or WebP image for the homepage carousel.");
+      toast.error('Use a JPG, PNG, or WebP image for the homepage carousel.');
       setImageUploadIntent(null);
       return;
     }
 
     if (file.size > HERO_CAROUSEL_MAX_SIZE_BYTES) {
-      toast.error(
-        `Homepage carousel images must be ${HERO_CAROUSEL_MAX_SIZE_MB} MB or smaller.`,
-      );
+      toast.error(`Homepage carousel images must be ${HERO_CAROUSEL_MAX_SIZE_MB} MB or smaller.`);
       setImageUploadIntent(null);
       return;
     }
@@ -566,9 +518,7 @@ export function HomeContentPanel({
     try {
       dimensions = await getImageDimensions(file);
     } catch {
-      toast.error(
-        "We could not read this image. Please choose a different file.",
-      );
+      toast.error('We could not read this image. Please choose a different file.');
       setImageUploadIntent(null);
       return;
     }
@@ -586,7 +536,7 @@ export function HomeContentPanel({
 
     const src = await fileToDataUrl(file);
 
-    if (imageUploadIntent.type === "add") {
+    if (imageUploadIntent.type === 'add') {
       setOrderedImages((currentImages) =>
         normalizeCarouselOrder([
           ...currentImages,
@@ -612,7 +562,7 @@ export function HomeContentPanel({
     }
 
     setImageUploadIntent(null);
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
   const deleteImage = (imageId: string) => {
@@ -620,18 +570,14 @@ export function HomeContentPanel({
       const imageToDelete = currentImages.find((image) => image.id === imageId);
       if (imageToDelete && !imageToDelete.isNew) {
         setDeletedImageIds((currentIds) =>
-          currentIds.includes(imageToDelete.id)
-            ? currentIds
-            : [...currentIds, imageToDelete.id],
+          currentIds.includes(imageToDelete.id) ? currentIds : [...currentIds, imageToDelete.id],
         );
       }
 
-      return normalizeCarouselOrder(
-        currentImages.filter((image) => image.id !== imageId),
-      );
+      return normalizeCarouselOrder(currentImages.filter((image) => image.id !== imageId));
     });
     setPendingDeleteImage(null);
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
   const toggleImageHidden = (imageId: string) => {
@@ -640,13 +586,10 @@ export function HomeContentPanel({
         image.id === imageId ? { ...image, isHidden: !image.isHidden } : image,
       ),
     );
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
-  const setImageGreetingMessageVisibility = (
-    imageId: string,
-    showGreetingMessage: boolean,
-  ) => {
+  const setImageGreetingMessageVisibility = (imageId: string, showGreetingMessage: boolean) => {
     let preventedLastVisibleGreeting = false;
 
     setOrderedImages((currentImages) => {
@@ -665,30 +608,24 @@ export function HomeContentPanel({
     });
 
     if (preventedLastVisibleGreeting) {
-      toast.error(
-        "At least one carousel image must show the greeting message.",
-      );
+      toast.error('At least one carousel image must show the greeting message.');
       return;
     }
 
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
   const applyDefaultHeroGreeting = () => {
     setGreetingTitle(DEFAULT_HERO_GREETING_TITLE);
     setGreetingTitleAlternateWord(DEFAULT_HERO_GREETING_ALTERNATE_WORD);
     setGreetingMessage(DEFAULT_HERO_GREETING_MESSAGE);
-    setSaveStatus("");
+    setSaveStatus('');
   };
 
-  const handleAlternateWordPaste = (
-    event: ClipboardEvent<HTMLInputElement>,
-  ) => {
+  const handleAlternateWordPaste = (event: ClipboardEvent<HTMLInputElement>) => {
     event.preventDefault();
-    setGreetingTitleAlternateWord(
-      normalizeAlternateLastWord(event.clipboardData.getData("text")),
-    );
-    setSaveStatus("");
+    setGreetingTitleAlternateWord(normalizeAlternateLastWord(event.clipboardData.getData('text')));
+    setSaveStatus('');
   };
 
   const isSaving =
@@ -750,32 +687,23 @@ export function HomeContentPanel({
     if (!hasHomepageChanges) return;
 
     try {
-      setSaveStatus("");
+      setSaveStatus('');
 
       await updateHomepageText.mutateAsync({
-        greetingTitle: buildHeroTitleWithAnimation(
-          greetingTitle,
-          greetingTitleAlternateWord,
-        ),
+        greetingTitle: buildHeroTitleWithAnimation(greetingTitle, greetingTitleAlternateWord),
         greetingMessage: greetingMessage.trim(),
       });
 
-      await Promise.all(
-        deletedImageIds.map((imageId) =>
-          deleteCarouselImage.mutateAsync(imageId),
-        ),
-      );
+      await Promise.all(deletedImageIds.map((imageId) => deleteCarouselImage.mutateAsync(imageId)));
 
       const persistedImages = [];
       const originalImagesById = new Map(
         homepageContent?.carouselImages.map((image) => [image.id, image]) ?? [],
       );
-      const imagesToPersist = normalizeCarouselOrder(orderedImages).map(
-        (image, index) => ({
-          image,
-          index,
-        }),
-      );
+      const imagesToPersist = normalizeCarouselOrder(orderedImages).map((image, index) => ({
+        image,
+        index,
+      }));
 
       for (const { image, index } of imagesToPersist) {
         if (image.isNew && image.localFile) {
@@ -842,12 +770,12 @@ export function HomeContentPanel({
         queryKey: homepageContentKeys.all,
       });
       setDeletedImageIds([]);
-      setSaveStatus("Homepage content updated successfully.");
-      toast.success("Homepage content updated successfully.");
+      setSaveStatus('Homepage content updated successfully.');
+      toast.success('Homepage content updated successfully.');
     } catch (saveError) {
-      console.error("Homepage content update failed:", saveError);
-      setSaveStatus("");
-      toast.error("We could not update homepage content. Please try again.");
+      console.error('Homepage content update failed:', saveError);
+      setSaveStatus('');
+      toast.error('We could not update homepage content. Please try again.');
     }
   };
 
@@ -855,9 +783,9 @@ export function HomeContentPanel({
     <>
       <div
         className={[
-          "animate-slide-up space-y-10 rounded-[1.75rem] bg-white px-5 py-7 shadow-sm sm:px-6 lg:min-h-[1038px] lg:px-6",
-          activeTab === "home" ? "rounded-tl-none" : "",
-        ].join(" ")}
+          'animate-slide-up space-y-10 rounded-[1.75rem] bg-white px-5 py-7 shadow-sm sm:px-6 lg:min-h-[1038px] lg:px-6',
+          activeTab === 'home' ? 'rounded-tl-none' : '',
+        ].join(' ')}
       >
         <section>
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -870,9 +798,9 @@ export function HomeContentPanel({
                 className="inline-flex rounded-full border border-cms-tab-active/20 bg-cms-surface p-1"
                 aria-label="Carousel view"
               >
-                {(["grid", "list"] as const).map((mode) => {
+                {(['grid', 'list'] as const).map((mode) => {
                   const isActive = carouselViewMode === mode;
-                  const Icon = mode === "grid" ? Grid2X2 : List;
+                  const Icon = mode === 'grid' ? Grid2X2 : List;
 
                   return (
                     <button
@@ -880,15 +808,15 @@ export function HomeContentPanel({
                       type="button"
                       onClick={() => setCarouselViewMode(mode)}
                       className={[
-                        "inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm font-semibold transition-colors",
+                        'inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm font-semibold transition-colors',
                         isActive
-                          ? "bg-white text-cms-tab-active shadow-sm"
-                          : "text-gray-500 hover:text-cms-tab-active",
-                      ].join(" ")}
+                          ? 'bg-white text-cms-tab-active shadow-sm'
+                          : 'text-gray-500 hover:text-cms-tab-active',
+                      ].join(' ')}
                       aria-pressed={isActive}
                     >
                       <Icon className="h-4 w-4" />
-                      {mode === "grid" ? "Grid" : "List"}
+                      {mode === 'grid' ? 'Grid' : 'List'}
                     </button>
                   );
                 })}
@@ -897,7 +825,7 @@ export function HomeContentPanel({
               <button
                 type="button"
                 disabled={isSaving}
-                onClick={() => openImagePicker({ type: "add" })}
+                onClick={() => openImagePicker({ type: 'add' })}
                 className="inline-flex w-fit items-center gap-2 rounded-full border-2 border-primary-500 px-4 py-[5px] text-base font-semibold text-primary-500 transition-all duration-200 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus className="h-5 w-5" />
@@ -907,16 +835,13 @@ export function HomeContentPanel({
           </div>
 
           {isLoading ? (
-            <p className="mb-4 text-sm font-medium text-gray-500">
-              Loading homepage content...
-            </p>
+            <p className="mb-4 text-sm font-medium text-gray-500">Loading homepage content...</p>
           ) : null}
 
           {isError ? (
             <p className="mb-4 text-sm font-medium text-red-600">
-              Homepage content could not be loaded. You can still add content
-              and try saving.
-              {error instanceof Error ? ` ${error.message}` : ""}
+              Homepage content could not be loaded. You can still add content and try saving.
+              {error instanceof Error ? ` ${error.message}` : ''}
             </p>
           ) : null}
 
@@ -939,9 +864,8 @@ export function HomeContentPanel({
                     Hero carousel image specs
                   </h3>
                   <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500">
-                    These images fill the homepage hero on desktop and mobile,
-                    so upload a clean landscape image with important detail away
-                    from the edges.
+                    These images fill the homepage hero on desktop and mobile, so upload a clean
+                    landscape image with important detail away from the edges.
                   </p>
                 </div>
               </div>
@@ -956,12 +880,8 @@ export function HomeContentPanel({
                       <Info className="h-3.5 w-3.5" aria-hidden="true" />
                       {spec.label}
                     </p>
-                    <p className="mt-1 text-sm font-bold text-gray-900">
-                      {spec.value}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-gray-500">
-                      {spec.detail}
-                    </p>
+                    <p className="mt-1 text-sm font-bold text-gray-900">{spec.value}</p>
+                    <p className="mt-1 text-xs leading-5 text-gray-500">{spec.detail}</p>
                   </div>
                 ))}
               </div>
@@ -973,23 +893,21 @@ export function HomeContentPanel({
             onDragOver={updateAutoScroll}
             onDragLeave={stopAutoScroll}
             className={[
-              "scrollbar-hide overflow-x-auto scroll-smooth pb-3 [-webkit-overflow-scrolling:touch]",
-              carouselViewMode === "grid" ? "flex snap-x gap-4" : "space-y-3",
-            ].join(" ")}
+              'scrollbar-hide overflow-x-auto scroll-smooth pb-3 [-webkit-overflow-scrolling:touch]',
+              carouselViewMode === 'grid' ? 'flex snap-x gap-4' : 'space-y-3',
+            ].join(' ')}
           >
             {!isLoading && orderedImages.length === 0 ? (
               <div className="flex min-h-[12rem] w-full items-center justify-center rounded-xl border border-dashed border-cms-tab-active/35 bg-white text-sm font-medium text-gray-500">
-                No carousel images yet. Add an image to start building the
-                homepage carousel.
+                No carousel images yet. Add an image to start building the homepage carousel.
               </div>
             ) : null}
 
             {orderedImages.map((image) => {
               const isDragging = draggedImageId === image.id;
-              const isDropTarget =
-                dropTargetImageId === image.id && draggedImageId !== image.id;
+              const isDropTarget = dropTargetImageId === image.id && draggedImageId !== image.id;
 
-              return carouselViewMode === "grid" ? (
+              return carouselViewMode === 'grid' ? (
                 <article
                   key={image.id}
                   draggable
@@ -1003,12 +921,12 @@ export function HomeContentPanel({
                   onDrop={(event) => dropOnImage(event, image.id)}
                   onDragEnd={endDrag}
                   className={[
-                    "relative flex min-h-[21.6rem] w-full shrink-0 snap-start flex-col rounded-xl border border-cms-tab-active/25 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg sm:max-w-[34.2rem] lg:h-[439px] lg:w-[547px] lg:max-w-none lg:p-0",
-                    isDragging ? "scale-[0.98] opacity-60" : "",
+                    'relative flex min-h-[21.6rem] w-full shrink-0 snap-start flex-col rounded-xl border border-cms-tab-active/25 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg sm:max-w-[34.2rem] lg:h-[439px] lg:w-[547px] lg:max-w-none lg:p-0',
+                    isDragging ? 'scale-[0.98] opacity-60' : '',
                     isDropTarget
-                      ? "border-cms-tab-active shadow-lg ring-2 ring-cms-tab-active/20"
-                      : "",
-                  ].join(" ")}
+                      ? 'border-cms-tab-active shadow-lg ring-2 ring-cms-tab-active/20'
+                      : '',
+                  ].join(' ')}
                 >
                   <div className="mx-auto lg:absolute lg:left-1/2 lg:top-2.5 lg:-translate-x-1/2">
                     <DragHandle />
@@ -1025,23 +943,19 @@ export function HomeContentPanel({
                     src={image.src}
                     alt=""
                     className={[
-                      "mt-7 aspect-[7/4] w-full rounded-[6px] object-cover transition-opacity lg:absolute lg:left-[22px] lg:top-[79px] lg:mt-0 lg:h-[288px] lg:w-[504px]",
-                      image.isHidden ? "opacity-45 grayscale" : "",
-                    ].join(" ")}
+                      'mt-7 aspect-[7/4] w-full rounded-[6px] object-cover transition-opacity lg:absolute lg:left-[22px] lg:top-[79px] lg:mt-0 lg:h-[288px] lg:w-[504px]',
+                      image.isHidden ? 'opacity-45 grayscale' : '',
+                    ].join(' ')}
                   />
                   <GreetingVisibilityCheckbox
                     checked={image.showGreetingMessage}
-                    onChange={(checked) =>
-                      setImageGreetingMessageVisibility(image.id, checked)
-                    }
+                    onChange={(checked) => setImageGreetingMessageVisibility(image.id, checked)}
                     className="mt-5 lg:absolute lg:left-[22px] lg:top-[403px] lg:mt-0 lg:max-w-[20rem]"
                   />
                   <ImageCardActions
                     isHidden={image.isHidden}
                     onDelete={() => setPendingDeleteImage(image)}
-                    onEdit={() =>
-                      openImagePicker({ type: "replace", imageId: image.id })
-                    }
+                    onEdit={() => openImagePicker({ type: 'replace', imageId: image.id })}
                     onToggleHidden={() => toggleImageHidden(image.id)}
                     className="lg:left-[370px] lg:top-[403px] lg:w-[156px]"
                   />
@@ -1060,12 +974,12 @@ export function HomeContentPanel({
                   onDrop={(event) => dropOnImage(event, image.id)}
                   onDragEnd={endDrag}
                   className={[
-                    "grid min-w-[66rem] grid-cols-[2.5rem_4.5rem_5rem_minmax(12rem,1fr)_17rem_7rem_8rem] items-center gap-3 rounded-xl border border-cms-tab-active/20 bg-white px-4 py-3 transition-all",
-                    isDragging ? "opacity-60" : "",
+                    'grid min-w-[66rem] grid-cols-[2.5rem_4.5rem_5rem_minmax(12rem,1fr)_17rem_7rem_8rem] items-center gap-3 rounded-xl border border-cms-tab-active/20 bg-white px-4 py-3 transition-all',
+                    isDragging ? 'opacity-60' : '',
                     isDropTarget
-                      ? "border-cms-tab-active shadow-md ring-2 ring-cms-tab-active/20"
-                      : "hover:border-primary-200 hover:shadow-sm",
-                  ].join(" ")}
+                      ? 'border-cms-tab-active shadow-md ring-2 ring-cms-tab-active/20'
+                      : 'hover:border-primary-200 hover:shadow-sm',
+                  ].join(' ')}
                 >
                   <DragHandle />
                   <PositionInput
@@ -1080,53 +994,43 @@ export function HomeContentPanel({
                         src={image.src}
                         alt=""
                         className={[
-                          "h-full w-full object-cover",
-                          image.isHidden ? "opacity-45 grayscale" : "",
-                        ].join(" ")}
+                          'h-full w-full object-cover',
+                          image.isHidden ? 'opacity-45 grayscale' : '',
+                        ].join(' ')}
                       />
                     ) : null}
                   </div>
                   <p
                     className={[
-                      "truncate text-sm font-semibold text-gray-800",
-                      image.src ? "" : "text-gray-400",
-                    ].join(" ")}
-                    title={
-                      image.fileName ||
-                      image.altText ||
-                      `Carousel image ${image.sortOrder}`
-                    }
+                      'truncate text-sm font-semibold text-gray-800',
+                      image.src ? '' : 'text-gray-400',
+                    ].join(' ')}
+                    title={image.fileName || image.altText || `Carousel image ${image.sortOrder}`}
                   >
-                    {image.fileName ||
-                      image.altText ||
-                      `Carousel image ${image.sortOrder}`}
+                    {image.fileName || image.altText || `Carousel image ${image.sortOrder}`}
                   </p>
                   <GreetingVisibilityCheckbox
                     checked={image.showGreetingMessage}
-                    onChange={(checked) =>
-                      setImageGreetingMessageVisibility(image.id, checked)
-                    }
+                    onChange={(checked) => setImageGreetingMessageVisibility(image.id, checked)}
                     className="text-xs"
                   />
                   <button
                     type="button"
                     onClick={() => toggleImageHidden(image.id)}
                     className={[
-                      "w-fit rounded-full px-3 py-1 text-xs font-semibold",
+                      'w-fit rounded-full px-3 py-1 text-xs font-semibold',
                       image.isHidden
-                        ? "bg-gray-100 text-gray-500"
-                        : "bg-primary-50 text-cms-tab-active",
-                    ].join(" ")}
+                        ? 'bg-gray-100 text-gray-500'
+                        : 'bg-primary-50 text-cms-tab-active',
+                    ].join(' ')}
                     aria-pressed={image.isHidden}
                   >
-                    {image.isHidden ? "Hidden" : "Visible"}
+                    {image.isHidden ? 'Hidden' : 'Visible'}
                   </button>
                   <div className="flex items-center justify-end gap-4">
                     <button
                       type="button"
-                      onClick={() =>
-                        openImagePicker({ type: "replace", imageId: image.id })
-                      }
+                      onClick={() => openImagePicker({ type: 'replace', imageId: image.id })}
                       className="text-gray-500 transition-colors hover:text-cms-tab-active"
                       aria-label="Edit carousel image"
                     >
@@ -1171,7 +1075,7 @@ export function HomeContentPanel({
             required
             onValueChange={(value) => {
               setGreetingTitle(value);
-              setSaveStatus("");
+              setSaveStatus('');
             }}
             className="max-w-3xl gap-3"
             labelClassName="!text-base !font-medium !leading-none !text-[#858585]"
@@ -1183,13 +1087,11 @@ export function HomeContentPanel({
             <BaseInput
               id="greeting-title-alternate-word"
               label="Alternate Last Word"
-              placeholder="sisters"
+              placeholder="members"
               value={greetingTitleAlternateWord}
               onValueChange={(value) => {
-                setGreetingTitleAlternateWord(
-                  normalizeAlternateLastWord(value),
-                );
-                setSaveStatus("");
+                setGreetingTitleAlternateWord(normalizeAlternateLastWord(value));
+                setSaveStatus('');
               }}
               onKeyDown={(event) => {
                 if (/\s/.test(event.key)) {
@@ -1203,9 +1105,8 @@ export function HomeContentPanel({
               inputClassName="!h-12 !px-4 !text-base !font-normal !text-gray-900 placeholder:!text-[#858585] placeholder:!opacity-100"
             />
             <p className="px-1 text-sm font-medium leading-relaxed text-[#858585]">
-              Optional: the title's last word rotates with this word. Leave
-              blank for no animation; use one word only. Welcome home defaults
-              to sisters.
+              Optional: the title's last word rotates with this word. Leave blank for no animation;
+              use one word only. The default word is members.
             </p>
           </div>
 
@@ -1217,7 +1118,7 @@ export function HomeContentPanel({
             value={greetingMessage}
             onChange={(event) => {
               setGreetingMessage(event.target.value);
-              setSaveStatus("");
+              setSaveStatus('');
             }}
             rows={4}
             showCounter={false}
@@ -1233,13 +1134,11 @@ export function HomeContentPanel({
               onClick={saveHomepageContent}
               className="rounded-full bg-primary-500 tracking-[3%] px-8 py-2 text-base font-bold text-white shadow-sm transition-all duration-200 hover:bg-primary-600 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSaving ? "Updating..." : "Update Homepage"}
+              {isSaving ? 'Updating...' : 'Update Homepage'}
             </button>
           </div>
           {saveStatus ? (
-            <p className="text-center text-sm font-medium text-success-700">
-              {saveStatus}
-            </p>
+            <p className="text-center text-sm font-medium text-success-700">{saveStatus}</p>
           ) : null}
         </section>
       </div>

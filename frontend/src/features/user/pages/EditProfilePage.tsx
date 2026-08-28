@@ -579,16 +579,16 @@ export default function EditProfilePage() {
                   />
                 </div>
                 <div>
-                  <Label>Maiden Name</Label>
+                  <Label>Former Name</Label>
                   <Input
                     name="nameInSchool"
                     value={form.nameInSchool}
                     onChange={handleChange}
-                    placeholder="Maiden name"
+                    placeholder="Former name"
                   />
                 </div>
                 <div>
-                  <Label>Nickname in School</Label>
+                  <Label>Preferred Nickname</Label>
                   <Input
                     name="nickName"
                     value={form.nickName}

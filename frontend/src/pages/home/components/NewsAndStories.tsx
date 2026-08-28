@@ -41,7 +41,7 @@ function SectionHeading({ showViewAll = true }: { showViewAll: boolean }) {
         </div>
 
         <h2 className="type-section-title mt-7 max-w-5xl text-[#071116]">
-          Important news and updates from the alumnae community
+          Important news and updates from the alumni community
         </h2>
       </div>
 

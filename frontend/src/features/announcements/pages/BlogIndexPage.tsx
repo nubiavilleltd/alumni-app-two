@@ -216,7 +216,7 @@ export default function BlogIndexPage() {
     <>
       <SEO
         title="Announcements"
-        description="Read the latest FGGC Owerri Alumnae Association updates, event notices, welfare reminders, and project news."
+        description="Read the latest Alumni Portal updates, event notices, welfare reminders, and project news."
       />
 
       <main className="min-h-full bg-[#F8F8F7] text-[#071116]">

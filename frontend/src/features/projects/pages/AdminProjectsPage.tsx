@@ -126,7 +126,7 @@ export default function AdminProjectsPage() {
     <>
       <SEO
         title="Our Projects"
-        description="Through the generosity of our alumni, we continue to support and improve our beloved school."
+        description="Through the generosity of our alumni, we continue to support meaningful community initiatives."
       />
       <AdminBanner activeTab="projects" title="Projects" />
       <section className="min-h-screen bg-[#F8F8F7] py-8 sm:py-10">

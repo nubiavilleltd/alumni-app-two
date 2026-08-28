@@ -106,7 +106,7 @@ const expandedNavColumns: NavItem[][] = [
         {
           label: 'Marketplace',
           url: MARKETPLACE_ROUTES.ROOT,
-          description: 'Discover alumnae-owned businesses',
+          description: 'Discover member-owned businesses',
         },
         {
           label: 'Job Vacancies',
@@ -114,9 +114,9 @@ const expandedNavColumns: NavItem[][] = [
           description: 'Explore career opportunities',
         },
         {
-          label: 'Alumnae Store',
+          label: 'Alumni Store',
           url: ROUTES.STORE.ROOT,
-          description: 'Official alumnae merchandise',
+          description: 'Official alumni merchandise',
         },
       ],
     },

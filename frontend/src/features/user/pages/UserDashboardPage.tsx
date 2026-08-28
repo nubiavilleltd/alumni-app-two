@@ -1,7 +1,7 @@
 // features/user/pages/UserDashboardPage.tsx
 // NEW DESIGN: Matches screenshot exactly.
 // Header → Profile Completeness (full width) →
-// Attestation|Suggested Alumnae (two-column) →
+// Attestation|Suggested Alumni (two-column) →
 // My Registered Events (left column, matching width above)
 // Background: warm off-white #F8F8F7
 
@@ -43,8 +43,8 @@ function buildCheckItems(user: any): CheckItem[] {
     { key: 'email', label: 'Email Address', done: !!user?.email },
     { key: 'phone', label: 'Phone Number', done: !!user?.whatsappPhone },
     { key: 'bio', label: 'About Me', done: !!user?.bio },
-    { key: 'maiden', label: 'Maiden Name', done: !!user?.nameInSchool },
-    { key: 'nickname', label: 'Nickname in School', done: !!user?.nickName },
+    { key: 'maiden', label: 'Former Name', done: !!user?.nameInSchool },
+    { key: 'nickname', label: 'Preferred Nickname', done: !!user?.nickName },
     { key: 'dob', label: 'Date of Birth', done: !!user?.birthDate },
     { key: 'employment', label: 'Employment status', done: !!user?.employmentStatus },
     { key: 'occupation', label: 'Occupation', done: !!user?.occupations?.length },
@@ -81,7 +81,7 @@ function ProfileCompletenessCard({ user }: { user: any }) {
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
       <h2 className="font-bold text-gray-900 text-base mb-0.5">Profile Completeness</h2>
       <p className="text-sm text-gray-500 mb-4">
-        You're almost there! Complete your profile to help your sisters find you and connect with
+        You're almost there! Complete your profile to help other members find you and connect with
         you.
       </p>
 
@@ -183,7 +183,7 @@ function AttestationRow({
           {vouch.nickName && <p className="text-xs text-gray-500">A.K.A {vouch.nickName}</p>}
           <p className="text-xs text-gray-500 mt-1">{vouch.email}</p>
           {/* {vouch.department && (
-            <p className="text-xs text-gray-500">Position Held in School: {vouch.department}</p>
+            <p className="text-xs text-gray-500">Former Role: {vouch.department}</p>
           )} */}
         </div>
 
@@ -226,7 +226,7 @@ function AttestationRow({
             rows={2}
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="e.g. I do not recognise this person as an alumna of FGGC."
+            placeholder="e.g. I do not recognise this person as an alumni member."
             className="gap-2"
             textareaClassName="rounded-xl border-gray-200 bg-gray-50 px-3 py-2 text-sm shadow-none placeholder:text-gray-400 focus:border-primary-400 focus:ring-1 focus:ring-primary-200 resize-none"
           />
@@ -314,7 +314,7 @@ function RegisteredEventRow({ event }: { event: Event }) {
   );
 }
 
-// ─── Suggested alumna row ─────────────────────────────────────────────────────
+// ─── Suggested alumni member row ─────────────────────────────────────────────────────
 
 function SuggestedAlumnaRow({
   alumnus,
@@ -470,7 +470,7 @@ export function UserDashboardPage() {
             <ProfileCompletenessCard user={currentUser} />
           )}
 
-          {/* ── Attestation | Suggested Alumnae row ──────────────────── */}
+          {/* ── Attestation | Suggested Alumni row ──────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-4">
             {/* Pending Attestation */}
             <PanelCard
@@ -506,9 +506,9 @@ export function UserDashboardPage() {
               )}
             </PanelCard>
 
-            {/* Suggested Alumnae */}
+            {/* Suggested Alumni */}
             <PanelCard
-              title="Suggested Alumnae"
+              title="Suggested Alumni"
               action={
                 <AppLink
                   href={ALUMNI_ROUTES.PROFILES}

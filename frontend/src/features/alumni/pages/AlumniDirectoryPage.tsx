@@ -49,7 +49,7 @@ function useItemsPerPage() {
 /* Card */
 /* ───────────────────────────────────────────────────────────── */
 
-function AlumnaeCard({ entry, currentUser, onMessageClick, isMessagePending }: any) {
+function AlumniCard({ entry, currentUser, onMessageClick, isMessagePending }: any) {
   // const photoVisible = isFieldVisible(entry, 'photo', currentUser);
   // const displayPhoto = getPhotoDisplay(entry.photo, photoVisible);
   const classLabel = `Class '${String(entry.graduationYear).slice(-2)}`;
@@ -302,7 +302,7 @@ export function AlumniDirectoryPage() {
           ) : visible.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
               {visible.map((entry) => (
-                <AlumnaeCard
+                <AlumniCard
                   key={entry.id}
                   entry={entry}
                   currentUser={currentUser}
@@ -312,7 +312,7 @@ export function AlumniDirectoryPage() {
               ))}
             </div>
           ) : (
-            <EmptyState title="No alumnae found" description="Try adjusting filters." />
+            <EmptyState title="No alumni found" description="Try adjusting filters." />
           )}
 
           {/* Pagination */}

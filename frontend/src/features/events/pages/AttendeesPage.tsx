@@ -368,7 +368,7 @@ function AttendeeCard({
           </p>
           {attendee.graduationYear ? (
             <p className="mt-1 flex items-center gap-2 text-sm text-accent-500">
-              <Icon icon="mdi:school-outline" className="h-4 w-4 flex-shrink-0 text-accent-400" />
+              <Icon icon="mdi:account-outline" className="h-4 w-4 flex-shrink-0 text-accent-400" />
               <span>Class of {attendee.graduationYear}</span>
             </p>
           ) : null}

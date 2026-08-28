@@ -148,8 +148,8 @@
 //       {hasBioFields && (
 //         <Section title="Bio">
 //           <FieldRow label="Full Name" value={data.fullName} />
-//           <FieldRow label="Maiden Name" value={data.maidenName} />
-//           <FieldRow label="Nickname in School" value={data.nicknameInSchool} />
+//           <FieldRow label="Former Name" value={data.maidenName} />
+//           <FieldRow label="Preferred Nickname" value={data.nicknameInSchool} />
 //           <FieldRow label="Email" value={data.email} copyable={copyable} />
 //           <FieldRow label="WhatsApp" value={data.whatsapp} copyable={copyable} />
 //           <FieldRow label="Alt. Phone" value={data.altPhone} copyable={copyable} />
@@ -339,8 +339,8 @@ export function ProfileInfoPanel({
       {hasBioFields && (
         <Section title="Bio">
           <FieldRow label="Full Name" value={data.fullName} />
-          <FieldRow label="Maiden Name" value={data.maidenName} />
-          <FieldRow label="Nickname in School" value={data.nicknameInSchool} />
+          <FieldRow label="Former Name" value={data.maidenName} />
+          <FieldRow label="Preferred Nickname" value={data.nicknameInSchool} />
           {hasSocials && <FieldRow label="Email" value={data.email} copyable={true} />}
           <FieldRow label="WhatsApp" value={data.whatsapp} copyable={true} />
           <FieldRow label="Alt. Phone" value={data.altPhone} copyable={true} />

@@ -59,7 +59,7 @@ export default function Leadership() {
       <div className="container-custom">
         <div className="mb-12">
           <SectionEyebrow>Our Leadership</SectionEyebrow>
-          <p className="mt-2 font-semibold text-gray-700">Meet the women leading the way</p>
+          <p className="mt-2 font-semibold text-gray-700">Meet the leaders guiding the community</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">

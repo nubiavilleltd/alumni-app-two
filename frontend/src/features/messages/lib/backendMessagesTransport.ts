@@ -267,7 +267,7 @@ function buildViewerParticipantFromSessionUser(
     slug: currentUser.slug ?? generateSlug(fullName, currentUser.memberId, 'user'),
     fullName,
     firstName,
-    headline: graduationYear ? `Class of ${graduationYear}` : 'FGGC alumna',
+    headline: graduationYear ? `Class of ${graduationYear}` : 'alumni member',
     location: currentUser.city || 'Nigeria',
     graduationYear,
     avatar: resolveProfilePhoto({
@@ -375,7 +375,7 @@ function buildParticipantFromBackend(
     slug,
     fullName,
     firstName,
-    headline: graduationYear ? `Class of ${graduationYear}` : 'FGGC alumna',
+    headline: graduationYear ? `Class of ${graduationYear}` : 'alumni member',
     location: 'Nigeria',
     graduationYear,
     avatar,
@@ -773,7 +773,7 @@ function buildThreadSummaryFromBackend(params: {
     title,
     subtitle:
       type === 'direct'
-        ? (otherParticipant?.headline ?? 'FGGC alumna')
+        ? (otherParticipant?.headline ?? 'alumni member')
         : `${participantsWithViewer.length} members`,
     topic:
       String(params.rawThread.description ?? params.rawThread.topic ?? '').trim() ||
@@ -1070,7 +1070,7 @@ function buildDirectDraftThread(params: {
     type: 'direct',
     category: 'Community',
     title: recipientParticipant.fullName,
-    subtitle: recipientParticipant.headline ?? 'FGGC alumna',
+    subtitle: recipientParticipant.headline ?? 'alumni member',
     topic: params.topic?.trim() || 'Direct conversation',
     avatar: recipientParticipant.avatar,
     initials: recipientParticipant.initials,

@@ -98,7 +98,7 @@ export default function JoinProjectsPage() {
     <>
       <SEO
         title="Join Projects"
-        description="Through the generosity of our alumni, we continue to support and improve our beloved school."
+        description="Through the generosity of our alumni, we continue to support meaningful community initiatives."
       />
 
       <section className="min-h-screen bg-[#F8F8F7] py-6">

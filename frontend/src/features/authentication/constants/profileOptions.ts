@@ -78,7 +78,7 @@ export const areaOptions = [
   { label: 'Lekki', value: 'lekki' },
   { label: 'Maryland', value: 'maryland' },
   { label: 'Mushin', value: 'mushin' },
-  { label: 'Owerri', value: 'owerri' },
+  { label: 'Imo', value: 'imo' },
   { label: 'Port Harcourt', value: 'port-harcourt' },
   { label: 'Sango Ota', value: 'sango-ota' },
   { label: 'Surulere', value: 'surulere' },

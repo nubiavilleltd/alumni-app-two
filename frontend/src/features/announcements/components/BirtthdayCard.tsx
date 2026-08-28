@@ -45,7 +45,7 @@ export function BirthdayCard({ person, onDismiss }: BirthdayCardProps) {
           </p>
           <p className="text-base font-bold leading-tight sm:text-lg">{person.fullName}</p>
          {person.nameInSchool && <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
-            nee {person.nameInSchool}
+            formerly {person.nameInSchool}
           </p>}
           <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
             {person.classLabel}

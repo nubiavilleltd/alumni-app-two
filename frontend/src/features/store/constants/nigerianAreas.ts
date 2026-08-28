@@ -21,7 +21,7 @@ export const NIGERIA_AREAS: Record<NigeriaState, readonly string[]> = {
   Enugu: ['Enugu North', 'Enugu South', 'Nsukka'],
   'Federal Capital Territory': ['Wuse', 'Garki', 'Gwarinpa', 'Maitama', 'Asokoro', 'Kubwa'],
   Gombe: ['Gombe', 'Bajoga', 'Kaltungo'],
-  Imo: ['Owerri Municipal', 'Owerri North', 'Orlu', 'Okigwe'],
+  Imo: ['Imo Municipal', 'Imo North', 'Orlu', 'Okigwe'],
   Jigawa: ['Dutse', 'Hadejia', 'Gumel'],
   Kaduna: ['Kaduna North', 'Kaduna South', 'Zaria'],
   Kano: ['Kano Municipal', 'Nasarawa', 'Fagge', 'Gwale'],

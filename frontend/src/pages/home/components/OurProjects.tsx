@@ -21,7 +21,7 @@ function getProjectImage(project: Project, index: number) {
 }
 
 function getProjectMeta(project: Project) {
-  const location = project.chapterName || 'FGGC Owerri';
+  const location = project.chapterName || 'Community Network';
   const dateRange = formatDateRange(project.startDate, project.endDate);
   return { location, dateRange };
 }
@@ -111,7 +111,7 @@ export default function OurProjects() {
       <div className="container-custom">
         <HomeSectionHeader
           eyebrow="Our Projects"
-          title="Through the generosity of our alumnae, we continue to support and improve our beloved school"
+          title="Through the generosity of our alumni, we continue to support meaningful community initiatives"
           href={ROUTES.PROJECTS.ROOT}
           showViewAll={!isEmpty}
         />
@@ -120,7 +120,7 @@ export default function OurProjects() {
           <EmptyState
             icon={<Hammer strokeWidth={PROJECT_ICON_STROKE} />}
             title="No projects available right now"
-            description="No projects to display yet. New initiatives to support and improve our school will appear here."
+            description="No projects to display yet. New initiatives to support the community will appear here."
           />
         ) : (
           <div className="grid grid-cols-1 gap-7 md:grid-cols-2 xl:grid-cols-4">

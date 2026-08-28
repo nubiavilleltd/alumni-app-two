@@ -9,11 +9,11 @@
 import { generateMemberId } from '@/features/authentication/constants/mockAccounts';
 import { DEFAULT_CHAPTER_ID } from '@/data/chapters';
 
-import { Alumni } from '@/features/alumni/types/alumni.types';
-import { Event } from '@/features/events/types/event.types';
-import { LeadershipMember } from '@/features/leadership/types/leadership.types';
-import { Project } from '@/features/projects/types/project.types';
-import { NewsItem } from '@/features/announcements/types/announcement.types';
+import type { Alumni } from '@/features/alumni/types/alumni.types';
+import type { Event } from '@/features/events/types/event.types';
+import type { LeadershipMember } from '@/features/leadership/types/leadership.types';
+import type { Project } from '@/features/projects/types/project.types';
+import type { NewsItem } from '@/features/announcements/types/announcement.types';
 
 import Leadership1 from '/leadership-1.png';
 import Leadership2 from '/leadership-2.png';
@@ -52,11 +52,114 @@ const MBR_ABIGAL_ART5 = generateMemberId(1990, 'abigal.artist5@email.com');
 const MBR_ABIGAL_ART6 = generateMemberId(1990, 'abigal.artist6@email.com');
 const MBR_ABIGAL_ART7 = generateMemberId(1990, 'abigal.artist7@email.com');
 
+type LegacyWorkExperience = {
+  company: string;
+  position: string;
+  duration: string;
+  description: string;
+};
+
+type LegacyEducation = {
+  degree: string;
+  institution: string;
+  year: number;
+  gpa: string;
+};
+
+type LegacyAlumni = {
+  memberId: string;
+  name: string;
+  slug: string;
+  chapterId?: string;
+  year: number;
+  short_bio: string;
+  long_bio: string;
+  photo: string;
+  email: string;
+  location: string;
+  company: string;
+  position: string;
+  skills: string[];
+  projects: unknown[];
+  work_experience: LegacyWorkExperience[];
+  education: LegacyEducation[];
+  achievements: string[];
+  interests: string[];
+  linkedin?: string;
+  twitter?: string;
+  instagram?: string;
+};
+
+type LegacyProject = {
+  id: string;
+  title: string;
+  description: string;
+  budget: string;
+  image: string;
+};
+
+type LegacyEvent = Omit<Event, 'startDate'> & {
+  date: string;
+};
+
+const parseCurrencyAmount = (value: string): number => {
+  const amount = Number(value.replace(/[^\d.]/g, ''));
+  return Number.isFinite(amount) ? amount : 0;
+};
+
+const toAlumni = (entry: LegacyAlumni): Alumni => ({
+  id: entry.memberId,
+  memberId: entry.memberId,
+  chapterId: entry.chapterId,
+  slug: entry.slug,
+  name: entry.name,
+  email: entry.email,
+  graduationYear: entry.year,
+  nameInSchool: entry.name,
+  nickName: '',
+  whatsappPhone: '',
+  photo: entry.photo,
+  bio: entry.long_bio || entry.short_bio,
+  location: entry.location,
+  position: entry.position,
+  company: entry.company,
+  occupations: entry.skills,
+  industrySectors: entry.interests,
+  linkedin: entry.linkedin,
+  twitter: entry.twitter,
+  instagram: entry.instagram,
+  isCoordinator: false,
+  isApproved: true,
+  isEmailVerified: true,
+  isActive: true,
+  isVisible: true,
+});
+
+const toProject = (entry: LegacyProject, index: number): Project => ({
+  id: entry.id,
+  title: entry.title,
+  description: entry.description,
+  images: [entry.image],
+  amountRaised: 0,
+  targetAmount: parseCurrencyAmount(entry.budget),
+  status: 'ongoing',
+  conductedBy: 'Alumni Portal',
+  location: 'Alumni Portal',
+  startDate: '2025-01-01',
+  sortOrder: index + 1,
+  isFeatured: index === 0 ? 1 : 0,
+});
+
+const toEvent = ({ date, ...event }: LegacyEvent): Event => ({
+  ...event,
+  startDate: date,
+});
+
 // ─── Alumni directory ─────────────────────────────────────────────────────────
 // Every approved active member appears here.
 // Primary test accounts + leadership members + historical members.
 
-export const alumni: Alumni[] = [
+const legacyAlumni: LegacyAlumni[] = [
   // ── Primary test accounts ──────────────────────────────────────────────────
   {
     memberId: MBR_ADAEZE,
@@ -66,7 +169,7 @@ export const alumni: Alumni[] = [
     year: 1998,
     short_bio: 'Entrepreneur & Business Consultant',
     long_bio:
-      'Adaeze is a seasoned entrepreneur and business consultant with over 20 years of experience spanning financial services and nonprofit management. She is a passionate advocate for women in business and serves as President of the Lagos Chapter.',
+      'Adaeze is a seasoned entrepreneur and business consultant with over 20 years of experience spanning financial services and nonprofit management. She is a passionate advocate for community leadership and serves as President of the Lagos Chapter.',
     photo: 'https://images.unsplash.com/photo-1573497161161-c3e73707e25c?w=600&q=80',
     email: 'adaeze.okonkwo@email.com',
     location: 'Lagos, Nigeria',
@@ -99,10 +202,10 @@ export const alumni: Alumni[] = [
       },
     ],
     achievements: [
-      'Lagos Business Woman of the Year 2022',
-      'FGGC Owerri Alumni Award of Excellence 2020',
+      'Lagos Business Leader of the Year 2022',
+      'Alumni Portal Alumni Award of Excellence 2020',
     ],
-    interests: ['Entrepreneurship', 'Women Empowerment', 'Finance', 'Community Service'],
+    interests: ['Entrepreneurship', 'Community Empowerment', 'Finance', 'Community Service'],
     linkedin: '',
   },
 
@@ -164,7 +267,7 @@ export const alumni: Alumni[] = [
     year: 2005,
     short_bio: 'Software Developer & Tech Entrepreneur',
     long_bio:
-      'Chidinma is a full-stack software developer and tech entrepreneur based in Abuja. She founded Chidinma Software Studio to build custom digital solutions for Nigerian businesses and has been a leading voice for women in tech across the FCT.',
+      'Chidinma is a full-stack software developer and tech entrepreneur based in Abuja. She founded Chidinma Software Studio to build custom digital solutions for Nigerian businesses and has been a leading voice for the technology community across the FCT.',
     photo: 'https://images.unsplash.com/photo-1589156229687-496a31ad1d1f?w=600&q=80',
     email: 'chidinma.eze@email.com',
     location: 'Abuja, Nigeria',
@@ -189,8 +292,8 @@ export const alumni: Alumni[] = [
         gpa: '',
       },
     ],
-    achievements: ['FCT Women in Tech Award 2023'],
-    interests: ['Technology', 'Open Source', 'Women in STEM', 'Entrepreneurship'],
+    achievements: ['FCT Tech Leadership Award 2023'],
+    interests: ['Technology', 'Open Source', 'STEM', 'Entrepreneurship'],
     linkedin: '',
     twitter: '',
   },
@@ -204,7 +307,7 @@ export const alumni: Alumni[] = [
     year: 1985,
     short_bio: 'President, Lagos Chapter · Legal Professional',
     long_bio:
-      'Mrs. Stella Alochi is a distinguished legal professional and the President of the FGGC Owerri Alumnae Association, Lagos Chapter. She brings decades of leadership experience and an unwavering commitment to the advancement of alumnae everywhere.',
+      'Mrs. Stella Alochi is a distinguished legal professional and the President of the Alumni Portal, Lagos Chapter. She brings decades of leadership experience and an unwavering commitment to the advancement of alumni everywhere.',
     photo: 'https://images.unsplash.com/photo-1573497161161-c3e73707e25c?w=600&q=80',
     email: 'stella.alochi@email.com',
     location: 'Lagos, Nigeria',
@@ -222,10 +325,10 @@ export const alumni: Alumni[] = [
     ],
     education: [
       { degree: 'LLB', institution: 'University of Nigeria, Nsukka', year: 1985, gpa: '' },
-      { degree: 'BL', institution: 'Nigerian Law School', year: 1986, gpa: '' },
+      { degree: 'BL', institution: 'Nigerian Law Academy', year: 1986, gpa: '' },
     ],
     achievements: ['Nigerian Bar Association Award of Excellence 2019'],
-    interests: ['Law', 'Community Service', 'Women Empowerment', 'Education'],
+    interests: ['Law', 'Community Service', 'Community Empowerment', 'Education'],
     linkedin: '',
   },
   {
@@ -724,6 +827,8 @@ export const alumni: Alumni[] = [
   },
 ];
 
+export const alumni: Alumni[] = legacyAlumni.map(toAlumni);
+
 // ─── Leadership ───────────────────────────────────────────────────────────────
 // Excos are real registered members — linked via memberId.
 
@@ -736,7 +841,7 @@ export const leadership: LeadershipMember[] = [
     chapterId: DEFAULT_CHAPTER_ID,
     image: Leadership1,
     featured: true,
-    bio: `Welcome to the official website of the Federal Government Girls Collage (FGGC) Alumnae Association. We are more than graduates—we are the fire forged in shared halls, the quiet strength that shatters ceilings, and the unstoppable force lifting the next generation.\n\nFrom boardrooms to classrooms, from startups to policy tables, our alumnae prove every day: education here didn't just open doors—it built empires, healed communities, and changed nations.\n\nAs your Alumnae President, I see you: the doctors saving lives, the entrepreneurs building legacies, the mothers raising revolutionaries, the leaders shaping tomorrow.`,
+    bio: `Welcome to the official website of the Alumni Portal. We are more than graduates—we are the fire forged in shared halls, the quiet strength that shatters ceilings, and the unstoppable force lifting the next generation.\n\nFrom boardrooms to classrooms, from startups to policy tables, our alumni prove every day: education here didn't just open doors—it built empires, healed communities, and changed nations.\n\nAs your Alumni President, I see you: the doctors saving lives, the entrepreneurs building legacies, the mothers raising revolutionaries, the leaders shaping tomorrow.`,
   },
   {
     id: 2,
@@ -789,7 +894,7 @@ export const leadership: LeadershipMember[] = [
 ];
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
-export const projects: Project[] = [
+const legacyProjects: LegacyProject[] = [
   {
     id: '1',
     title: 'Computer Donation 2025',
@@ -806,14 +911,16 @@ export const projects: Project[] = [
   },
   {
     id: '3',
-    title: 'School Perimeter Fencing',
+    title: 'Community Safety Initiative',
     description: 'Enhanced security through comprehensive perimeter fencing project',
     budget: '₦698,090.00',
     image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=700&q=80',
   },
 ];
 
-export const events: Event[] = [
+export const projects: Project[] = legacyProjects.map(toProject);
+
+const legacyEvents: LegacyEvent[] = [
   // ═══════════════════════════════════════════════════════════════════════════
   // UPCOMING EVENTS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -831,8 +938,8 @@ export const events: Event[] = [
 
     // Content
     description:
-      'A spectacular reunion bringing together alumnae from every set and every corner of the world. Awards ceremony, cultural night, and gala dinner.',
-    content: `# Annual Homecoming Weekend & Grand Gala\n\nA spectacular reunion bringing together alumnae from every set and every corner of the world.`,
+      'A spectacular reunion bringing together alumni from every set and every corner of the world. Awards ceremony, cultural night, and gala dinner.',
+    content: `# Annual Homecoming Weekend & Grand Gala\n\nA spectacular reunion bringing together alumni from every set and every corner of the world.`,
     image: 'https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?w=700&q=80',
 
     // Location
@@ -875,14 +982,14 @@ export const events: Event[] = [
 
     // Content
     description:
-      'Connecting alumnae in the diaspora for an evening of networking and shared stories.',
+      'Connecting alumni in the diaspora for an evening of networking and shared stories.',
     content: '',
     image: 'https://images.unsplash.com/photo-1588196749597-9ff075ee6b5b?w=700&q=80',
 
     // Location
     location: 'Zoom, Global',
     isVirtual: true,
-    virtualLink: 'https://zoom.us/j/1234567890?pwd=FGGC2026',
+    virtualLink: 'https://zoom.us/j/1234567890?pwd=PORTAL2026',
     attire: '',
 
     // Classification
@@ -919,7 +1026,7 @@ export const events: Event[] = [
     endTime: '17:00',
 
     // Content
-    description: 'A celebration of new life and community support for our sisters.',
+    description: 'A celebration of new life and community support for our members.',
     content: '',
     image: 'https://images.unsplash.com/photo-1519689680058-324335c77eba?w=700&q=80',
 
@@ -962,7 +1069,7 @@ export const events: Event[] = [
     endTime: '12:00',
 
     // Content
-    description: 'Virtual fundraising drive for the school perimeter fencing project.',
+    description: 'Virtual fundraising drive for a community improvement project.',
     content: '',
     image: 'https://images.unsplash.com/photo-1532629345422-7515f3d16bb6?w=700&q=80',
 
@@ -997,8 +1104,8 @@ export const events: Event[] = [
   {
     // Identity
     id: 'evt-005',
-    slug: 'school-opening',
-    title: 'School Opening',
+    slug: 'community-season-opening',
+    title: 'Community Season Opening',
 
     // Timing
     date: '2026-12-12',
@@ -1006,18 +1113,18 @@ export const events: Event[] = [
     endTime: '13:00',
 
     // Content
-    description: 'Ceremony marking the opening of the new academic session at FGGC Owerri.',
+    description: 'Community gathering to welcome a new season of events and initiatives.',
     content: '',
     image: 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=700&q=80',
 
     // Location
-    location: 'FGGC Owerri, Imo State',
+    location: 'Alumni Portal, Imo State',
     isVirtual: false,
     attire: 'Formal Attire',
 
     // Classification
     category: 'Education',
-    tags: ['education', 'school', 'opening', 'ceremony'],
+    tags: ['community', 'opening', 'ceremony'],
     featured: false,
     status: 'published',
 
@@ -1049,7 +1156,7 @@ export const events: Event[] = [
     endTime: '02:00',
 
     // Content
-    description: 'An evening of music, fun, and sisterhood.',
+    description: 'An evening of music, fun, and community.',
     content: '',
     image: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=700&q=80',
 
@@ -1274,7 +1381,7 @@ export const events: Event[] = [
     endTime: '18:00',
 
     // Content
-    description: 'A virtual summit connecting senior alumnae mentors with recent graduates.',
+    description: 'A virtual summit connecting senior alumni mentors with recent graduates.',
     content: '',
     image: 'https://images.unsplash.com/photo-1587825140708-dfaf72ae4b04?w=700&q=80',
 
@@ -1320,7 +1427,7 @@ export const events: Event[] = [
 
     // Content
     description:
-      'A vibrant celebration of Nigerian culture, heritage, and the bonds that unite FGGC alumnae.',
+      'A vibrant celebration of Nigerian culture, heritage, and the bonds that unite alumni.',
     content: '',
     image: 'https://images.unsplash.com/photo-1504609773096-104ff2c73ba4?w=700&q=80',
 
@@ -1360,6 +1467,8 @@ export const events: Event[] = [
     type: 'past',
   },
 ];
+
+export const events: Event[] = legacyEvents.map(toEvent);
 
 // ─── Businesses (Marketplace) ─────────────────────────────────────────────────
 // ownerId → memberId of the business owner
@@ -1543,7 +1652,7 @@ const newsItems: NewsItem[] = [
     image: 'https://images.unsplash.com/photo-1523580494863-6f3031224c94?w=700&q=80',
     tag: 'SCHOLARSHIP',
     excerpt:
-      'In an emotional prize-giving ceremony held at FGGC Abuja, the Alumnae Association announced its highest-ever scholarship disbursement — directly supporting 180 students across three arms of the school, with special focus on STEM and the Arts.',
+      'In an emotional community ceremony, the Alumni Association announced its highest-ever scholarship disbursement, directly supporting 180 participants across multiple community programs, with special focus on STEM and the Arts.',
     featured: true,
     createdBy: MBR_ADAEZE,
   },
@@ -1558,15 +1667,15 @@ const newsItems: NewsItem[] = [
   {
     id: 3,
     slug: 'new-science-laboratory-wing-commissioned',
-    title: 'New Science Laboratory Wing Commissioned at FGGC Calabar',
+    title: 'New Innovation Space Commissioned at the Community Hub',
     date: '2026-03-01',
     image: 'https://images.unsplash.com/photo-1562774053-701939374585?w=700&q=80',
     createdBy: MBR_ADAEZE,
   },
   {
     id: 4,
-    slug: 'alumna-of-the-year-2025-dr-chiamaka-obi',
-    title: 'Alumna of the Year 2025 — Dr. Chiamaka Obi Honoured in Abuja',
+    slug: 'alumni-of-the-year-2025-dr-chiamaka-obi',
+    title: 'Alumni of the Year 2025 — Dr. Chiamaka Obi Honoured in Abuja',
     date: '2026-03-01',
     image: 'https://images.unsplash.com/photo-1567532939604-b6b5b0db2604?w=700&q=80',
     createdBy: MBR_JOSEPHINE,
@@ -1579,7 +1688,7 @@ const newsItems: NewsItem[] = [
     image: 'https://images.unsplash.com/photo-1529333166437-7750a6dd5a70?w=700&q=80',
     createdBy: MBR_ADAEZE,
   },
-];
+].map((item) => ({ ...item, type: 'info' }));
 
 // ─── Getters ──────────────────────────────────────────────────────────────────
 

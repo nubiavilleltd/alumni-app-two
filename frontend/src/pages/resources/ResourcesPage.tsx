@@ -38,8 +38,7 @@ const categories: ResourceCategory[] = [
     links: [
       {
         label: 'WARIF',
-        description:
-          'Women at Risk International Foundation - Support for survivors of gender-based violence.',
+        description: 'Confidential support resources for people affected by violence.',
         href: 'https://warif.org',
         external: true,
       },
@@ -64,11 +63,11 @@ const categories: ResourceCategory[] = [
       },
       {
         label: 'Mentorship Program',
-        description: 'How to find a mentor or become one within the alumnae network.',
+        description: 'How to find a mentor or become one within the alumni network.',
       },
       {
         label: 'Job Vacancies',
-        description: 'Exclusive job listings for FGGC Owerri alumnae.',
+        description: 'Exclusive job listings for alumni.',
         href: ROUTES.JOB_VACANCIES,
       },
     ],

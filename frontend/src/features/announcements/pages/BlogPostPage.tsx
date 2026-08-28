@@ -83,7 +83,7 @@ export default function BlogPostPage() {
       <SEO
         title={announcement?.title || 'Announcement'}
         description={
-          announcement?.excerpt || 'Read the latest announcement from the alumnae community.'
+          announcement?.excerpt || 'Read the latest announcement from the alumni community.'
         }
         image={announcement?.image}
       />

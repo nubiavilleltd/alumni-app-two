@@ -124,7 +124,7 @@ export const voucherApi = {
    * {
    *   "vouch_id": 1,
    *   "action": "reject",
-   *   "reason": "I do not recognise this person as an alumna of FGGC."
+   *   "reason": "I do not recognise this person as an alumni member."
    * }
    *
    * Expected 200:

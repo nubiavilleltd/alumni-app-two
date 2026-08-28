@@ -22,7 +22,7 @@ const opportunities: VolunteerOpportunity[] = [
     id: 'join-a-project',
     title: 'Join a Project',
     description:
-      'Find a project or worthwhile cause and jump in! Be a part of something bigger than yourself and join other FGGC volunteers in making an impact.',
+      'Find a project or worthwhile cause and jump in! Be a part of something bigger than yourself and join other community volunteers in making an impact.',
     image: "/join-projects.png",
     ctaHref: JOIN_PROJECT_ROUTES.PROJECTS,
   },
@@ -100,7 +100,7 @@ export default function VolunteerPage() {
     <>
       <SEO
         title="Volunteer"
-        description="Through the generosity of our alumni, we continue to support and improve our beloved school."
+        description="Through the generosity of our alumni, we continue to support meaningful community initiatives."
       />
 
       {/* Hero */}
@@ -125,7 +125,7 @@ export default function VolunteerPage() {
 
           <p className="text-white text-base sm:text-lg md:text-xl max-w-2xl leading-relaxed">
             Join our volunteer network to organise events and drive initiatives that strengthen
-            the alumnae association and the community around us.
+            the alumni association and the community around us.
           </p>
         </div>
       </section>

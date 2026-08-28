@@ -84,7 +84,7 @@ function PendingApprovalRow({
             <h3 className="font-semibold text-gray-900 text-base">
               {member.fullName}
               {member.nickName && member.nickName.trim() && (
-                <span className="font-normal text-gray-600"> nee {member.nameInSchool}</span>
+                <span className="font-normal text-gray-600"> formerly {member.nameInSchool}</span>
               )}
             </h3>
           </div>
@@ -105,7 +105,7 @@ function PendingApprovalRow({
 
             {/* {member.department && member.department.trim() && (
               <p className="text-gray-700">
-                <span className="font-medium">Position Held in School:</span> {member.department}
+                <span className="font-medium">Former Role:</span> {member.department}
               </p>
             )} */}
           </div>

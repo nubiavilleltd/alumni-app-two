@@ -1001,7 +1001,7 @@ export default function JobVacanciesPage() {
     <>
       <SEO
         title="Job Vacancies"
-        description="Discover exclusive job listings shared with the FGGC Owerri Alumnae Association."
+        description="Discover exclusive job listings shared with the Alumni Portal."
       />
 
       <main className="min-h-full bg-[#F8F8F7] text-[#071116]">

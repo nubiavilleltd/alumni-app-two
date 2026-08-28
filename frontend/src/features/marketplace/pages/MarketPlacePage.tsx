@@ -599,7 +599,7 @@ export default function MarketPlacePage() {
     <>
       <SEO
         title="Marketplace"
-        description="Discover and support businesses owned by Our Sisters."
+        description="Discover and support businesses owned by Our Members."
       />
 
       <main className="min-h-full bg-[#F8F8F7] text-[#071116]">
@@ -619,7 +619,7 @@ export default function MarketPlacePage() {
               </div>
               <p className="mt-1 max-w-3xl break-words text-[clamp(0.98rem,1.37vw,1.8rem)] font-medium leading-[1.2] text-[#58606b]">
                 <span className="block sm:inline">Discover and support businesses owned by</span>
-                <span className="block sm:inline"> our sisters</span>
+                <span className="block sm:inline"> our members</span>
               </p>
             </div>
 

@@ -21,7 +21,7 @@ export function useLiveNews() {
   });
 }
 
-/** Single alumna by ID */
+/** Single alumni member by ID */
 // export function useAlumnus(id: string) {
 //   return useQuery({
 //     queryKey: alumniKeys.detail(id),

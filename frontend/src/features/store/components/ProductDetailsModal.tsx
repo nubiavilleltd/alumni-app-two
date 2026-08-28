@@ -138,7 +138,7 @@ export function ProductDetailsModal() {
   const storeItems = useCartStore((s) => s.items);
 
   const DEFAULT_NOTE =
-    'A portion of proceeds from every purchase supports alumnae programs, events, and community initiatives.';
+    'A portion of proceeds from every purchase supports alumni programs, events, and community initiatives.';
 
   const {
     selectedColor,

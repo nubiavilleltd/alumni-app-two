@@ -126,7 +126,7 @@ export function BlogDetailPage() {
     <>
       <SEO
         title={post?.title || 'Blog'}
-        description={post?.excerpt || 'Read the latest blog post from the alumnae community.'}
+        description={post?.excerpt || 'Read the latest blog post from the alumni community.'}
         image={post?.coverImageUrl || undefined}
       />
 

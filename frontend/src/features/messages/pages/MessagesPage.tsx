@@ -1261,7 +1261,7 @@ export function MessagesPage() {
     <>
       <SEO
         title="Messages"
-        description="Stay in touch with alumnae conversations and follow-ups."
+        description="Stay in touch with alumni conversations and follow-ups."
       />
       {/* <div className={isMobileThreadOpen ? 'hidden' : 'lg:hidden'}>
         <Breadcrumbs items={breadcrumbItems} />

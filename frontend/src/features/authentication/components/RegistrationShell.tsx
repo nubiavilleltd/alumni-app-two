@@ -41,7 +41,7 @@ export function RegistrationShell({
   return (
     <AuthCard
       title="Sign Up"
-      subtitle="Join your sisters"
+      subtitle="Join the network"
       variant="registration"
       shellClassName={shellClassName}
       cardClassName={cardClassName}

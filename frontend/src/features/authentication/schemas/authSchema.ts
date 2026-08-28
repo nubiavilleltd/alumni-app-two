@@ -47,10 +47,10 @@ export const registerDetailsSchema = z
     nameInSchool: z
       .string()
       .trim()
-      .max(80, 'Maiden name must be 80 characters or less')
+      .max(80, 'Former name must be 80 characters or less')
       .refine(
         (value) => value === '' || /^[A-Za-z][A-Za-z\s'.-]*$/.test(value),
-        'Please enter a valid maiden name',
+        'Please enter a valid former name',
       ),
 
     email: z.string().trim().email('Please enter a valid email address'),
@@ -71,12 +71,12 @@ export const registerDetailsSchema = z
       .trim()
       .min(2, 'Residential Address must be at least 2 characters'),
     nickName: z.string().optional(),
-    // nickName: z.string().trim().min(1, 'Nickname in School is required'),
+    // nickName: z.string().trim().min(1, 'Preferred Nickname is required'),
 
     graduationYear: z.coerce
       .number()
       .int('Graduation year must be a whole number')
-      .min(1966, 'FGGC Owerri was established in 1966')
+      .min(1966, 'Graduation year is too early')
       .max(currentYear, `Graduation year cannot be later than ${currentYear}`),
 
     isSocialSignup: z.boolean().optional(),

@@ -16,7 +16,7 @@ export function mapRegistrationPayload(values: RegisterDetailsFormValues) {
     // Contact
     phone: formatOptionalNigerianPhoneNumber(values.whatsappPhone),
 
-    // School
+    // Background
     name_in_school: values.nameInSchool,
     nick_name: values.nickName,
     graduation_year: String(values.graduationYear),

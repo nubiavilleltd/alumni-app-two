@@ -41,7 +41,7 @@ const QUICK_LINKS = [
 ];
 
 const COMMUNITY_LINKS = [
-  { label: 'Check on your Sisters', href: ROUTES.ALUMNI.ROOT },
+  { label: 'Member Directory', href: ROUTES.ALUMNI.ROOT },
   { label: 'Marketplace', href: ROUTES.MARKETPLACE.ROOT },
   { label: 'Resources', href: ROUTES.RESOURCES },
   { label: 'Welfare', href: ROUTES.WELFARE },
@@ -108,9 +108,9 @@ export function Footer() {
                 <FooterLogo />
               </div>
 
-               <p className="max-w-[340px] text-sm leading-relaxed text-white">
-                Connecting generations of extraordinary women since 1973. A global sisterhood built
-                on excellence, integrity, and service to Nigeria and beyond.
+              <p className="max-w-[340px] text-sm leading-relaxed text-white">
+                Connecting generations of graduates through a global network built on excellence,
+                integrity, and service.
               </p>
 
               <div className="mt-6 space-y-3">
@@ -133,10 +133,10 @@ export function Footer() {
                     className={`${footerContactIconClassName} h-[14px] w-[17px]`}
                   />
                   <AppLink
-                    href={`mailto:${config.contact?.email || 'info@fggcowerrilagos.org'}`}
+                    href={`mailto:${config.contact?.email || 'info@alumniportal.org'}`}
                     className="text-sm text-white transition-colors hover:text-white"
                   >
-                    {config.contact?.email || 'info@fggcowerrilagos.org'}
+                    {config.contact?.email || 'info@alumniportal.org'}
                   </AppLink>
                 </div>
                 <div className="flex items-center gap-3">
@@ -194,7 +194,7 @@ export function Footer() {
 
           <div className="py-5">
             <p className="text-left text-xs font-[500] text-[#BDBDBD]">
-              © {currentYear} FGGC Owerri Alumni Association, Lagos Chapter. All rights reserved.
+              © {currentYear} Alumni Portal. All rights reserved.
             </p>
           </div>
         </div>

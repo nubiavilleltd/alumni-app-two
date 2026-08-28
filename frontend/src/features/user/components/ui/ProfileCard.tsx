@@ -120,7 +120,7 @@ export function ProfileCard({
       {/* Name */}
       <h1 className="text-base sm:text-lg font-bold text-gray-900 leading-snug">{fullName}</h1>
 
-      {maidenName && <p className="text-xs text-gray-400 mt-0.5">nee {maidenName}</p>}
+      {maidenName && <p className="text-xs text-gray-400 mt-0.5">formerly {maidenName}</p>}
 
       {graduationYear && (
         <p className="text-sm text-gray-500 mt-0.5">Class '{String(graduationYear).slice(-2)}</p>

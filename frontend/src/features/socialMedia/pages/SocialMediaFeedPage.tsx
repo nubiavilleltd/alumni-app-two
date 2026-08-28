@@ -7,19 +7,19 @@ const socialPosts = [
   {
     id: 'community',
     image: '/images/social_media/Rectangle 102 (2).png',
-    alt: 'FGGC alumnae gathered together outdoors',
+    alt: 'Alumni gathered together outdoors',
     type: 'image',
   },
   {
-    id: 'sisters',
+    id: 'members',
     image: '/images/social_media/Group 593.png',
-    alt: 'Two alumnae smiling together',
+    alt: 'Two alumni smiling together',
     type: 'carousel',
   },
   {
     id: 'culture',
     image: '/images/social_media/Group 594.png',
-    alt: 'Alumnae celebrating in traditional attire',
+    alt: 'Alumni celebrating in traditional attire',
     type: 'reel',
   },
 ] as const;
@@ -65,7 +65,7 @@ export default function SocialMediaFeedPage() {
     <>
       <SEO
         title="Social Media Feed"
-        description="Follow FGGC Owerri Alumnae Association on Instagram."
+        description="Follow the alumni community on Instagram."
       />
 
       <main className="min-h-screen bg-transparent text-[#061015]">
@@ -75,13 +75,12 @@ export default function SocialMediaFeedPage() {
               <div className="max-w-[760px]">
                 <SectionEyebrow>Social Media</SectionEyebrow>
                 <h1 className="type-section-title mt-6 max-w-[720px] text-[#000E17]">
-                  Follow our sisterhood in motion
+                  Follow our community in motion
                 </h1>
               </div>
 
               <p className="type-card-body max-w-[420px] text-[#4B5563] lg:text-right">
-                Catch moments from FGGC Owerri alumnae across events, milestones, and everyday
-                community life.
+                Catch moments from alumni across events, milestones, and everyday community life.
               </p>
             </header>
 
@@ -95,7 +94,7 @@ export default function SocialMediaFeedPage() {
                     <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white p-1.5">
                       <img
                         src="/logo.png"
-                        alt="FGGC Owerri Alumnae Association"
+                        alt="Alumni Portal"
                         className="h-full w-full rounded-full object-contain"
                       />
                     </div>
@@ -103,10 +102,10 @@ export default function SocialMediaFeedPage() {
 
                   <div className="min-w-0">
                     <h2 className="type-card-title-featured text-[#000E17]">
-                      FGGC Owerri Alumnae Association
+                      Alumni Portal
                     </h2>
                     <p className="mt-2 text-sm font-semibold leading-tight tracking-[0.03em] text-primary-500 sm:text-base">
-                      @fggcowerrialumnae
+                      @alumniportal
                     </p>
                   </div>
                 </div>

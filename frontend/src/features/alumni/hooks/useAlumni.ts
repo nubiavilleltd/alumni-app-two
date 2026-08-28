@@ -21,7 +21,7 @@ export function useAlumni(params?: GetAlumniParams) {
   });
 }
 
-/** Single alumna by ID */
+/** Single alumni member by ID */
 export function useAlumnus(id: string) {
   return useQuery({
     queryKey: alumniKeys.detail(id),

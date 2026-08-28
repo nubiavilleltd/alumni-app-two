@@ -9,7 +9,7 @@ import { useLocation } from 'react-router-dom';
 export const BANK_DETAILS = {
   bankName: 'Access Bank',
   accountNumber: '0722817496',
-  accountName: 'Fed. Govt. Girls Coll. Owerri Old Girls Association',
+  accountName: 'Alumni Portal Association',
 };
 
 export function DonationPage() {
@@ -36,7 +36,7 @@ export function DonationPage() {
 
         <div className="flex-1 flex flex-col py-8 px-6 sm:px-10 bg-white rounded-2xl shadow-sm border border-gray-100 max-w-3xl mt-6">
           <p className="text-gray-600 text-base sm:text-lg leading-relaxed mb-10">
-            Give back and help create opportunities that benefit alumnae and the wider community.
+            Give back and help create opportunities that benefit alumni and the wider community.
             Your contribution helps support members, fund initiatives, and strengthen our community.
           </p>
 

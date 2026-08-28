@@ -4,18 +4,18 @@
 
 # Site Information
 site:
-  name: 'FGGC Owerri Alumnae Association'
-  description: 'Connecting generations of excellence. The Lagos Chapter is dedicated to fostering sisterhood and community service.'
+  name: 'ALUMNI PORTAL'
+  description: 'Connecting generations of excellence. The Lagos Chapter is dedicated to fostering community, service, and shared opportunity.'
   # url: 'https://open-alumns-portal.vercel.app'
-  logo: '/fggc-logo.jpeg'
+  logo: '/logo.png'
   favicon: '/favicon.ico'
   hero_image: '/hero-bg.png'
 
 # Organization Details
 organization:
-  name: 'Federal Government Girls College'
+  name: 'ALUMNI PORTAL'
   website: 'loremipsum.com'
-  email: 'info@fggcowerrilagos.org'
+  email: 'info@alumniportal.org'
   address: 'Lagos, Nigeria'
 
 colors:
@@ -78,10 +78,10 @@ social_links:
 
 # SEO Configuration
 seo:
-  title_template: '%s | FGGC Owerri Alumni'
+  title_template: '%s | Alumni Portal'
   default_description: 'Connect with alumni from your institution. Join our network and stay updated with events, news, and opportunities.'
   keywords: ['alumni', 'portal', 'network', 'community', 'education', 'graduates']
-  author: 'Federal Government Girls College Alumnae Association'
+  author: 'Alumni Portal'
   og_image: '/og-image.jpg'
   twitter_card: 'summary_large_image'
 
@@ -109,7 +109,7 @@ features:
 
 # Contact Information
 contact:
-  email: 'info@fggcowerrilagos.org'
+  email: 'info@alumniportal.org'
   phone: '+234 800 000 0000'
   address: 'Lagos, Nigeria'
   office_hours: 'Monday - Friday, 9:00 AM - 5:00 PM'

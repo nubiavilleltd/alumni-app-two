@@ -68,8 +68,8 @@ export const SHIPPING_RATES: StateRate[] = [
   {
     state: 'Imo',
     areas: buildAreas('Imo', {
-      'Owerri Municipal': 4000,
-      'Owerri North': 4500,
+      'Imo Municipal': 4000,
+      'Imo North': 4500,
       Orlu: 5000,
       Okigwe: 5000,
     }),

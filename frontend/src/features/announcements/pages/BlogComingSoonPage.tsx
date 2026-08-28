@@ -106,7 +106,7 @@ export function BlogComingSoonPage() {
     <>
       <SEO
         title="Blog"
-        description="Discover inspiring stories, career insights, community updates, and valuable resources from our alumnae network."
+        description="Discover inspiring stories, career insights, community updates, and valuable resources from our alumni network."
       />
 
       <main className="min-h-screen bg-[#F8F8F7] text-[#071116]">
@@ -115,7 +115,7 @@ export function BlogComingSoonPage() {
             <h1 className="mb-2 text-4xl font-extrabold leading-tight text-[#071116]">Blog</h1>
             <p className="max-w-xl text-base font-medium leading-relaxed text-[#4B5563]">
               Discover inspiring stories, career insights, community updates, and valuable resources
-              from our alumnae network.
+              from our alumni network.
             </p>
           </header>
 
@@ -177,7 +177,7 @@ export function BlogComingSoonPage() {
             <EmptyState
               icon={FileText}
               title="No blog posts yet"
-              description="Published stories and updates from the alumnae community will appear here."
+              description="Published stories and updates from the alumni community will appear here."
             />
           ) : null}
 

@@ -41,7 +41,7 @@ export function buildVouchApprovePayload(vouchId: string) {
  * {
  *   "vouch_id": 1,
  *   "action": "reject",
- *   "reason": "I do not recognise this person as an alumna of FGGC."
+ *   "reason": "I do not recognise this person as an alumni member."
  * }
  */
 export function buildVouchRejectPayload(vouchId: string, reason?: string) {

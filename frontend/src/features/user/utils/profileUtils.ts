@@ -255,7 +255,7 @@
 //       .filter(Boolean)
 //       .join(' ') || undefined;
 
-//   // maiden name — only show if different from full name
+//   // former name — only show if different from full name
 //   const maidenName =
 //     src.nameInSchool && src.nameInSchool !== src.fullName ? src.nameInSchool : undefined;
 

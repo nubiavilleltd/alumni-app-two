@@ -76,7 +76,7 @@ export default function UpcomingEvents() {
       <div className="container-custom">
         <HomeSectionHeader
           eyebrow="Upcoming Events"
-          title="Stay updated on upcoming alumnae gatherings"
+          title="Stay updated on upcoming alumni gatherings"
           href={EVENT_ROUTES.ROOT}
           showViewAll={!isEmpty}
         />

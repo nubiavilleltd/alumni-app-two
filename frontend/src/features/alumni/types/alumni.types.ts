@@ -14,7 +14,7 @@ export interface Alumni {
   name: string;
   email: string;
 
-  // ── School ────────────────────────────────────────────────────────────────
+  // ── Background ────────────────────────────────────────────────────────────────
   graduationYear: number;
   nameInSchool: string;
   nickName: string;

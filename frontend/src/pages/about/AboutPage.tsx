@@ -6,7 +6,7 @@ import Leadership, { MessageFromPresident } from "./Leadership";
 
 const missionFeatures = [
   {
-    title: "Connect with Alumnae",
+    title: "Connect with Alumni",
     description:
       "Find and network with fellow graduates across different sets and industries.",
     icon: "/about_people.png",
@@ -64,7 +64,7 @@ export function AboutPage() {
 
               <h1 className="mt-6 max-w-[1340px] fonxt-sans text-[clamp(2rem,4.8vw,3.2rem)] font-semibold leading-[1.05] tracking-[0.01em] text-[#020c12] min-[1200px]:text-[clamp(2.8rem,3.68vw,3.6rem)]">
                 <span className="block">We are a platform designed</span>
-                <span className="block">to keep our sisters</span>
+                <span className="block">to keep our members</span>
                 <span className="block">connected across</span>
                 <span className="block">generations and continents.</span>
               </h1>
@@ -83,8 +83,8 @@ export function AboutPage() {
             <div className="flex min-w-0 flex-col items-start min-[1200px]:items-stretch">
               <div className="w-full min-w-[min(100%,360px)] overflow-hidden rounded-[1.8rem] min-[1200px]:h-[clamp(350px,21vw,430px)] min-[1200px]:min-w-0 min-[1200px]:rounded-[2.25rem]">
                 <img
-                  src="/about_woman.png"
-                  alt="FGGC alumna smiling"
+                  src="/about_people.png"
+                  alt="Alumni community members"
                   className="block h-[17rem] w-full object-cover object-center sm:h-[21rem] min-[1200px]:h-full"
                 />
               </div>
@@ -116,7 +116,7 @@ export function AboutPage() {
               </h2>
 
               <p className="type-card-body mt-7 max-w-[1850px] text-[#101820]">
-                This platform is for all alumnae; recent graduates,
+                This platform is for all alumni: recent graduates,
                 long-standing members, and everyone in between who want to stay
                 connected, grow professionally, and give back to the community.
               </p>

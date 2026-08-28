@@ -105,7 +105,7 @@ export function FaqPage() {
     <>
       <SEO
         title="Frequently Asked Questions"
-        description="Find answers to common questions about the alumni portal and alumnae community."
+        description="Find answers to common questions about the alumni portal and alumni community."
       />
 
       <main className="min-h-screen bg-[#fbfbfa]">

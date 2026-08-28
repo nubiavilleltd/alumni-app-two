@@ -1,6 +1,6 @@
 // src/data/chapters.ts
 //
-// Chapter definitions for the FGGC Alumnae Association.
+// Chapter definitions for the Alumni Portal.
 // Currently Lagos-only. Add new chapters here as the association grows.
 // chapterId format: CHR-{LOCATION} — short, readable, stable.
 

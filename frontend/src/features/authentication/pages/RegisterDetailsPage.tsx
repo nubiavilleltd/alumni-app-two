@@ -620,7 +620,7 @@ export function RegisterDetailsPage() {
 
         <div className="auth-form-grid auth-form-grid--two">
           <FormInput
-            label="Maiden Name"
+            label="Former Name"
             id="nameInSchool"
             placeholder="Ezegburu"
             hint=""
@@ -628,7 +628,7 @@ export function RegisterDetailsPage() {
             {...detailForm.register('nameInSchool')}
           />
           <FormInput
-            label="Nickname in School"
+            label="Preferred Nickname"
             id="nickName"
             placeholder="MJ"
             hint=""
@@ -797,7 +797,7 @@ export function RegisterDetailsPage() {
         </div>
 
         <SelectInput
-          label="Year of Graduation from FGGC Owerri"
+          label="Year of Graduation"
           id="graduationYear"
           required
           options={graduationYearOptions}

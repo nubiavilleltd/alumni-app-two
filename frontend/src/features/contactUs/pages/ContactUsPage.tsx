@@ -12,7 +12,7 @@ export function ContactUsPage() {
 
   const address = String(contactConfig.address ?? 'Lagos, Nigeria').trim();
   const phone = String(contactConfig.phone ?? '+234 800 000 0000').trim();
-  const email = String(contactConfig.email ?? 'info@fggcowerrilagos.org').trim();
+  const email = String(contactConfig.email ?? 'info@alumniportal.org').trim();
 
   const contactMethods = [
     {
@@ -41,7 +41,7 @@ export function ContactUsPage() {
     <>
       <SEO
         title="Contact Us"
-        description="Get in touch with the FGGC Owerri Alumnae Association for membership, events, and website support."
+        description="Get in touch with the Alumni Portal for membership, events, and website support."
       />
 
       <ContactPageLayout

@@ -16,21 +16,19 @@ export default function OurStory() {
           id="home-about-title"
           className="m-0 text-[clamp(1.75rem,2.25vw,2rem)] font-semibold leading-normal tracking-[0.03em] text-[#000e17]"
         >
-          A Legacy Woven in Crimson &amp; Gold
+          A Legacy Built Through Connection
         </h2>
 
         <div className="mt-2 max-w-[82rem] text-base font-normal leading-normal tracking-[0.03em] text-[#000e17] md:text-[20px]">
           <p className="m-0">
-            Federal Government Girls' College stands among Nigeria's most revered institutions, a
-            place where countless women first discovered their voice, their strength, and their
-            purpose. From dormitory friendships forged by candlelight to classroom debates that
-            shaped futures, FGGC made us who we are.
+            Our alumni network brings graduates together through shared history, professional
+            growth, and a commitment to creating value for one another and the wider community.
           </p>
 
           <p className="m-0 mt-8">
-            The Alumnae Association exists to honour that legacy: connecting women across
-            generations and continents, investing in current students, and ensuring the school
-            continues to produce Nigeria's finest daughters.{' '}
+            The association exists to honour that legacy: connecting alumni across generations and
+            continents, supporting meaningful initiatives, and keeping the community active,
+            generous, and forward-looking.{' '}
             <AppLink
               href={ROUTES.ABOUT}
               className="whitespace-nowrap font-semibold text-[#021e44] no-underline transition-colors hover:text-[#0077cc]"

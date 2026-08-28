@@ -98,7 +98,7 @@ export default function MyJobPostsPage() {
     <>
       <SEO
         title="My Job Posts"
-        description="Manage the job vacancies you shared with the FGGC Owerri Alumnae Association."
+        description="Manage the job vacancies you shared with the Alumni Portal."
       />
 
       <main className="min-h-full bg-[#F8F8F7] text-[#071116]">

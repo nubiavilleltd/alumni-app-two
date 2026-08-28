@@ -120,7 +120,7 @@ const expandedNavColumns: NavItem[][] = [
         },
       ],
     },
-    { label: 'OGA Directory', url: ALUMNI_ROUTES.PROFILES },
+    { label: 'Alumni Directory', url: ALUMNI_ROUTES.PROFILES },
   ],
   [
     { label: 'Resources', url: ROUTES.RESOURCES },

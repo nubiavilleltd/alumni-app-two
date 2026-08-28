@@ -257,12 +257,12 @@ export function AlumniDirectoryPage() {
 
   return (
     <>
-      <SEO title="OGA Directory" />
+      <SEO title="Alumni Directory" />
 
       <section className="min-h-screen bg-[#F8F8F7] py-8">
         <div className="container-custom mx-auto">
           {/* Title */}
-          <h1 className="type-section-title mb-6">OGA Directory</h1>
+          <h1 className="type-section-title mb-6">Alumni Directory</h1>
 
           {/* Filters */}
           <div className="flex flex-col sm:flex-row items-center gap-4 mb-8">

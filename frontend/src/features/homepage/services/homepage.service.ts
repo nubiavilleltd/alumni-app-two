@@ -58,13 +58,32 @@ const fallbackHomepageContent: HomepageContent = {
   })),
 };
 
-function withHomepageFallbacks(homepage: HomepageContent): HomepageContent {
+function normalizeStaleHomepageCopy(homepage: HomepageContent): HomepageContent {
+  const hasStaleGenderedTitle = /\bwelcome\s+sisters\b/i.test(homepage.greetingTitle);
+  const hasStaleGenderedMessage = /\b(sisters|sisterhood|girls'? school|all[-\s]?female)\b/i.test(
+    homepage.greetingMessage,
+  );
+
   return {
-    greetingTitle: homepage.greetingTitle || fallbackHomepageContent.greetingTitle,
-    greetingMessage: homepage.greetingMessage || fallbackHomepageContent.greetingMessage,
+    ...homepage,
+    greetingTitle: hasStaleGenderedTitle
+      ? fallbackHomepageContent.greetingTitle
+      : homepage.greetingTitle,
+    greetingMessage: hasStaleGenderedMessage
+      ? fallbackHomepageContent.greetingMessage
+      : homepage.greetingMessage,
+  };
+}
+
+function withHomepageFallbacks(homepage: HomepageContent): HomepageContent {
+  const normalizedHomepage = normalizeStaleHomepageCopy(homepage);
+
+  return {
+    greetingTitle: normalizedHomepage.greetingTitle || fallbackHomepageContent.greetingTitle,
+    greetingMessage: normalizedHomepage.greetingMessage || fallbackHomepageContent.greetingMessage,
     carouselImages:
-      homepage.carouselImages.length > 0
-        ? homepage.carouselImages
+      normalizedHomepage.carouselImages.length > 0
+        ? normalizedHomepage.carouselImages
         : fallbackHomepageContent.carouselImages,
   };
 }

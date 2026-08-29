@@ -25,6 +25,7 @@ import {
   IconBrandWhatsapp,
   IconBrandX,
 } from '@tabler/icons-react';
+import { useNavigate } from 'react-router-dom';
 import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
@@ -46,6 +47,7 @@ import { MARKETPLACE_ROUTES } from '../routes';
 import { resolveProfilePhoto } from '@/features/user/utils/profileUtils';
 
 const ITEMS_PER_PAGE = 9;
+const DEMO_PRIORITY_BUSINESS_OWNERS = ['lolu jumat', 'fcd fcd', 'felix ohemu'];
 const DEFAULT_MARKETPLACE_DRAFT_MESSAGE = (businessName: string) =>
   `Hi, I'm interested in ${businessName}. I'd like to know more about your services.`;
 
@@ -137,6 +139,21 @@ function isRealProfilePhoto(photo?: string | null) {
   return Boolean(photo && !photo.includes('ui-avatars.com') && !photo.includes('default-avatar'));
 }
 
+function getDemoOwnerPriority(ownerName: string) {
+  const normalizedOwnerName = ownerName.trim().toLowerCase();
+  const priorityIndex = DEMO_PRIORITY_BUSINESS_OWNERS.indexOf(normalizedOwnerName);
+
+  return priorityIndex === -1 ? Number.POSITIVE_INFINITY : priorityIndex;
+}
+
+function sortBusinessesForDemo(a: Business, b: Business) {
+  const aPriority = getDemoOwnerPriority(a.owner);
+  const bPriority = getDemoOwnerPriority(b.owner);
+
+  if (aPriority === bPriority) return 0;
+  return aPriority - bPriority;
+}
+
 
 // ─── Business Card ────────────────────────────────────────────────────────────
 function BusinessCard({
@@ -145,15 +162,18 @@ function BusinessCard({
   ownerPhoto,
   onMessageClick,
   isMessagePending,
+  detailHref,
 }: {
   business: Business;
   currentUserMemberId?: string;
   ownerPhoto?: string;
   onMessageClick: (business: Business) => void;
   isMessagePending: boolean;
+  detailHref: string;
 }) {
   const [imgIndex, setImgIndex] = useState(0);
   const [ownerPhotoFailed, setOwnerPhotoFailed] = useState(false);
+  const navigate = useNavigate();
   const isOwnBusiness = business.ownerId === currentUserMemberId;
   const ownerInitials = getOwnerInitials(business.owner);
   const showOwnerPhoto = isRealProfilePhoto(ownerPhoto) && !ownerPhotoFailed;
@@ -229,8 +249,28 @@ function BusinessCard({
     setImgIndex((i) => (i === business.images.length - 1 ? 0 : i + 1));
   };
 
+  const openDetails = () => {
+    navigate(detailHref);
+  };
+
+  const handleCardKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget) return;
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openDetails();
+    }
+  };
+
   return (
-    <article className="group/card flex min-w-0 flex-col overflow-hidden rounded-[1.1rem] bg-white shadow-[0_1px_0_rgba(7,17,22,0.02)] sm:rounded-[1.45rem]">
+    <article
+      role="link"
+      tabIndex={0}
+      aria-label={`View ${business.name}`}
+      onClick={openDetails}
+      onKeyDown={handleCardKeyDown}
+      className="group/card flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-[1.1rem] bg-white shadow-[0_1px_0_rgba(7,17,22,0.02)] transition-shadow hover:shadow-[0_14px_34px_rgba(7,17,22,0.08)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-200 sm:rounded-[1.45rem]"
+    >
       {/* Image carousel */}
       <div className="relative aspect-[448/292] w-full overflow-hidden rounded-[1.35rem] bg-[#d9dde2]">
         {business.images.length > 0 ? (
@@ -536,12 +576,14 @@ export default function MarketPlacePage() {
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    return businesses.filter((b) => {
-      const matchesSearch =
-        !q || b.name.toLowerCase().includes(q) || b.description.toLowerCase().includes(q);
-      const matchesCategory = !category || b.category === category;
-      return matchesSearch && matchesCategory;
-    });
+    return businesses
+      .filter((b) => {
+        const matchesSearch =
+          !q || b.name.toLowerCase().includes(q) || b.description.toLowerCase().includes(q);
+        const matchesCategory = !category || b.category === category;
+        return matchesSearch && matchesCategory;
+      })
+      .sort(sortBusinessesForDemo);
   }, [businesses, searchTerm, category]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
@@ -710,6 +752,7 @@ export default function MarketPlacePage() {
                   isMessagePending={
                     isStartingConversation && pendingBusinessId === business.businessId
                   }
+                  detailHref={MARKETPLACE_ROUTES.DETAIL(business.businessId)}
                 />
               ))}
             </div>

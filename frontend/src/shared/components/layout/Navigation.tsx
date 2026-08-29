@@ -123,7 +123,6 @@ const expandedNavColumns: NavItem[][] = [
     { label: 'Alumni Directory', url: ALUMNI_ROUTES.PROFILES },
   ],
   [
-    { label: 'Resources', url: ROUTES.RESOURCES },
     { label: 'Welfare', url: ROUTES.WELFARE },
   ],
   [
@@ -219,7 +218,7 @@ function BrandMark({ mobile = false }: { mobile?: boolean }) {
           'relative z-10 min-w-0',
           mobile ? 'w-full justify-start gap-2.5' : 'max-w-full justify-start gap-3',
         )}
-        imageClassName={cn(mobile ? 'h-12 w-12 sm:h-14 sm:w-14' : 'h-16 w-16')}
+        imageClassName={cn(mobile ? 'h-12 w-auto sm:h-14' : 'h-16 w-auto')}
         wordmarkClassName={cn(
           mobile
             ? 'w-[11.25rem] max-w-[calc(100vw-8rem)] text-white sm:w-[13.25rem]'

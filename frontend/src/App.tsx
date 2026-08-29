@@ -42,6 +42,7 @@ import EditEventPage from '@/features/events/pages/EditEventPage';
 
 import MarketPlacePage from './features/marketplace/pages/MarketPlacePage';
 import MyBusinessPage from './features/marketplace/pages/MyBusinessPage';
+import BusinessDetailPage from './features/marketplace/pages/BusinessDetailPage';
 
 import { UserDashboardPage } from './features/user/pages/UserDashboardPage';
 import UserProfilePage from './features/user/pages/UserProfilePage';
@@ -360,6 +361,15 @@ export default function App() {
                     <MyBusinessPage />
                   </ErrorBoundary>
                 </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path={ROUTES.MARKETPLACE.DETAIL_PATH}
+              element={
+                <ErrorBoundary>
+                  <BusinessDetailPage />
+                </ErrorBoundary>
               }
             />
 

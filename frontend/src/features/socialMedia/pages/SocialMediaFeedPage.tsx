@@ -93,7 +93,7 @@ export default function SocialMediaFeedPage() {
                   <div className="relative h-20 w-20 shrink-0 rounded-full bg-[linear-gradient(135deg,#833AB4_0%,#FD1D1D_52%,#FCB045_100%)] p-[4px] sm:h-[96px] sm:w-[96px]">
                     <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white p-1.5">
                       <img
-                        src="/logo.png"
+                        src="/new_logo.png"
                         alt="Alumni Portal"
                         className="h-full w-full rounded-full object-contain"
                       />

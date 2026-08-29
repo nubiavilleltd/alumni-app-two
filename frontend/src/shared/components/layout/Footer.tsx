@@ -43,7 +43,6 @@ const QUICK_LINKS = [
 const COMMUNITY_LINKS = [
   { label: 'Member Directory', href: ROUTES.ALUMNI.ROOT },
   { label: 'Marketplace', href: ROUTES.MARKETPLACE.ROOT },
-  { label: 'Resources', href: ROUTES.RESOURCES },
   { label: 'Welfare', href: ROUTES.WELFARE },
   { label: 'Social Media Feed', href: ROUTES.SOCIAL_MEDIA_FEED },
   { label: 'Polls', href: '/polls' },

@@ -2,12 +2,17 @@ import axios from 'axios';
 import { useTokenStore } from '@/features/authentication/stores/useTokenStore';
 import { logError } from '@/lib/errors/errorUtils';
 
+function readEnvUrl(value?: string) {
+  return value?.trim().replace(/\/+$/, '') ?? '';
+}
+
+const configuredApiBaseUrl = readEnvUrl(import.meta.env.VITE_API_BASE_URL);
 const configuredContentApiBaseUrl =
-  import.meta.env.VITE_CONTENT_API_BASE_URL?.trim() ??
-  'https://alumniportal.nubiaville.com/blog_api';
+  readEnvUrl(import.meta.env.VITE_CONTENT_API_BASE_URL) ||
+  (configuredApiBaseUrl ? `${configuredApiBaseUrl}/blog_api` : '');
 
 export const contentApiClient = axios.create({
-  baseURL: configuredContentApiBaseUrl.replace(/\/+$/, ''),
+  baseURL: configuredContentApiBaseUrl,
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
 });

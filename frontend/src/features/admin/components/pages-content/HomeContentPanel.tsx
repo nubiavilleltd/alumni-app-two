@@ -1087,7 +1087,7 @@ export function HomeContentPanel({ activeTab }: { activeTab: PagesContentTab }) 
             <BaseInput
               id="greeting-title-alternate-word"
               label="Alternate Last Word"
-              placeholder="members"
+              placeholder={DEFAULT_HERO_GREETING_ALTERNATE_WORD}
               value={greetingTitleAlternateWord}
               onValueChange={(value) => {
                 setGreetingTitleAlternateWord(normalizeAlternateLastWord(value));
@@ -1106,7 +1106,7 @@ export function HomeContentPanel({ activeTab }: { activeTab: PagesContentTab }) 
             />
             <p className="px-1 text-sm font-medium leading-relaxed text-[#858585]">
               Optional: the title's last word rotates with this word. Leave blank for no animation;
-              use one word only. The default word is members.
+              use one word only. The default word is {DEFAULT_HERO_GREETING_ALTERNATE_WORD}.
             </p>
           </div>
 

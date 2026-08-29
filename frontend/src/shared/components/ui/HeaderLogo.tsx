@@ -1,6 +1,6 @@
 import type { ComponentPropsWithoutRef } from 'react';
 
-import LogoImage from '/logo.png';
+import LogoImage from '/new_logo.png';
 
 type HeaderLogoProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
   className?: string;

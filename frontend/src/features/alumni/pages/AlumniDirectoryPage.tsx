@@ -191,6 +191,35 @@ export function AlumniDirectoryPage() {
     [alumni],
   );
 
+  /* ═══════════════════════════════════════════════════════════════════
+   * 🚨 DEMO-ONLY CODE — REMOVE AFTER THE DEMO 🚨
+   * ═══════════════════════════════════════════════════════════════════
+   * This helper decides whether an alumni entry has a real, visible
+   * photo (as opposed to falling back to the generated initials avatar).
+   * It's used below purely to push "photos first" for the demo so the
+   * directory looks populated/impressive on stage.
+   *
+   * This is NOT meant to be permanent product behavior — ranking real
+   * users lower just because they haven't uploaded a photo (or have
+   * privacy settings that hide it) is not a fair long-term sort, and
+   * it will silently change search/pagination order in a way product
+   * hasn't signed off on. Delete this block and revert `filtered`
+   * to the version in the "ORIGINAL SORT" comment below once the
+   * demo is done.
+   * ═══════════════════════════════════════════════════════════════════ */
+  const hasVisiblePhotoForDemo = (entry: Alumni) => {
+    const isOwner = entry.memberId === currentUser?.memberId;
+    const isSignedIn = Boolean(currentUser?.memberId);
+    const photo = resolveProfilePhoto({
+      photoUrl: entry.photo,
+      privacy: entry.privacy,
+      isOwner,
+      isSignedIn,
+    });
+    return Boolean(photo);
+  };
+  /* 🚨 END DEMO-ONLY HELPER 🚨 */
+
   const filtered = useMemo(() => {
     const q = searchTerm.toLowerCase();
 
@@ -200,14 +229,40 @@ export function AlumniDirectoryPage() {
         (!yearFilter || e.graduationYear.toString() === yearFilter),
     );
 
-    // ✅ PRIORITIZE USER'S GRADUATION YEAR (only when no filter is applied)
-    if (!yearFilter && currentUser?.graduationYear) {
-      result = [...result].sort((a, b) => {
+    /* ─────────────────────────────────────────────────────────────
+     * 🚨 DEMO-ONLY SORT — REMOVE AFTER THE DEMO 🚨
+     * Photos-first, then the original graduation-year priority logic.
+     * ───────────────────────────────────────────────────────────── */
+    result = [...result].sort((a, b) => {
+      // 1. Alumni with a visible photo float to the top for the demo.
+      const aHasPhoto = hasVisiblePhotoForDemo(a);
+      const bHasPhoto = hasVisiblePhotoForDemo(b);
+      if (aHasPhoto !== bHasPhoto) return aHasPhoto ? -1 : 1;
+
+      // 2. Existing behavior: prioritize the current user's own grad year
+      //    (only when no year filter is applied).
+      if (!yearFilter && currentUser?.graduationYear) {
         if (a.graduationYear === currentUser.graduationYear) return -1;
         if (b.graduationYear === currentUser.graduationYear) return 1;
-        return b.graduationYear - a.graduationYear; // fallback: newest first
-      });
-    }
+      }
+
+      // 3. Fallback: newest graduation year first.
+      return b.graduationYear - a.graduationYear;
+    });
+    /* 🚨 END DEMO-ONLY SORT 🚨 */
+
+    /* ─────────────────────────────────────────────────────────────
+     * ORIGINAL SORT — restore this (and delete the block above)
+     * once the demo is over:
+     *
+     * if (!yearFilter && currentUser?.graduationYear) {
+     *   result = [...result].sort((a, b) => {
+     *     if (a.graduationYear === currentUser.graduationYear) return -1;
+     *     if (b.graduationYear === currentUser.graduationYear) return 1;
+     *     return b.graduationYear - a.graduationYear; // fallback: newest first
+     *   });
+     * }
+     * ───────────────────────────────────────────────────────────── */
 
     return result;
   }, [alumni, searchTerm, yearFilter, currentUser]);

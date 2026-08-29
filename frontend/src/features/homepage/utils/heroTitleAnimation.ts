@@ -3,7 +3,7 @@ const HERO_TITLE_ROTATE_END = "[/HERO_TITLE_ROTATE]";
 const HERO_TITLE_ROTATE_PATTERN =
   /\s*\[HERO_TITLE_ROTATE\]\s*([\s\S]*?)\s*\[\/HERO_TITLE_ROTATE\]\s*$/;
 const DEFAULT_TITLE = "welcome home";
-const DEFAULT_ALTERNATE_WORD = "members";
+const DEFAULT_ALTERNATE_WORD = "Everyone";
 
 type StoredHeroTitleAnimation = {
   alternateLastWord?: unknown;

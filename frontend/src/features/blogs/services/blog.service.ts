@@ -81,6 +81,8 @@ function summarizeBlogFormData(formData: FormData) {
 }
 
 function appendBlogPostFields(formData: FormData, input: SaveBlogPostInput) {
+  const uploadedImages = input.images ?? [];
+
   if (input.id) formData.append('id', input.id);
   formData.append('title', input.title);
   formData.append('category_id', input.categoryId);
@@ -97,13 +99,17 @@ function appendBlogPostFields(formData: FormData, input: SaveBlogPostInput) {
       })),
     ),
   );
-  if (input.mainImageIndex !== undefined) {
+  uploadedImages.forEach((image) => formData.append('images', image));
+  if (
+    input.mainImageIndex !== undefined &&
+    input.mainImageIndex >= 0 &&
+    input.mainImageIndex < uploadedImages.length
+  ) {
     formData.append('main_image_index', String(input.mainImageIndex));
   }
   if (input.mainImageUrl) {
     formData.append('main_image_url', input.mainImageUrl);
   }
-  input.images?.forEach((image) => formData.append('images[]', image));
 }
 
 

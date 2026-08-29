@@ -649,6 +649,11 @@ function BlogPostForm({
       return;
     }
 
+    if (mode === "create" && formState.imageFiles.length === 0) {
+      toast.error("Please upload at least one blog image before publishing.");
+      return;
+    }
+
     const mainImageIndex = formState.mainImagePreview
       ? formState.imagePreviews.findIndex(
           (preview) => preview === formState.mainImagePreview,

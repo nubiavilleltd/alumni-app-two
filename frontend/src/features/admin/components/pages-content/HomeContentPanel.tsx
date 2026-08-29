@@ -55,8 +55,8 @@ const HERO_CAROUSEL_MIN_HEIGHT = 675;
 const HERO_CAROUSEL_TARGET_SIZE_MB = 2;
 const HERO_CAROUSEL_MAX_SIZE_MB = 5;
 const HERO_CAROUSEL_MAX_SIZE_BYTES = HERO_CAROUSEL_MAX_SIZE_MB * 1024 * 1024;
-const DEFAULT_HERO_GREETING_TITLE = 'Welcome home';
-const DEFAULT_HERO_GREETING_ALTERNATE_WORD = 'members';
+const DEFAULT_HERO_GREETING_TITLE = 'Welcome Home';
+const DEFAULT_HERO_GREETING_ALTERNATE_WORD = 'Everyone';
 const DEFAULT_HERO_GREETING_MESSAGE =
   'A global community of alumni connected by shared memories, driven by purpose, and committed to lifting the next generation.';
 

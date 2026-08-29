@@ -1,29 +1,751 @@
 [
     {
-        "label": "sphinx_rtd_theme",
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "json",
         "kind": 6,
         "isExtraImport": true,
-        "importPath": "sphinx_rtd_theme",
-        "description": "sphinx_rtd_theme",
-        "detail": "sphinx_rtd_theme",
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
         "documentation": {}
     },
     {
-        "label": "extensions",
-        "kind": 5,
-        "importPath": "backend.vendor.simplesamlphp.simplesamlphp.docs.conf",
-        "description": "backend.vendor.simplesamlphp.simplesamlphp.docs.conf",
-        "peekOfCode": "extensions = [\n    'sphinx_rtd_theme',\n]\nhtml_theme = \"sphinx_rtd_theme\"",
-        "detail": "backend.vendor.simplesamlphp.simplesamlphp.docs.conf",
+        "label": "math",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "math",
+        "description": "math",
+        "detail": "math",
         "documentation": {}
     },
     {
-        "label": "html_theme",
+        "label": "random",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "random",
+        "description": "random",
+        "detail": "random",
+        "documentation": {}
+    },
+    {
+        "label": "zipfile",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "zipfile",
+        "description": "zipfile",
+        "detail": "zipfile",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "timedelta",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "timedelta",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
+        "label": "escape",
+        "importPath": "xml.sax.saxutils",
+        "description": "xml.sax.saxutils",
+        "isExtraImport": true,
+        "detail": "xml.sax.saxutils",
+        "documentation": {}
+    },
+    {
+        "label": "escape",
+        "importPath": "xml.sax.saxutils",
+        "description": "xml.sax.saxutils",
+        "isExtraImport": true,
+        "detail": "xml.sax.saxutils",
+        "documentation": {}
+    },
+    {
+        "label": "Image",
+        "importPath": "PIL",
+        "description": "PIL",
+        "isExtraImport": true,
+        "detail": "PIL",
+        "documentation": {}
+    },
+    {
+        "label": "ImageDraw",
+        "importPath": "PIL",
+        "description": "PIL",
+        "isExtraImport": true,
+        "detail": "PIL",
+        "documentation": {}
+    },
+    {
+        "label": "ImageFont",
+        "importPath": "PIL",
+        "description": "PIL",
+        "isExtraImport": true,
+        "detail": "PIL",
+        "documentation": {}
+    },
+    {
+        "label": "Image",
+        "importPath": "PIL",
+        "description": "PIL",
+        "isExtraImport": true,
+        "detail": "PIL",
+        "documentation": {}
+    },
+    {
+        "label": "ImageDraw",
+        "importPath": "PIL",
+        "description": "PIL",
+        "isExtraImport": true,
+        "detail": "PIL",
+        "documentation": {}
+    },
+    {
+        "label": "ImageFont",
+        "importPath": "PIL",
+        "description": "PIL",
+        "isExtraImport": true,
+        "detail": "PIL",
+        "documentation": {}
+    },
+    {
+        "label": "load_font",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:\n    candidates = [\n        \"/System/Library/Fonts/Supplemental/Arial Bold.ttf\" if bold else \"/System/Library/Fonts/Supplemental/Arial.ttf\",\n        \"/Library/Fonts/Arial.ttf\",\n    ]\n    for candidate in candidates:\n        path = Path(candidate)\n        if path.exists():\n            return ImageFont.truetype(str(path), size=size)\n    return ImageFont.load_default()",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "banner_palette",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def banner_palette(index: int) -> tuple[str, str, str]:\n    palettes = [\n        (\"#0F4C81\", \"#00A6A6\", \"#F8FAFC\"),\n        (\"#7C2D12\", \"#F59E0B\", \"#FFF7ED\"),\n        (\"#14532D\", \"#22C55E\", \"#F0FDF4\"),\n        (\"#312E81\", \"#818CF8\", \"#EEF2FF\"),\n        (\"#881337\", \"#FB7185\", \"#FFF1F2\"),\n        (\"#164E63\", \"#06B6D4\", \"#ECFEFF\"),\n        (\"#3F3F46\", \"#A3E635\", \"#F7FEE7\"),\n        (\"#4A044E\", \"#E879F9\", \"#FDF4FF\"),",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "generate_banner",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def generate_banner(path: Path, title: str, category: str, index: int) -> None:\n    width, height = 1600, 900\n    primary, accent, text = banner_palette(index)\n    image = Image.new(\"RGB\", (width, height), primary)\n    draw = ImageDraw.Draw(image)\n    for i in range(12):\n        radius = 180 + (i % 4) * 70\n        x = int((index * 97 + i * 211) % width)\n        y = int((index * 131 + i * 167) % height)\n        color = accent if i % 2 == 0 else \"#FFFFFF\"",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "hex_to_rgb",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def hex_to_rgb(value: str) -> tuple[int, int, int]:\n    clean = value.lstrip(\"#\")\n    return tuple(int(clean[i : i + 2], 16) for i in (0, 2, 4))\ndef wrap_text(text: str, max_chars: int) -> list[str]:\n    words = text.split()\n    lines: list[str] = []\n    current: list[str] = []\n    for word in words:\n        candidate = \" \".join([*current, word])\n        if len(candidate) > max_chars and current:",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "wrap_text",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def wrap_text(text: str, max_chars: int) -> list[str]:\n    words = text.split()\n    lines: list[str] = []\n    current: list[str] = []\n    for word in words:\n        candidate = \" \".join([*current, word])\n        if len(candidate) > max_chars and current:\n            lines.append(\" \".join(current))\n            current = [word]\n        else:",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "make_events",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def make_events() -> list[dict[str, object]]:\n    events: list[dict[str, object]] = []\n    base_start = datetime(2026, 9, 6, 10, 0, 0)\n    statuses = [\"upcoming\"] * 38 + [\"active\"] * 8 + [\"completed\"] * 24 + [\"cancelled\"] * 5 + [\"draft\"] * 5\n    for index in range(EVENT_COUNT):\n        event_id = 2001 + index\n        special = SPECIAL_EVENTS[index] if index < len(SPECIAL_EVENTS) else None\n        if special:\n            title = str(special[\"title\"])\n            category = str(special[\"category\"])",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "make_attendees",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def make_attendees(events: list[dict[str, object]]) -> list[dict[str, object]]:\n    attendees: list[dict[str, object]] = []\n    row_id = 1\n    statuses = [\"going\", \"going\", \"going\", \"maybe\", \"not_going\"]\n    for event in events[:50]:\n        count = 6 + (int(event[\"id\"]) % 9)\n        for offset in range(count):\n            user_id = 1001 + ((int(event[\"id\"]) + offset * 3) % 100)\n            first, last = USER_NAMES[(user_id + offset) % len(USER_NAMES)]\n            registered = datetime.fromisoformat(str(event[\"created_at\"]).replace(\"Z\", \"\")) + timedelta(days=offset + 1)",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "cell_ref",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def cell_ref(row: int, col: int) -> str:\n    letters = \"\"\n    while col:\n        col, rem = divmod(col - 1, 26)\n        letters = chr(65 + rem) + letters\n    return f\"{letters}{row}\"\ndef sheet_xml(rows: list[list[object]], col_widths: list[float] | None = None, autofilter: bool = True) -> str:\n    max_col = max((len(row) for row in rows), default=1)\n    col_widths = col_widths or [18.0] * max_col\n    cols = \"\".join(",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "sheet_xml",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def sheet_xml(rows: list[list[object]], col_widths: list[float] | None = None, autofilter: bool = True) -> str:\n    max_col = max((len(row) for row in rows), default=1)\n    col_widths = col_widths or [18.0] * max_col\n    cols = \"\".join(\n        f'<col min=\"{idx}\" max=\"{idx}\" width=\"{width}\" customWidth=\"1\"/>'\n        for idx, width in enumerate(col_widths[:max_col], start=1)\n    )\n    sheet_rows = []\n    for r_idx, row in enumerate(rows, start=1):\n        height = ' ht=\"32\" customHeight=\"1\"' if r_idx == 1 else \"\"",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "workbook_xml",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def workbook_xml(sheet_names: list[str]) -> str:\n    sheets = \"\".join(\n        f'<sheet name=\"{escape(name)}\" sheetId=\"{idx}\" r:id=\"rId{idx}\"/>'\n        for idx, name in enumerate(sheet_names, start=1)\n    )\n    return f'''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\n  <sheets>{sheets}</sheets>\n</workbook>'''\ndef workbook_rels(sheet_count: int) -> str:",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "workbook_rels",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def workbook_rels(sheet_count: int) -> str:\n    relationships = []\n    for idx in range(1, sheet_count + 1):\n        relationships.append(\n            f'<Relationship Id=\"rId{idx}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{idx}.xml\"/>'\n        )\n    relationships.append(\n        f'<Relationship Id=\"rId{sheet_count + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>'\n    )\n    return f'''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "content_types",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def content_types(sheet_count: int) -> str:\n    overrides = \"\".join(\n        f'<Override PartName=\"/xl/worksheets/sheet{idx}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>'\n        for idx in range(1, sheet_count + 1)\n    )\n    return f'''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\n  <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\n  <Default Extension=\"xml\" ContentType=\"application/xml\"/>\n  <Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "root_rels",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def root_rels() -> str:\n    return '''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\n  <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>\n</Relationships>'''\ndef styles_xml() -> str:\n    return '''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\n  <fonts count=\"2\">\n    <font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/><family val=\"2\"/></font>",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "styles_xml",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def styles_xml() -> str:\n    return '''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\n  <fonts count=\"2\">\n    <font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/><family val=\"2\"/></font>\n    <font><b/><sz val=\"11\"/><color rgb=\"FFFFFFFF\"/><name val=\"Calibri\"/><family val=\"2\"/></font>\n  </fonts>\n  <fills count=\"3\">\n    <fill><patternFill patternType=\"none\"/></fill>\n    <fill><patternFill patternType=\"gray125\"/></fill>",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "write_xlsx",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def write_xlsx(events: list[dict[str, object]], attendees: list[dict[str, object]]) -> None:\n    event_rows = [EVENT_HEADERS] + [[event.get(header, \"\") for header in EVENT_HEADERS] for event in events]\n    attendee_rows = [ATTENDEE_HEADERS] + [[attendee.get(header, \"\") for header in ATTENDEE_HEADERS] for attendee in attendees]\n    sheet_names = [\"Events\", \"Event Attendees\", \"Import Notes\", \"Field Map\"]\n    sheet_payloads = [\n        sheet_xml(event_rows, [10, 38, 74, 34, 26, 14, 14, 13, 13, 38, 12, 34, 18, 18, 34, 13, 14, 14, 15, 14, 15, 14, 24, 12, 12, 12, 24, 20, 12, 25, 25]),\n        sheet_xml(attendee_rows, [10, 12, 12, 24, 34, 18, 16, 14, 25, 13, 40]),\n        sheet_xml(NOTE_ROWS, [28, 100], False),\n        sheet_xml(FIELD_MAP_ROWS, [30, 110], True),\n    ]",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "main",
+        "kind": 2,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "def main() -> None:\n    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)\n    BANNER_DIR.mkdir(parents=True, exist_ok=True)\n    events = make_events()\n    attendees = make_attendees(events)\n    for idx, event in enumerate(events[:BANNER_COUNT]):\n        generate_banner(BANNER_DIR / f\"event_{event['id']}.png\", str(event[\"title\"]), str(event[\"category\"]), idx)\n    write_xlsx(events, attendees)\n    print(f\"Workbook: {WORKBOOK_PATH}\")\n    print(f\"Events: {len(events)}\")",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "ROOT",
         "kind": 5,
-        "importPath": "backend.vendor.simplesamlphp.simplesamlphp.docs.conf",
-        "description": "backend.vendor.simplesamlphp.simplesamlphp.docs.conf",
-        "peekOfCode": "html_theme = \"sphinx_rtd_theme\"",
-        "detail": "backend.vendor.simplesamlphp.simplesamlphp.docs.conf",
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "ROOT = Path(__file__).resolve().parents[1]\nOUTPUT_DIR = ROOT / \"outputs\" / \"event-seed-demo\"\nBANNER_DIR = OUTPUT_DIR / \"event-banners\"\nEVENT_COUNT = 80\nBANNER_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"events_seed_{EVENT_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "OUTPUT_DIR",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "OUTPUT_DIR = ROOT / \"outputs\" / \"event-seed-demo\"\nBANNER_DIR = OUTPUT_DIR / \"event-banners\"\nEVENT_COUNT = 80\nBANNER_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"events_seed_{EVENT_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "BANNER_DIR",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "BANNER_DIR = OUTPUT_DIR / \"event-banners\"\nEVENT_COUNT = 80\nBANNER_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"events_seed_{EVENT_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",\n    \"event_banner\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "EVENT_COUNT",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "EVENT_COUNT = 80\nBANNER_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"events_seed_{EVENT_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",\n    \"event_banner\",\n    \"local_banner_file\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "BANNER_COUNT",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "BANNER_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"events_seed_{EVENT_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",\n    \"event_banner\",\n    \"local_banner_file\",\n    \"start_date\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "WORKBOOK_PATH",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "WORKBOOK_PATH = OUTPUT_DIR / f\"events_seed_{EVENT_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",\n    \"event_banner\",\n    \"local_banner_file\",\n    \"start_date\",\n    \"end_date\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "RANDOM",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "RANDOM = random.Random(20260828)\nEVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",\n    \"event_banner\",\n    \"local_banner_file\",\n    \"start_date\",\n    \"end_date\",\n    \"start_time\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "EVENT_HEADERS",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "EVENT_HEADERS = [\n    \"id\",\n    \"title\",\n    \"description\",\n    \"event_banner\",\n    \"local_banner_file\",\n    \"start_date\",\n    \"end_date\",\n    \"start_time\",\n    \"end_time\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "ATTENDEE_HEADERS",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "ATTENDEE_HEADERS = [\n    \"id\",\n    \"event_id\",\n    \"user_id\",\n    \"fullname\",\n    \"email\",\n    \"phone\",\n    \"graduation_year\",\n    \"status\",\n    \"registered_at\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "FIELD_MAP_ROWS",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "FIELD_MAP_ROWS = [\n    [\"Column\", \"Backend/frontend expectation\"],\n    [\"id\", \"Primary event identifier. Detail view fetches POST /api/get_events with {id}.\"],\n    [\"title\", \"Displayed on event cards, detail pages, admin list, and registration pages.\"],\n    [\"description\", \"Mapped to both frontend description and content.\"],\n    [\"event_banner\", \"Image URL/path used directly by the frontend as Event.image.\"],\n    [\"local_banner_file\", \"Package file path for backend upload convenience; not an API field.\"],\n    [\"start_date / event_date\", \"Frontend accepts start_date first, then event_date fallback.\"],\n    [\"start_time / end_time\", \"Frontend slices to HH:mm if seconds are included.\"],\n    [\"status\", \"upcoming/active -> published; completed/cancelled/draft map directly.\"],",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "NOTE_ROWS",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "NOTE_ROWS = [\n    [\"Dataset\", f\"{EVENT_COUNT} frontend-compatible event seed records\"],\n    [\"Generated\", datetime.now().isoformat(timespec=\"seconds\")],\n    [\"Banner count\", f\"{BANNER_COUNT} PNG files in event-banners/; remaining rows reuse default event image paths\"],\n    [\"Primary read endpoint\", \"POST /api/get_events\"],\n    [\"All events payload currently sent by app\", \"{}\"],\n    [\"Single event payload\", '{\"id\":\"2001\"}'],\n    [\"User events payload\", '{\"user_id\":\"1001\"}'],\n    [\"Attendees endpoint\", \"POST /api/get_event_attendees\"],\n    [\"Attendees payload\", '{\"event_id\":\"2001\",\"status\":\"going\"}; status is optional'],",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "LOCATIONS",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "LOCATIONS = [\n    (\"Lagos Civic Centre, Victoria Island\", \"Lagos\"),\n    (\"Transcorp Hilton, Abuja\", \"Abuja\"),\n    (\"Landmark Event Centre, Lagos\", \"Lagos\"),\n    (\"The Dome, Port Harcourt\", \"Port Harcourt\"),\n    (\"International Conference Centre, Abuja\", \"Abuja\"),\n    (\"MUSON Centre, Lagos\", \"Lagos\"),\n    (\"Ibom Hall, Uyo\", \"Uyo\"),\n    (\"Virtual Event\", \"Online\"),\n    (\"Eko Hotel Convention Centre\", \"Lagos\"),",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "CATEGORIES",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "CATEGORIES = [\n    \"Networking\",\n    \"Mentorship\",\n    \"Fundraising\",\n    \"Career\",\n    \"Wellness\",\n    \"Community\",\n    \"Leadership\",\n    \"Reunion\",\n]",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "TITLES",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "TITLES = [\n    \"Lagos Chapter Sunday Brunch\",\n    \"Abuja Business Breakfast\",\n    \"Port Harcourt Karaoke Night\",\n    \"Diaspora Virtual Townhall\",\n    \"Career Growth Roundtable\",\n    \"Mentorship Match Day\",\n    \"Wellness Walk and Breakfast\",\n    \"Founders and Operators Mixer\",\n    \"Regional Chapter Family Picnic\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "USER_NAMES",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "USER_NAMES = [\n    (\"Ada\", \"Okafor\"),\n    (\"Tunde\", \"Adebayo\"),\n    (\"Ochanya\", \"Agada\"),\n    (\"Terhemba\", \"Ortom\"),\n    (\"Preye\", \"Dokubo\"),\n    (\"Dooshima\", \"Tarka\"),\n    (\"Tonye\", \"Tamuno\"),\n    (\"Ife\", \"Adeyemi\"),\n    (\"Mariam\", \"Bello\"),",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "SPECIAL_EVENTS",
+        "kind": 5,
+        "importPath": "scripts.generate_event_seed_package",
+        "description": "scripts.generate_event_seed_package",
+        "peekOfCode": "SPECIAL_EVENTS = [\n    {\n        \"title\": \"Christmas Party 2025\",\n        \"date\": \"2025-12-21\",\n        \"time\": \"17:00:00\",\n        \"category\": \"Social\",\n        \"location\": \"Eko Hotel Convention Centre\",\n        \"city\": \"Lagos\",\n        \"status\": \"completed\",\n        \"attire\": \"Festive\",",
+        "detail": "scripts.generate_event_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "initials",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def initials(first: str, last: str) -> str:\n    return f\"{first[:1]}{last[:1]}\".upper()\ndef avatar_colors(index: int) -> tuple[str, str]:\n    palettes = [\n        (\"#1D4ED8\", \"#DBEAFE\"),\n        (\"#047857\", \"#D1FAE5\"),\n        (\"#B45309\", \"#FEF3C7\"),\n        (\"#BE123C\", \"#FFE4E6\"),\n        (\"#6D28D9\", \"#EDE9FE\"),\n        (\"#0F766E\", \"#CCFBF1\"),",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "avatar_colors",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def avatar_colors(index: int) -> tuple[str, str]:\n    palettes = [\n        (\"#1D4ED8\", \"#DBEAFE\"),\n        (\"#047857\", \"#D1FAE5\"),\n        (\"#B45309\", \"#FEF3C7\"),\n        (\"#BE123C\", \"#FFE4E6\"),\n        (\"#6D28D9\", \"#EDE9FE\"),\n        (\"#0F766E\", \"#CCFBF1\"),\n        (\"#334155\", \"#E2E8F0\"),\n        (\"#A21CAF\", \"#FAE8FF\"),",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "load_font",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def load_font(size: int) -> ImageFont.ImageFont:\n    for path in [\n        \"/System/Library/Fonts/Supplemental/Arial Bold.ttf\",\n        \"/System/Library/Fonts/Supplemental/Arial.ttf\",\n        \"/Library/Fonts/Arial.ttf\",\n    ]:\n        font_path = Path(path)\n        if font_path.exists():\n            return ImageFont.truetype(str(font_path), size=size)\n    return ImageFont.load_default()",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "generate_avatar",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def generate_avatar(path: Path, first: str, last: str, index: int) -> None:\n    size = 512\n    bg, fg = avatar_colors(index)\n    image = Image.new(\"RGB\", (size, size), bg)\n    draw = ImageDraw.Draw(image)\n    for radius, alpha in [(230, 40), (170, 35), (110, 30)]:\n        overlay = Image.new(\"RGBA\", (size, size), (255, 255, 255, 0))\n        overlay_draw = ImageDraw.Draw(overlay)\n        x = 256 + int(math.sin(index + radius) * 90)\n        y = 256 + int(math.cos(index + radius) * 80)",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "make_users",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def make_users() -> list[dict[str, object]]:\n    users = []\n    base_date = datetime(2026, 6, 1, 9, 0, 0)\n    for index in range(USER_COUNT):\n        user_id = 1001 + index\n        first = FIRST_NAMES[index % len(FIRST_NAMES)]\n        last = LAST_NAMES[index % len(LAST_NAMES)]\n        full = f\"{first} {last}\"\n        grad_year = 1995 + (index % 30)\n        city, state, zone, area = CITIES[index % len(CITIES)]",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "cell_ref",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def cell_ref(row: int, col: int) -> str:\n    letters = \"\"\n    while col:\n        col, rem = divmod(col - 1, 26)\n        letters = chr(65 + rem) + letters\n    return f\"{letters}{row}\"\ndef sheet_xml(rows: list[list[object]], col_widths: list[float] | None = None, autofilter: bool = True) -> str:\n    max_col = max((len(row) for row in rows), default=1)\n    col_widths = col_widths or [18.0] * max_col\n    cols = \"\".join(",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "sheet_xml",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def sheet_xml(rows: list[list[object]], col_widths: list[float] | None = None, autofilter: bool = True) -> str:\n    max_col = max((len(row) for row in rows), default=1)\n    col_widths = col_widths or [18.0] * max_col\n    cols = \"\".join(\n        f'<col min=\"{idx}\" max=\"{idx}\" width=\"{width}\" customWidth=\"1\"/>'\n        for idx, width in enumerate(col_widths[:max_col], start=1)\n    )\n    sheet_rows = []\n    for r_idx, row in enumerate(rows, start=1):\n        height = ' ht=\"32\" customHeight=\"1\"' if r_idx == 1 else \"\"",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "workbook_xml",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def workbook_xml(sheet_names: list[str]) -> str:\n    sheets = \"\".join(\n        f'<sheet name=\"{escape(name)}\" sheetId=\"{idx}\" r:id=\"rId{idx}\"/>'\n        for idx, name in enumerate(sheet_names, start=1)\n    )\n    return f'''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\n  <sheets>{sheets}</sheets>\n</workbook>'''\ndef workbook_rels(sheet_count: int) -> str:",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "workbook_rels",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def workbook_rels(sheet_count: int) -> str:\n    relationships = []\n    for idx in range(1, sheet_count + 1):\n        relationships.append(\n            f'<Relationship Id=\"rId{idx}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{idx}.xml\"/>'\n        )\n    relationships.append(\n        f'<Relationship Id=\"rId{sheet_count + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>'\n    )\n    return f'''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "content_types",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def content_types(sheet_count: int) -> str:\n    overrides = \"\".join(\n        f'<Override PartName=\"/xl/worksheets/sheet{idx}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>'\n        for idx in range(1, sheet_count + 1)\n    )\n    return f'''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\n  <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\n  <Default Extension=\"xml\" ContentType=\"application/xml\"/>\n  <Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "root_rels",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def root_rels() -> str:\n    return '''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\n  <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>\n</Relationships>'''\ndef styles_xml() -> str:\n    return '''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\n  <fonts count=\"2\">\n    <font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/><family val=\"2\"/></font>",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "styles_xml",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def styles_xml() -> str:\n    return '''<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\n  <fonts count=\"2\">\n    <font><sz val=\"11\"/><color theme=\"1\"/><name val=\"Calibri\"/><family val=\"2\"/></font>\n    <font><b/><sz val=\"11\"/><color rgb=\"FFFFFFFF\"/><name val=\"Calibri\"/><family val=\"2\"/></font>\n  </fonts>\n  <fills count=\"3\">\n    <fill><patternFill patternType=\"none\"/></fill>\n    <fill><patternFill patternType=\"gray125\"/></fill>",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "write_xlsx",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def write_xlsx(users: list[dict[str, object]]) -> None:\n    user_rows = [HEADERS] + [[user.get(header, \"\") for header in HEADERS] for user in users]\n    notes_rows = [\n        [\"Dataset\", f\"{USER_COUNT} frontend-compatible alumni/user seed records\"],\n        [\"Generated\", datetime.now().isoformat(timespec=\"seconds\")],\n        [\"Avatar count\", f\"{AVATAR_COUNT} PNG files in avatars/; rows without images use default.png\"],\n        [\"Primary read endpoint\", \"POST /api/get_users_by_action\"],\n        [\"Single user payload\", '{\"user_id\":\"1001\"}'],\n        [\"Admin all users payload\", '{\"action_type\":\"all_users\"}'],\n        [\"Current user endpoint\", \"POST /api/get_user_profile with {\\\"user_id\\\":\\\"1001\\\"}\"],",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "main",
+        "kind": 2,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "def main() -> None:\n    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)\n    AVATAR_DIR.mkdir(parents=True, exist_ok=True)\n    users = make_users()\n    for idx, user in enumerate(users[:AVATAR_COUNT]):\n        generate_avatar(AVATAR_DIR / f\"user_{user['user_id']}.png\", str(user[\"first_name\"]), str(user[\"last_name\"]), idx)\n    write_xlsx(users)\n    print(f\"Workbook: {WORKBOOK_PATH}\")\n    print(f\"Users: {len(users)}\")\n    print(f\"Avatars: {len(list(AVATAR_DIR.glob('*.png')))}\")",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "ROOT",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "ROOT = Path(__file__).resolve().parents[1]\nOUTPUT_DIR = ROOT / \"outputs\" / \"user-seed-demo\"\nAVATAR_DIR = OUTPUT_DIR / \"avatars\"\nUSER_COUNT = 100\nAVATAR_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"users_seed_{USER_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "OUTPUT_DIR",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "OUTPUT_DIR = ROOT / \"outputs\" / \"user-seed-demo\"\nAVATAR_DIR = OUTPUT_DIR / \"avatars\"\nUSER_COUNT = 100\nAVATAR_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"users_seed_{USER_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "AVATAR_DIR",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "AVATAR_DIR = OUTPUT_DIR / \"avatars\"\nUSER_COUNT = 100\nAVATAR_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"users_seed_{USER_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",\n    \"Kelechi\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "USER_COUNT",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "USER_COUNT = 100\nAVATAR_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"users_seed_{USER_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",\n    \"Kelechi\",\n    \"Ife\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "AVATAR_COUNT",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "AVATAR_COUNT = 40\nWORKBOOK_PATH = OUTPUT_DIR / f\"users_seed_{USER_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",\n    \"Kelechi\",\n    \"Ife\",\n    \"Damilola\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "WORKBOOK_PATH",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "WORKBOOK_PATH = OUTPUT_DIR / f\"users_seed_{USER_COUNT}.xlsx\"\nRANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",\n    \"Kelechi\",\n    \"Ife\",\n    \"Damilola\",\n    \"Chidi\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "RANDOM",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "RANDOM = random.Random(20260828)\nFIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",\n    \"Kelechi\",\n    \"Ife\",\n    \"Damilola\",\n    \"Chidi\",\n    \"Zainab\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "FIRST_NAMES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "FIRST_NAMES = [\n    \"Ada\",\n    \"Tunde\",\n    \"Amara\",\n    \"Kelechi\",\n    \"Ife\",\n    \"Damilola\",\n    \"Chidi\",\n    \"Zainab\",\n    \"Tomi\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "LAST_NAMES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "LAST_NAMES = [\n    \"Okafor\",\n    \"Adebayo\",\n    \"Eze\",\n    \"Balogun\",\n    \"Okonkwo\",\n    \"Ibrahim\",\n    \"Nwosu\",\n    \"Ogunleye\",\n    \"Abubakar\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "NICKNAMES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "NICKNAMES = [\n    \"Ace\",\n    \"Bee\",\n    \"Kay\",\n    \"Tee\",\n    \"Nini\",\n    \"Dara\",\n    \"Zee\",\n    \"CJ\",\n    \"Mimi\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "HOUSES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "HOUSES = [\"Blue\", \"Green\", \"Red\", \"Yellow\", \"Purple\"]\nCITIES = [\n    (\"Lagos\", \"Lagos\", \"Lagos Zone\", \"Lekki Phase 1\"),\n    (\"Abuja\", \"FCT\", \"North Central Zone\", \"Wuse 2\"),\n    (\"Port Harcourt\", \"Rivers\", \"South South Zone\", \"GRA Phase 2\"),\n    (\"Enugu\", \"Enugu\", \"South East Zone\", \"Independence Layout\"),\n    (\"Ibadan\", \"Oyo\", \"South West Zone\", \"Bodija\"),\n    (\"Kano\", \"Kano\", \"North West Zone\", \"Nassarawa\"),\n    (\"London\", \"England\", \"Diaspora Zone\", \"Canary Wharf\"),\n    (\"Houston\", \"Texas\", \"Diaspora Zone\", \"Midtown\"),",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "CITIES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "CITIES = [\n    (\"Lagos\", \"Lagos\", \"Lagos Zone\", \"Lekki Phase 1\"),\n    (\"Abuja\", \"FCT\", \"North Central Zone\", \"Wuse 2\"),\n    (\"Port Harcourt\", \"Rivers\", \"South South Zone\", \"GRA Phase 2\"),\n    (\"Enugu\", \"Enugu\", \"South East Zone\", \"Independence Layout\"),\n    (\"Ibadan\", \"Oyo\", \"South West Zone\", \"Bodija\"),\n    (\"Kano\", \"Kano\", \"North West Zone\", \"Nassarawa\"),\n    (\"London\", \"England\", \"Diaspora Zone\", \"Canary Wharf\"),\n    (\"Houston\", \"Texas\", \"Diaspora Zone\", \"Midtown\"),\n]",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "EMPLOYMENT",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "EMPLOYMENT = [\"Employed\", \"Founder\", \"Consultant\", \"Self-employed\", \"Postgraduate Student\"]\nOCCUPATIONS = [\n    (\"Product Management\", \"Technology\", \"Product Manager\"),\n    (\"Software Engineering\", \"Technology\", \"Software Engineer\"),\n    (\"Medicine\", \"Healthcare\", \"Medical Doctor\"),\n    (\"Finance\", \"Financial Services\", \"Finance Manager\"),\n    (\"Legal Practice\", \"Legal Services\", \"Legal Counsel\"),\n    (\"Education\", \"Education\", \"Lecturer\"),\n    (\"Marketing\", \"Media & Communications\", \"Brand Strategist\"),\n    (\"Operations\", \"Logistics\", \"Operations Lead\"),",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "OCCUPATIONS",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "OCCUPATIONS = [\n    (\"Product Management\", \"Technology\", \"Product Manager\"),\n    (\"Software Engineering\", \"Technology\", \"Software Engineer\"),\n    (\"Medicine\", \"Healthcare\", \"Medical Doctor\"),\n    (\"Finance\", \"Financial Services\", \"Finance Manager\"),\n    (\"Legal Practice\", \"Legal Services\", \"Legal Counsel\"),\n    (\"Education\", \"Education\", \"Lecturer\"),\n    (\"Marketing\", \"Media & Communications\", \"Brand Strategist\"),\n    (\"Operations\", \"Logistics\", \"Operations Lead\"),\n    (\"Architecture\", \"Construction\", \"Architect\"),",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "COMPANIES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "COMPANIES = [\n    \"Nubiaville\",\n    \"CivicBridge\",\n    \"BluePeak Labs\",\n    \"Northstar Health\",\n    \"Sterling Advisory\",\n    \"Maple & Stone\",\n    \"Greenline Energy\",\n    \"BrightPath Learning\",\n    \"CloudNest\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "ROLES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "ROLES = [\"member\"] * 58 + [\"admin\", \"approval admin\", \"content admin\", \"storekeeper admin\", \"event admin\", \"finance admin\"] * 2\nDUES = [\"paid\"] * 50 + [\"owing\"] * 12 + [\"overdue\"] * 5 + [\"unknown\"] * 3\nHEADERS = [\n    \"id\",\n    \"user_id\",\n    \"user_code\",\n    \"first_name\",\n    \"last_name\",\n    \"fullname\",\n    \"email\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "DUES",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "DUES = [\"paid\"] * 50 + [\"owing\"] * 12 + [\"overdue\"] * 5 + [\"unknown\"] * 3\nHEADERS = [\n    \"id\",\n    \"user_id\",\n    \"user_code\",\n    \"first_name\",\n    \"last_name\",\n    \"fullname\",\n    \"email\",\n    \"phone\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "HEADERS",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "HEADERS = [\n    \"id\",\n    \"user_id\",\n    \"user_code\",\n    \"first_name\",\n    \"last_name\",\n    \"fullname\",\n    \"email\",\n    \"phone\",\n    \"alternative_phone\",",
+        "detail": "scripts.generate_user_seed_package",
+        "documentation": {}
+    },
+    {
+        "label": "FIELD_MAP_ROWS",
+        "kind": 5,
+        "importPath": "scripts.generate_user_seed_package",
+        "description": "scripts.generate_user_seed_package",
+        "peekOfCode": "FIELD_MAP_ROWS = [\n    [\"Column\", \"Backend/frontend expectation\"],\n    [\"id / user_id\", \"Primary identifier; frontend uses both names in different adapters.\"],\n    [\"fullname\", \"Display name for directory, profile, admin, messages, and birthday references.\"],\n    [\"avatar\", \"Backend upload/storage path. Frontend prefixes VITE_API_BASE_URL for relative paths.\"],\n    [\"local_avatar_file\", \"File path in this package for backend upload convenience; not an API field.\"],\n    [\"graduation_year\", \"Used for class filters, profile display, and dashboard suggested classmates.\"],\n    [\"is_approved, email_verified, active\", \"Use 1/0 values for approval, verification, and account status.\"],\n    [\"user_role\", \"member/admin/admin-category value. Frontend maps admin to super admin.\"],\n    [\"profile_*\", \"Nested profile fields can be imported into user_profiles or equivalent table.\"],",
+        "detail": "scripts.generate_user_seed_package",
         "documentation": {}
     }
 ]

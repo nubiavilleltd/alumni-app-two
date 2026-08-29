@@ -2,6 +2,7 @@ import { contentApiClient } from '@/lib/api/contentClient';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import { mapCarouselImage, mapHomepageContent } from '../api/adapters/homepage.adapter';
 import type { HomepageCarouselImage, HomepageContent } from '../types/homepage.types';
+import { buildHeroTitleWithAnimation } from '../utils/heroTitleAnimation';
 
 export type UpdateHomepageTextInput = {
   greetingTitle: string;
@@ -36,29 +37,72 @@ function greetingVisibilityValue(showGreetingMessage?: boolean) {
   return showGreetingMessage ? '1' : '0';
 }
 
+const fallbackHomepageContent: HomepageContent = {
+  greetingTitle: buildHeroTitleWithAnimation('Welcome Home', 'Everyone'),
+  greetingMessage:
+    'A global community of alumni connected by shared memories, driven by purpose, and committed to lifting the next generation.',
+  carouselImages: [
+    'Property 1=Frame 713.png',
+    'Property 1=Frame 714.png',
+    'Property 1=Frame 715.png',
+    'Property 1=Frame 716.png',
+    'Property 1=Frame 717.png',
+  ].map((fileName, index) => ({
+    id: `fallback-home-${index + 1}`,
+    imageUrl: `/home/${encodeURIComponent(fileName)}`,
+    fileName,
+    altText: `Homepage image ${index + 1}`,
+    sortOrder: index + 1,
+    isHidden: false,
+    showGreetingMessage: true,
+  })),
+};
+
+function withHomepageFallbacks(homepage: HomepageContent): HomepageContent {
+  return {
+    greetingTitle: homepage.greetingTitle || fallbackHomepageContent.greetingTitle,
+    greetingMessage: homepage.greetingMessage || fallbackHomepageContent.greetingMessage,
+    carouselImages:
+      homepage.carouselImages.length > 0
+        ? homepage.carouselImages
+        : fallbackHomepageContent.carouselImages,
+  };
+}
+
+function forceCarouselImagesVisible(homepage: HomepageContent): HomepageContent {
+  return {
+    ...homepage,
+    carouselImages: homepage.carouselImages.map((image) => ({
+      ...image,
+      isHidden: false,
+      showGreetingMessage: true,
+    })),
+  };
+}
+
 export const homepageService = {
   async getHomepage(options?: { admin?: boolean }): Promise<HomepageContent> {
-    const { data } = await contentApiClient.get(API_ENDPOINTS.CONTENT.HOMEPAGE, {
-      headers: options?.admin ? undefined : { 'X-Skip-Bearer': '1' },
-    });
-    const homepage = mapHomepageContent(data);
+    try {
+      const { data } = await contentApiClient.get(API_ENDPOINTS.CONTENT.HOMEPAGE, {
+        headers: options?.admin ? undefined : { 'X-Skip-Bearer': '1' },
+      });
+      const homepage = forceCarouselImagesVisible(withHomepageFallbacks(mapHomepageContent(data)));
 
-    if (
-      !homepage.greetingTitle &&
-      !homepage.greetingMessage &&
-      homepage.carouselImages.length === 0
-    ) {
-      throw new Error('Homepage content response was empty.');
+      if (options?.admin) {
+        return homepage;
+      }
+
+      return {
+        ...homepage,
+        carouselImages: homepage.carouselImages.filter((image) => !image.isHidden),
+      };
+    } catch (error) {
+      if (options?.admin) {
+        throw error;
+      }
+
+      return forceCarouselImagesVisible(fallbackHomepageContent);
     }
-
-    if (options?.admin) {
-      return homepage;
-    }
-
-    return {
-      ...homepage,
-      carouselImages: homepage.carouselImages.filter((image) => !image.isHidden),
-    };
   },
 
   async updateHomepageText(input: UpdateHomepageTextInput): Promise<UpdateHomepageTextInput> {

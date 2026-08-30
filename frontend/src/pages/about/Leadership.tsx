@@ -48,6 +48,22 @@ function MemberCardSkeleton() {
   );
 }
 
+// DEMO OVERRIDE: temporary presentation copy for the About page president message.
+// Remove this after the demo and go back to rendering `president.bio` from the backend.
+const DEMO_PRESIDENT_MESSAGE = `Dear Alumni,
+
+It's hard to believe how quickly the years pass, but no matter how far we've traveled from those school days, this community stays close to my heart - and I know it does for you too.
+
+As President of our Alumni Association, I want to take a moment to simply say: welcome back, and thank you for staying connected. Whether you graduated last year or decades ago, you are part of a story that started long before us and will continue long after.
+
+Our school gave us more than lessons - it gave us friendships, values, and a sense of belonging that has carried many of us through life's biggest moments. Now, as alumni, we have the chance to give that same gift back: to mentor a younger graduate, to attend a reunion, to simply reach out to an old classmate.
+
+I'd love to hear from you - where life has taken you, what you're building, and how we can support you. Our alumni network is only as strong as the alumni who show up for one another.
+
+Thank you for being part of this family. I look forward to reconnecting soon.
+
+With warm regards,`;
+
 export default function Leadership() {
   const { data: members = [], isLoading } = useLeadership();
 
@@ -121,7 +137,7 @@ export function MessageFromPresident() {
                 </div>
 
                 <div className="pt-1">
-                  {president.bio?.split('\n\n').map((para, i) => (
+                  {DEMO_PRESIDENT_MESSAGE.split('\n\n').map((para, i) => (
                     <p key={i} className="mb-6 text-md leading-relaxed text-gray-700">
                       {para}
                     </p>

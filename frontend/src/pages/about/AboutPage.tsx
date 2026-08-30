@@ -83,7 +83,7 @@ export function AboutPage() {
             <div className="flex min-w-0 flex-col items-start min-[1200px]:items-stretch">
               <div className="w-full min-w-[min(100%,360px)] overflow-hidden rounded-[1.8rem] min-[1200px]:h-[clamp(350px,21vw,430px)] min-[1200px]:min-w-0 min-[1200px]:rounded-[2.25rem]">
                 <img
-                  src="/about_people.png"
+                  src="/about_woman.png"
                   alt="Alumni community members"
                   className="block h-[17rem] w-full object-cover object-center sm:h-[21rem] min-[1200px]:h-full"
                 />

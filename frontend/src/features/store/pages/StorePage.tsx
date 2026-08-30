@@ -67,7 +67,7 @@ export function StorePage() {
 
     return (
         <>
-            <SEO title="Alumnae Store" />
+            <SEO title="Alumni Store" />
 
             <section className="min-h-screen bg-[#F8F8F7] py-8">
                 <div className="container-custom mx-auto">
@@ -76,11 +76,11 @@ export function StorePage() {
                     <div className="flex justify-between items-start mb-8">
                         <div>
                             <h1 className="type-section-title">
-                                Alumnae Store
+                                Alumni Store
                             </h1>
 
                             <p className="text-gray-600 max-w-xl">
-                                Celebrate your connection to the alumnae
+                                Celebrate your connection to the alumni
                                 community with exclusive merchandise.
                             </p>
                         </div>

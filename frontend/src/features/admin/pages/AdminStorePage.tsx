@@ -91,15 +91,21 @@ export function AdminStorePage() {
     [products],
   );
 
+
+
   const [page, setPage] = useState(1);
 
   const ITEMS_PER_PAGE = useItemsPerPage();
 
   const filtered = useMemo(() => {
     return products.filter((product) => {
+
+
       const searchMatch = product.product_name
         .toLowerCase()
-        .includes(search.toLowerCase());
+        .includes(search.toLowerCase()) || product.category.toLowerCase()
+          .includes(search.toLowerCase()) || product.price?.toString().toLowerCase()
+            .includes(search.toLowerCase());
 
       const categoryMatch = !category || product.category === category;
 
@@ -112,7 +118,7 @@ export function AdminStorePage() {
       if (a.pin_item === b.pin_item) return 0;
       return a.pin_item ? -1 : 1;
     });
-}, [filtered]);
+  }, [filtered]);
 
   const deleteProduct = useDeleteProduct();
   const pinProduct = usePinProduct();

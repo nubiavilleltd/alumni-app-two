@@ -6,6 +6,7 @@ import { Button } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
 import { ImageUpload } from '@/shared/components/ui/ImageUpload';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { BaseInput } from '@/shared/components/ui/input/BaseInput';
 import { DatePicker } from '@/shared/components/ui/input/DatePicker';
 import { SelectInput } from '@/shared/components/ui/SelectInput';
@@ -953,29 +954,66 @@ export default function JobVacanciesPage() {
   const accessToken = useTokenStore((state) => state.accessToken);
   const { data: vacancies = [], isLoading, isError, error, refetch } = useJobVacancies();
 
-  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+const [currentPage, setCurrentPage] = useState(1);
+const [search, setSearch] = useState('');
 
-  const canPostJob = Boolean(user?.chapterId && accessToken);
+const canPostJob = Boolean(user?.chapterId && accessToken);
 
-  const orderedVacancies = useMemo(
-    () =>
-      [...vacancies].sort(
-        (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime(),
-      ),
-    [vacancies],
-  );
-  const totalPages = Math.max(1, Math.ceil(orderedVacancies.length / JOB_VACANCIES_PER_PAGE));
-  const visibleVacancies = orderedVacancies.slice(
-    (currentPage - 1) * JOB_VACANCIES_PER_PAGE,
-    currentPage * JOB_VACANCIES_PER_PAGE,
-  );
+const orderedVacancies = useMemo(
+  () =>
+    [...vacancies].sort(
+      (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime(),
+    ),
+  [vacancies],
+);
 
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+// const filteredVacancies = useMemo(() => {
+//   const query = search.toLowerCase();
+//   if (!query) return orderedVacancies;
+
+//   return orderedVacancies.filter(
+//     (job) =>
+//       job.title.toLowerCase().includes(query) ||
+//       job.companyName.toLowerCase().includes(query) ||
+//       job.location.toLowerCase().includes(query),
+//   );
+// }, [orderedVacancies, search]);
+
+const filteredVacancies = useMemo(() => {
+  const query = search.toLowerCase().trim();
+  if (!query) return orderedVacancies;
+
+  return orderedVacancies.filter((job) => {
+    const searchableFields = [
+      job.title,
+      job.companyName,
+      job.postedByName ?? '',
+      job.location,
+      formatJobDate(job.createdAt || job.postedAt),
+      getSalaryDisplay(job),
+      ...getJobPillLabels(job),
+    ];
+
+    return searchableFields.some((field) => field.toLowerCase().includes(query));
+  });
+}, [orderedVacancies, search]);
+
+const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / JOB_VACANCIES_PER_PAGE));
+const visibleVacancies = filteredVacancies.slice(
+  (currentPage - 1) * JOB_VACANCIES_PER_PAGE,
+  currentPage * JOB_VACANCIES_PER_PAGE,
+);
+
+useEffect(() => {
+  if (currentPage > totalPages) {
+    setCurrentPage(totalPages);
+  }
+}, [currentPage, totalPages]);
+
+useEffect(() => {
+  setCurrentPage(1);
+}, [search]);
 
   const handleOpenPostModal = () => {
     if (!canPostJob) {
@@ -1001,7 +1039,7 @@ export default function JobVacanciesPage() {
     <>
       <SEO
         title="Job Vacancies"
-        description="Discover exclusive job listings shared with the Alumni Portal."
+        description="Discover exclusive job listings shared with the FGGC Owerri Alumnae Association."
       />
 
       <main className="min-h-full bg-[#F8F8F7] text-[#071116]">
@@ -1034,7 +1072,18 @@ export default function JobVacanciesPage() {
               Post a Job
               <Plus strokeWidth={2.35} />
             </Button>
-          </header>
+      </header>
+
+          {!isLoading && !isError && orderedVacancies.length > 0 ? (
+            <div className="mb-6 w-full sm:max-w-xl">
+              <SearchInput
+                value={search}
+                onValueChange={setSearch}
+                placeholder="Search job vacancies"
+                inputClassName="!h-10 !py-0"
+              />
+            </div>
+          ) : null}
 
           {isLoading ? <JobsLoadingState /> : null}
 
@@ -1060,7 +1109,14 @@ export default function JobVacanciesPage() {
             />
           ) : null}
 
-          {!isLoading && !isError && orderedVacancies.length > 0 ? (
+          {!isLoading && !isError && orderedVacancies.length > 0 && filteredVacancies.length === 0 ? (
+            <EmptyState
+              title="No job vacancies found"
+              description="Try adjusting your search."
+            />
+          ) : null}
+
+          {!isLoading && !isError && filteredVacancies.length > 0 ? (
             <>
               <div className={jobsGridClassName}>
                 {visibleVacancies.map((job, index) => (

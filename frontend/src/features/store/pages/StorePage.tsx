@@ -45,6 +45,8 @@ export function StorePage() {
         return products.filter((product) => {
             const searchMatch = product.name
                 .toLowerCase()
+                .includes(search.toLowerCase()) || product.category.toLowerCase()
+                .includes(search.toLowerCase()) || product.price?.toString().toLowerCase()
                 .includes(search.toLowerCase());
 
             const categoryMatch =
@@ -65,7 +67,7 @@ export function StorePage() {
 
     return (
         <>
-            <SEO title="Alumni Store" />
+            <SEO title="Alumnae Store" />
 
             <section className="min-h-screen bg-[#F8F8F7] py-8">
                 <div className="container-custom mx-auto">
@@ -74,11 +76,11 @@ export function StorePage() {
                     <div className="flex justify-between items-start mb-8">
                         <div>
                             <h1 className="type-section-title">
-                                Alumni Store
+                                Alumnae Store
                             </h1>
 
                             <p className="text-gray-600 max-w-xl">
-                                Celebrate your connection to the alumni
+                                Celebrate your connection to the alumnae
                                 community with exclusive merchandise.
                             </p>
                         </div>

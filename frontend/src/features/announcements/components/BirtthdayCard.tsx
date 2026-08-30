@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { Birthday } from '../types/announcement.types';
+import { Link } from 'react-router-dom';
 
 
 interface BirthdayCardProps {
@@ -8,6 +9,7 @@ interface BirthdayCardProps {
 }
 
 const FALLBACK_AVATAR = '/default.png';
+
 
 export function BirthdayCard({ person, onDismiss }: BirthdayCardProps) {
   return (
@@ -23,7 +25,8 @@ export function BirthdayCard({ person, onDismiss }: BirthdayCardProps) {
         </button>
       )}
 
-      <div
+      <Link
+        to={`/messages?threadId=${person.userId}`}
         // className="relative flex aspect-[9/10] w-full flex-col items-center overflow-hidden bg-cover bg-top bg-no-repeat px-4 pb-4 pt-[15%] text-center"
         className="relative flex aspect-[7/8] w-full flex-col items-center overflow-hidden bg-cover bg-top bg-no-repeat px-4 pb-4 pt-[8%] text-center"
         style={{ backgroundImage: "url('/birthday-bg-complete.png')" }}
@@ -45,13 +48,13 @@ export function BirthdayCard({ person, onDismiss }: BirthdayCardProps) {
           </p>
           <p className="text-base font-bold leading-tight sm:text-lg">{person.fullName}</p>
          {person.nameInSchool && <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
-            formerly {person.nameInSchool}
+            nee {person.nameInSchool}
           </p>}
           <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
             {person.classLabel}
           </p>
         </div>
-      </div>
+      </Link>
     </div>
   );
 }

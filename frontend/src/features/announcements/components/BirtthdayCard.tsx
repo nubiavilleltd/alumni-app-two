@@ -25,9 +25,7 @@ export function BirthdayCard({ person, onDismiss }: BirthdayCardProps) {
         </button>
       )}
 
-      <Link
-        to={`/messages?threadId=${person.userId}`}
-        // className="relative flex aspect-[9/10] w-full flex-col items-center overflow-hidden bg-cover bg-top bg-no-repeat px-4 pb-4 pt-[15%] text-center"
+      <div
         className="relative flex aspect-[7/8] w-full flex-col items-center overflow-hidden bg-cover bg-top bg-no-repeat px-4 pb-4 pt-[8%] text-center"
         style={{ backgroundImage: "url('/birthday-bg-complete.png')" }}
       >
@@ -46,15 +44,21 @@ export function BirthdayCard({ person, onDismiss }: BirthdayCardProps) {
           <p className="text-[0.7rem] font-medium leading-tight sm:text-xs">
             It&apos;s her birthday today!
           </p>
+          <Link
+            to={`/messages?threadId=${person.userId}`}
+            className="mt-1.5 mb-1 rounded-full bg-white/20 px-3 py-1 text-[0.7rem] font-semibold leading-tight text-white backdrop-blur-sm transition-colors hover:bg-white/30 sm:text-xs"
+          >
+            Send a greeting
+          </Link>
           <p className="text-base font-bold leading-tight sm:text-lg">{person.fullName}</p>
-         {person.nameInSchool && <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
+          {person.nameInSchool && <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
             nee {person.nameInSchool}
           </p>}
           <p className="text-xs font-medium leading-tight text-white/85 sm:text-sm">
             {person.classLabel}
           </p>
         </div>
-      </Link>
+      </div>
     </div>
   );
 }

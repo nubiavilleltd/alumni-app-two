@@ -165,6 +165,7 @@ export default function EditEventPage() {
       end_time: '',
       visibility: 'public',
       status: 'upcoming',
+      show_in_announcements: false,
     },
   });
 
@@ -213,6 +214,7 @@ export default function EditEventPage() {
         end_time: event.endTime || '',
         visibility: (event as any).visibility || 'public',
         status: (event as any).status || 'upcoming',
+        show_in_announcements: event.showInAnnouncements ?? false,
       });
       // Pre-fill banner preview with current image if one exists
       if (event.image) setBannerPreview(event.image);
@@ -296,6 +298,7 @@ export default function EditEventPage() {
       end_time: data.end_time,
       visibility: data.visibility,
       status: data.status,
+      show_in_announcements: data.show_in_announcements,
       event_banner: bannerFile,
     });
 
@@ -391,8 +394,7 @@ export default function EditEventPage() {
     });
   };
 
-
-  const canUserManageEvents = canManageEvents(currentUser)
+  const canUserManageEvents = canManageEvents(currentUser);
 
   // ── Access guard ──────────────────────────────────────────────────────────
 
@@ -668,6 +670,26 @@ export default function EditEventPage() {
                 {...register('max_attendees', { valueAsNumber: true })}
               /> */}
             </div>
+
+            <label
+              className={`flex items-start gap-3 rounded-2xl border border-primary-100 bg-primary-50/50 px-4 py-4 ${isPast ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+            >
+              <input
+                type="checkbox"
+                disabled={isPast}
+                className="mt-1 h-4 w-4 accent-primary-500"
+                {...register('show_in_announcements')}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-gray-800">
+                  Show this event in announcements
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500">
+                  This keeps the event as the single source of truth while also displaying it in the
+                  public announcements feed.
+                </span>
+              </span>
+            </label>
 
             {!isPast && (
               <div className="rounded-[1.75rem] border border-primary-100 bg-primary-50/50 px-5 py-5">

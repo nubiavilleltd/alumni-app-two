@@ -1,8 +1,5 @@
 // features/marketplace/types/marketplace.types.ts
 
-
-
-
 // ─── Socials ──────────────────────────────────────────────────────────────────
 export interface Socials {
   instagram?: string;
@@ -18,6 +15,9 @@ export interface Business {
   // ── Relational keys ──────────────────────────────────────────────────────
   businessId: string; // 'BIZ-{year}-{seq}' — stable unique ID
   ownerId: string; // FK → MockAuthAccount.memberId
+  chapterId?: string;
+  chapterName?: string;
+  year?: string;
 
   // ── Identity ──────────────────────────────────────────────────────────────
   slug: string;
@@ -42,6 +42,10 @@ export interface Business {
 export interface GetMarketplaceParams {
   search?: string;
   category?: string;
+  chapterId?: string;
+  year?: string;
+  userId?: string;
+  status?: string;
   page?: number;
 }
 

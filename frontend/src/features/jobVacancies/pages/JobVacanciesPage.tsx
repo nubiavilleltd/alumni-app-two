@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BriefcaseBusiness, Plus, SearchX, X } from 'lucide-react';
+import { BriefcaseBusiness, Plus, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
 import { ImageUpload } from '@/shared/components/ui/ImageUpload';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import {
+  AdvancedFiltersPanel,
+  type AdvancedFilterOption,
+} from '@/shared/components/ui/AdvancedFiltersPanel';
 import { BaseInput } from '@/shared/components/ui/input/BaseInput';
 import { DatePicker } from '@/shared/components/ui/input/DatePicker';
 import { SelectInput } from '@/shared/components/ui/SelectInput';
@@ -67,6 +71,33 @@ const jobCardTones: JobCardTone[] = ['mint', 'rose', 'slate', 'lavender', 'sky',
 const MAX_KEYWORDS = 10;
 const MAX_KEYWORD_LENGTH = 30;
 const JOB_VACANCIES_PER_PAGE = 12;
+
+const SALARY_FILTER_OPTIONS = [
+  { label: 'Under 100,000', value: 'under-100000' },
+  { label: '100,000–250,000', value: '100000-250000' },
+  { label: '250,000–500,000', value: '250000-500000' },
+  { label: '500,000 and above', value: '500000-plus' },
+  { label: 'Salary not specified', value: 'not-specified' },
+];
+
+const DEADLINE_FILTER_OPTIONS = [
+  { label: 'Open applications', value: 'open' },
+  { label: 'Closing in 30 days', value: 'closing-soon' },
+  { label: 'Expired applications', value: 'expired' },
+];
+
+type JobFilterState = {
+  search: string;
+  salary: string;
+  jobType: string;
+  workplace: string;
+  expertise: string;
+  location: string;
+  currency: string;
+  deadline: string;
+};
+
+type JobFacetField = Exclude<keyof JobFilterState, 'search'>;
 
 const jobPanelToneClassNames: Record<JobCardTone, string> = {
   mint: 'bg-[#e5f6f3]',
@@ -148,6 +179,95 @@ function getSalaryFormValue(value: string) {
   const numericValue = value.replace(/[^\d.]/g, '');
 
   return numericValue || value;
+}
+
+function getSalaryAmounts(value: string) {
+  return (value.match(/[\d,]+(?:\.\d+)?/g) ?? [])
+    .map((amount) => Number(amount.replace(/,/g, '')))
+    .filter((amount) => Number.isFinite(amount));
+}
+
+function matchesSalaryFilter(salary: string, filter: string) {
+  if (!filter) return true;
+
+  const amounts = getSalaryAmounts(salary);
+  if (filter === 'not-specified') return amounts.length === 0;
+  if (amounts.length === 0) return false;
+
+  const lowest = Math.min(...amounts);
+  const highest = Math.max(...amounts);
+  const ranges: Record<string, { min: number; max: number }> = {
+    'under-100000': { min: 0, max: 100000 },
+    '100000-250000': { min: 100000, max: 250000 },
+    '250000-500000': { min: 250000, max: 500000 },
+    '500000-plus': { min: 500000, max: Number.POSITIVE_INFINITY },
+  };
+  const range = ranges[filter];
+  if (!range) return true;
+
+  return lowest <= range.max && highest >= range.min;
+}
+
+function matchesDeadlineFilter(deadline: string, filter: string) {
+  if (!filter) return true;
+
+  const deadlineDate = new Date(deadline);
+  if (Number.isNaN(deadlineDate.getTime())) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const closingSoonDate = new Date(today);
+  closingSoonDate.setDate(closingSoonDate.getDate() + 30);
+
+  if (filter === 'expired') return deadlineDate < today;
+  if (filter === 'closing-soon') return deadlineDate >= today && deadlineDate <= closingSoonDate;
+  return deadlineDate >= today;
+}
+
+function matchesJobVacancyFilters(job: JobVacancyViewModel, filters: JobFilterState): boolean {
+  const query = filters.search.trim().toLowerCase();
+  const searchableFields = [
+    job.title,
+    job.companyName,
+    job.postedByName ?? '',
+    job.location,
+    formatJobDate(job.createdAt || job.postedAt),
+    getSalaryDisplay(job),
+    ...getJobPillLabels(job),
+  ];
+
+  return (
+    (!query || searchableFields.some((field) => field.toLowerCase().includes(query))) &&
+    (!filters.salary || matchesSalaryFilter(job.salary, filters.salary)) &&
+    (!filters.jobType || job.jobType === filters.jobType) &&
+    (!filters.workplace || job.workplaceType === filters.workplace) &&
+    (!filters.expertise || job.levelOfExpertise === filters.expertise) &&
+    (!filters.location || job.location.trim().toLowerCase() === filters.location.toLowerCase()) &&
+    (!filters.currency || job.currency === filters.currency) &&
+    (!filters.deadline || matchesDeadlineFilter(job.postedAt, filters.deadline))
+  );
+}
+
+function getFacetOptions<T extends { label: string; value: string }>(
+  options: T[],
+  field: JobFacetField,
+  jobs: JobVacancyViewModel[],
+  filters: JobFilterState,
+): AdvancedFilterOption[] {
+  return options.map((option) => {
+    const count = jobs.filter((job) =>
+      matchesJobVacancyFilters(job, {
+        ...filters,
+        [field]: option.value,
+      }),
+    ).length;
+
+    return {
+      ...option,
+      count,
+      disabled: count === 0 && option.value !== filters[field],
+    };
+  });
 }
 
 function jobToFormState(job?: JobVacancyViewModel | null): JobFormState {
@@ -954,66 +1074,123 @@ export default function JobVacanciesPage() {
   const accessToken = useTokenStore((state) => state.accessToken);
   const { data: vacancies = [], isLoading, isError, error, refetch } = useJobVacancies();
 
-const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-const [currentPage, setCurrentPage] = useState(1);
-const [search, setSearch] = useState('');
+  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [salaryFilter, setSalaryFilter] = useState('');
+  const [jobTypeFilter, setJobTypeFilter] = useState('');
+  const [workplaceFilter, setWorkplaceFilter] = useState('');
+  const [expertiseFilter, setExpertiseFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [currencyFilter, setCurrencyFilter] = useState('');
+  const [deadlineFilter, setDeadlineFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
-const canPostJob = Boolean(user?.chapterId && accessToken);
+  const canPostJob = Boolean(user?.chapterId && accessToken);
 
-const orderedVacancies = useMemo(
-  () =>
-    [...vacancies].sort(
-      (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime(),
-    ),
-  [vacancies],
-);
+  const orderedVacancies = useMemo(
+    () =>
+      [...vacancies].sort(
+        (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime(),
+      ),
+    [vacancies],
+  );
 
-// const filteredVacancies = useMemo(() => {
-//   const query = search.toLowerCase();
-//   if (!query) return orderedVacancies;
+  const filterState = useMemo<JobFilterState>(
+    () => ({
+      search,
+      salary: salaryFilter,
+      jobType: jobTypeFilter,
+      workplace: workplaceFilter,
+      expertise: expertiseFilter,
+      location: locationFilter,
+      currency: currencyFilter,
+      deadline: deadlineFilter,
+    }),
+    [
+      currencyFilter,
+      deadlineFilter,
+      expertiseFilter,
+      jobTypeFilter,
+      locationFilter,
+      salaryFilter,
+      search,
+      workplaceFilter,
+    ],
+  );
 
-//   return orderedVacancies.filter(
-//     (job) =>
-//       job.title.toLowerCase().includes(query) ||
-//       job.companyName.toLowerCase().includes(query) ||
-//       job.location.toLowerCase().includes(query),
-//   );
-// }, [orderedVacancies, search]);
+  // const filteredVacancies = useMemo(() => {
+  //   const query = search.toLowerCase();
+  //   if (!query) return orderedVacancies;
 
-const filteredVacancies = useMemo(() => {
-  const query = search.toLowerCase().trim();
-  if (!query) return orderedVacancies;
+  //   return orderedVacancies.filter(
+  //     (job) =>
+  //       job.title.toLowerCase().includes(query) ||
+  //       job.companyName.toLowerCase().includes(query) ||
+  //       job.location.toLowerCase().includes(query),
+  //   );
+  // }, [orderedVacancies, search]);
 
-  return orderedVacancies.filter((job) => {
-    const searchableFields = [
-      job.title,
-      job.companyName,
-      job.postedByName ?? '',
-      job.location,
-      formatJobDate(job.createdAt || job.postedAt),
-      getSalaryDisplay(job),
-      ...getJobPillLabels(job),
-    ];
+  const filteredVacancies = useMemo(() => {
+    return orderedVacancies.filter((job) => matchesJobVacancyFilters(job, filterState));
+  }, [filterState, orderedVacancies]);
 
-    return searchableFields.some((field) => field.toLowerCase().includes(query));
-  });
-}, [orderedVacancies, search]);
+  const facetOptions = useMemo(() => {
+    const locationValues = Array.from(
+      new Set(vacancies.map((job) => job.location.trim()).filter(Boolean)),
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
+    const currencyValues = Array.from(new Set(vacancies.map((job) => job.currency).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
 
-const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / JOB_VACANCIES_PER_PAGE));
-const visibleVacancies = filteredVacancies.slice(
-  (currentPage - 1) * JOB_VACANCIES_PER_PAGE,
-  currentPage * JOB_VACANCIES_PER_PAGE,
-);
+    return {
+      salary: getFacetOptions(SALARY_FILTER_OPTIONS, 'salary', vacancies, filterState),
+      jobType: getFacetOptions(JOB_TYPE_OPTIONS, 'jobType', vacancies, filterState),
+      workplace: getFacetOptions(WORKPLACE_TYPE_OPTIONS, 'workplace', vacancies, filterState),
+      expertise: getFacetOptions(LEVEL_OF_EXPERTISE_OPTIONS, 'expertise', vacancies, filterState),
+      location: getFacetOptions(locationValues, 'location', vacancies, filterState),
+      currency: getFacetOptions(currencyValues, 'currency', vacancies, filterState),
+      deadline: getFacetOptions(DEADLINE_FILTER_OPTIONS, 'deadline', vacancies, filterState),
+    };
+  }, [filterState, vacancies]);
 
-useEffect(() => {
-  if (currentPage > totalPages) {
-    setCurrentPage(totalPages);
-  }
-}, [currentPage, totalPages]);
+  const activeAdvancedFilterCount = [
+    salaryFilter,
+    jobTypeFilter,
+    workplaceFilter,
+    expertiseFilter,
+    locationFilter,
+    currencyFilter,
+    deadlineFilter,
+  ].filter(Boolean).length;
+  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
 
-useEffect(() => {
-  setCurrentPage(1);
-}, [search]);
+  const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / JOB_VACANCIES_PER_PAGE));
+  const visibleVacancies = filteredVacancies.slice(
+    (currentPage - 1) * JOB_VACANCIES_PER_PAGE,
+    currentPage * JOB_VACANCIES_PER_PAGE,
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    currencyFilter,
+    deadlineFilter,
+    expertiseFilter,
+    jobTypeFilter,
+    locationFilter,
+    salaryFilter,
+    search,
+    workplaceFilter,
+  ]);
 
   const handleOpenPostModal = () => {
     if (!canPostJob) {
@@ -1033,6 +1210,29 @@ useEffect(() => {
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setSalaryFilter('');
+    setJobTypeFilter('');
+    setWorkplaceFilter('');
+    setExpertiseFilter('');
+    setLocationFilter('');
+    setCurrencyFilter('');
+    setDeadlineFilter('');
+    setCurrentPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    if (key === 'salary') setSalaryFilter(value);
+    if (key === 'jobType') setJobTypeFilter(value);
+    if (key === 'workplace') setWorkplaceFilter(value);
+    if (key === 'expertise') setExpertiseFilter(value);
+    if (key === 'location') setLocationFilter(value);
+    if (key === 'currency') setCurrencyFilter(value);
+    if (key === 'deadline') setDeadlineFilter(value);
+    setCurrentPage(1);
   };
 
   return (
@@ -1072,17 +1272,121 @@ useEffect(() => {
               Post a Job
               <Plus strokeWidth={2.35} />
             </Button>
-      </header>
+          </header>
 
           {!isLoading && !isError && orderedVacancies.length > 0 ? (
-            <div className="mb-6 w-full sm:max-w-xl">
-              <SearchInput
-                value={search}
-                onValueChange={setSearch}
-                placeholder="Search job vacancies"
-                inputClassName="!h-10 !py-0"
-              />
-            </div>
+            <>
+              <div className="mb-4 flex w-full items-center gap-3">
+                <div className="min-w-0 flex-1 sm:max-w-xl">
+                  <SearchInput
+                    value={search}
+                    onValueChange={setSearch}
+                    placeholder="Search job vacancies"
+                    inputClassName="!h-10 !py-0"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                  aria-expanded={showAdvancedFilters}
+                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:px-4 sm:text-sm"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">Advanced filters</span>
+                  {activeAdvancedFilterCount > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                      {activeAdvancedFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {showAdvancedFilters && (
+                <AdvancedFiltersPanel
+                  title="Refine job vacancies"
+                  description="Narrow opportunities by salary, role type, workplace, experience, location, or deadline."
+                  gridClassName="grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                  fields={[
+                    {
+                      key: 'salary',
+                      kind: 'select',
+                      label: 'Salary range',
+                      value: salaryFilter,
+                      placeholder: 'Any salary',
+                      options: facetOptions.salary,
+                    },
+                    {
+                      key: 'jobType',
+                      kind: 'select',
+                      label: 'Job type',
+                      value: jobTypeFilter,
+                      placeholder: 'All job types',
+                      options: facetOptions.jobType,
+                    },
+                    {
+                      key: 'workplace',
+                      kind: 'select',
+                      label: 'Workplace',
+                      value: workplaceFilter,
+                      placeholder: 'All workplaces',
+                      options: facetOptions.workplace,
+                    },
+                    {
+                      key: 'expertise',
+                      kind: 'select',
+                      label: 'Experience level',
+                      value: expertiseFilter,
+                      placeholder: 'All experience levels',
+                      options: facetOptions.expertise,
+                    },
+                    {
+                      key: 'location',
+                      kind: 'select',
+                      label: 'Location',
+                      value: locationFilter,
+                      placeholder: 'All locations',
+                      options: facetOptions.location,
+                    },
+                    {
+                      key: 'currency',
+                      kind: 'select',
+                      label: 'Currency',
+                      value: currencyFilter,
+                      placeholder: 'All currencies',
+                      options: facetOptions.currency,
+                    },
+                    {
+                      key: 'deadline',
+                      kind: 'select',
+                      label: 'Application deadline',
+                      value: deadlineFilter,
+                      placeholder: 'Any deadline',
+                      options: facetOptions.deadline,
+                    },
+                  ]}
+                  onFieldChange={handleAdvancedFilterChange}
+                  onReset={clearAllFilters}
+                  hasActiveFilters={activeAdvancedFilterCount > 0}
+                />
+              )}
+
+              {hasActiveFilters && (
+                <div className="mb-6 mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                  <span>
+                    Showing {filteredVacancies.length}{' '}
+                    {filteredVacancies.length === 1 ? 'job vacancy' : 'job vacancies'} matching your
+                    filters
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+            </>
           ) : null}
 
           {isLoading ? <JobsLoadingState /> : null}
@@ -1109,10 +1413,13 @@ useEffect(() => {
             />
           ) : null}
 
-          {!isLoading && !isError && orderedVacancies.length > 0 && filteredVacancies.length === 0 ? (
+          {!isLoading &&
+          !isError &&
+          orderedVacancies.length > 0 &&
+          filteredVacancies.length === 0 ? (
             <EmptyState
               title="No job vacancies found"
-              description="Try adjusting your search."
+              description="Try adjusting your search or filters."
             />
           ) : null}
 

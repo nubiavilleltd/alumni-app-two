@@ -11,8 +11,10 @@ import {
   mapAnnouncementToDeletePayload,
   mapAnnouncementToUpdatePayload,
   mapBackendAnnouncementList,
+  mapEventToAnnouncement,
   mapGetAnnouncementsPayload,
 } from '@/features/announcements/api/adapters/announcement.adapter';
+import { eventsService } from '@/features/events/services/event.service';
 import type {
   AnnouncementMutationInput,
   AnnouncementType,
@@ -56,6 +58,31 @@ async function fetchAnnouncementsByTypeFallback(
 }
 
 export const announcementService = {
+  async getPublicFeed(params?: GetAnnouncementsParams): Promise<NewsItem[]> {
+    const [announcementsResult, eventsResult] = await Promise.allSettled([
+      announcementService.getAll(params),
+      // Events are intentionally fetched without filter params so the temporary marker
+      // can be evaluated client-side until the backend has a first-class boolean field.
+      eventsService.getAll(),
+    ]);
+
+    if (announcementsResult.status === 'rejected') {
+      throw announcementsResult.reason;
+    }
+
+    const announcements = announcementsResult.value;
+    const events =
+      eventsResult.status === 'fulfilled'
+        ? eventsResult.value
+            .filter((event) => event.showInAnnouncements)
+            .map(mapEventToAnnouncement)
+        : [];
+
+    return [...announcements, ...events].sort(
+      (a, b) => new Date(b.startsAt || b.date).getTime() - new Date(a.startsAt || a.date).getTime(),
+    );
+  },
+
   async getAll(params?: GetAnnouncementsParams): Promise<NewsItem[]> {
     const canUseTypeFallback = !params?.type;
 
@@ -148,7 +175,6 @@ export const announcementService = {
     }
   },
 
-
   async delete(id: string): Promise<void> {
     try {
       const payload = mapAnnouncementToDeletePayload(id);
@@ -164,17 +190,12 @@ export const announcementService = {
     }
   },
 
-
   async getBirthdays(): Promise<Birthday[]> {
-
     try {
       const { data } = await apiClient.post(API_ENDPOINTS.ANNOUNCEMENTS.BIRTHDAYS);
-      return data.birthdays.map(adaptBirthday)
-
+      return data.birthdays.map(adaptBirthday);
     } catch (error) {
       throw handleApiError(error, 'Unable to load birthdays.', 'announcementService.getAll');
     }
   },
-
-
 };

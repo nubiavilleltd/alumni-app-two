@@ -128,6 +128,7 @@ export default function CreateEventPage() {
       end_time: '',
       visibility: 'public',
       status: 'upcoming',
+      show_in_announcements: false,
       // max_attendees: 0,
     },
   });
@@ -195,6 +196,7 @@ export default function CreateEventPage() {
         end_time: data.end_time,
         visibility: data.visibility,
         status: data.status,
+        show_in_announcements: data.show_in_announcements,
         // max_attendees: data.max_attendees,
         event_banner: bannerFile,
       },
@@ -235,6 +237,7 @@ export default function CreateEventPage() {
                 start_time: data.start_time,
                 end_time: data.end_time,
                 visibility: data.visibility,
+                show_in_announcements: data.show_in_announcements,
                 // max_attendees: data.max_attendees,
                 status: data.status,
                 tags: [EVENT_SURVEY_TAG],
@@ -265,8 +268,7 @@ export default function CreateEventPage() {
     }
   };
 
-
-  const canUserManageEvents = canManageEvents(currentUser)
+  const canUserManageEvents = canManageEvents(currentUser);
 
   if (!canUserManageEvents) {
     return (
@@ -472,6 +474,23 @@ export default function CreateEventPage() {
                 {...register('max_attendees', { valueAsNumber: true })}
               /> */}
             </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-primary-100 bg-primary-50/50 px-4 py-4">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary-500"
+                {...register('show_in_announcements')}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-gray-800">
+                  Show this event in announcements
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500">
+                  This keeps the event as the single source of truth while also displaying it in the
+                  public announcements feed.
+                </span>
+              </span>
+            </label>
 
             <div className="rounded-[1.75rem] px-5 py-5">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

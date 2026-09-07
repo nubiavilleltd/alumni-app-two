@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BriefcaseBusiness, Plus, SearchX, Trash2, UserX } from 'lucide-react';
+import { BriefcaseBusiness, Plus, SearchX, SlidersHorizontal, Trash2, UserX } from 'lucide-react';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { DeleteConfirmModal } from '@/features/events/components/DeleteConfirmModal';
 import { toast } from '@/shared/components/ui/Toast';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
@@ -29,6 +31,46 @@ const myJobCardDeleteActionClassName =
   'inline-flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[#c81e1e] transition-colors hover:bg-red-50 hover:text-[#ab1b1b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100';
 const MY_JOB_POSTS_PER_PAGE = 8;
 
+type MyJobPostFilterState = {
+  search: string;
+  status: string;
+  jobType: string;
+  workplace: string;
+  location: string;
+};
+
+const JOB_POST_STATUS_OPTIONS = [
+  { label: 'Active posts', value: 'active' },
+  { label: 'Expired posts', value: 'expired' },
+];
+
+function isExpiredJobPost(job: JobVacancyViewModel) {
+  const deadline = new Date(job.postedAt);
+  return !Number.isNaN(deadline.getTime()) && deadline < new Date();
+}
+
+function matchesMyJobPostFilters(job: JobVacancyViewModel, filters: MyJobPostFilterState) {
+  const query = filters.search.trim().toLowerCase();
+  const searchableFields = [
+    job.title,
+    job.companyName,
+    job.location,
+    job.jobType,
+    job.workplaceType,
+    job.levelOfExpertise,
+    ...job.tags,
+  ];
+
+  return (
+    (!query || searchableFields.some((field) => field.toLowerCase().includes(query))) &&
+    (!filters.status ||
+      (filters.status === 'expired' ? isExpiredJobPost(job) : !isExpiredJobPost(job))) &&
+    (!filters.jobType || job.jobType === filters.jobType) &&
+    (!filters.workplace || job.workplaceType === filters.workplace) &&
+    (!filters.location || job.location === filters.location)
+  );
+}
+
 function useCurrentOwnerIds() {
   const user = useIdentityStore((state) => state.user);
 
@@ -51,6 +93,12 @@ export default function MyJobPostsPage() {
   const [editingJob, setEditingJob] = useState<JobVacancyViewModel | null>(null);
   const [jobToDelete, setJobToDelete] = useState<JobVacancyViewModel | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [jobTypeFilter, setJobTypeFilter] = useState('');
+  const [workplaceFilter, setWorkplaceFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const myVacancies = useMemo(
     () =>
@@ -59,8 +107,38 @@ export default function MyJobPostsPage() {
         .sort((a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime()),
     [ownerIds, vacancies],
   );
-  const totalPages = Math.max(1, Math.ceil(myVacancies.length / MY_JOB_POSTS_PER_PAGE));
-  const visibleVacancies = myVacancies.slice(
+  const filterState = useMemo<MyJobPostFilterState>(
+    () => ({
+      search,
+      status: statusFilter,
+      jobType: jobTypeFilter,
+      workplace: workplaceFilter,
+      location: locationFilter,
+    }),
+    [jobTypeFilter, locationFilter, search, statusFilter, workplaceFilter],
+  );
+  const filteredVacancies = useMemo(
+    () => myVacancies.filter((job) => matchesMyJobPostFilters(job, filterState)),
+    [filterState, myVacancies],
+  );
+  const facetOptions = useMemo(() => {
+    const locations = Array.from(
+      new Set(myVacancies.map((job) => job.location.trim()).filter(Boolean)),
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
+
+    return { locations };
+  }, [myVacancies]);
+  const activeAdvancedFilterCount = [
+    statusFilter,
+    jobTypeFilter,
+    workplaceFilter,
+    locationFilter,
+  ].filter(Boolean).length;
+  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
+  const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / MY_JOB_POSTS_PER_PAGE));
+  const visibleVacancies = filteredVacancies.slice(
     (currentPage - 1) * MY_JOB_POSTS_PER_PAGE,
     currentPage * MY_JOB_POSTS_PER_PAGE,
   );
@@ -70,6 +148,10 @@ export default function MyJobPostsPage() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [jobTypeFilter, locationFilter, search, statusFilter, workplaceFilter]);
 
   const handleDeleteVacancy = async () => {
     if (!jobToDelete) return;
@@ -90,6 +172,22 @@ export default function MyJobPostsPage() {
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setJobTypeFilter('');
+    setWorkplaceFilter('');
+    setLocationFilter('');
+    setCurrentPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    if (key === 'status') setStatusFilter(value);
+    if (key === 'jobType') setJobTypeFilter(value);
+    if (key === 'workplace') setWorkplaceFilter(value);
+    if (key === 'location') setLocationFilter(value);
   };
 
   const hasOwnerIdentity = ownerIds.size > 0;
@@ -123,6 +221,105 @@ export default function MyJobPostsPage() {
               <Plus strokeWidth={2.35} />
             </Button>
           </header>
+
+          {!isLoading && !isError && myVacancies.length > 0 && (
+            <>
+              <div className="mb-5 flex w-full items-center gap-3">
+                <div className="min-w-0 flex-1 sm:max-w-xl">
+                  <SearchInput
+                    value={search}
+                    onValueChange={setSearch}
+                    placeholder="Search your job posts"
+                    inputClassName="!h-10 !py-0"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                  aria-expanded={showAdvancedFilters}
+                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:px-4 sm:text-sm"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">Advanced filters</span>
+                  {activeAdvancedFilterCount > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                      {activeAdvancedFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {showAdvancedFilters && (
+                <AdvancedFiltersPanel
+                  title="Refine your job posts"
+                  description="Find your vacancies by status, employment type, workplace, or location."
+                  fields={[
+                    {
+                      key: 'status',
+                      kind: 'select',
+                      label: 'Status',
+                      value: statusFilter,
+                      placeholder: 'All statuses',
+                      options: JOB_POST_STATUS_OPTIONS,
+                    },
+                    {
+                      key: 'jobType',
+                      kind: 'select',
+                      label: 'Job type',
+                      value: jobTypeFilter,
+                      placeholder: 'All job types',
+                      options: [
+                        { label: 'Full time', value: 'full_time' },
+                        { label: 'Part time', value: 'part_time' },
+                        { label: 'Contract', value: 'contract' },
+                        { label: 'Internship', value: 'internship' },
+                        { label: 'Freelance', value: 'freelance' },
+                      ],
+                    },
+                    {
+                      key: 'workplace',
+                      kind: 'select',
+                      label: 'Workplace',
+                      value: workplaceFilter,
+                      placeholder: 'All workplaces',
+                      options: [
+                        { label: 'Remote', value: 'remote' },
+                        { label: 'Hybrid', value: 'hybrid' },
+                        { label: 'On site', value: 'on_site' },
+                      ],
+                    },
+                    {
+                      key: 'location',
+                      kind: 'select',
+                      label: 'Location',
+                      value: locationFilter,
+                      placeholder: 'All locations',
+                      options: facetOptions.locations,
+                    },
+                  ]}
+                  onFieldChange={handleAdvancedFilterChange}
+                  onReset={clearAllFilters}
+                  hasActiveFilters={activeAdvancedFilterCount > 0}
+                />
+              )}
+
+              {hasActiveFilters && (
+                <div className="mb-6 mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                  <span>
+                    Showing {filteredVacancies.length} of {myVacancies.length} job{' '}
+                    {myVacancies.length === 1 ? 'post' : 'posts'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+            </>
+          )}
 
           {isLoading ? <JobsLoadingState /> : null}
 
@@ -158,40 +355,52 @@ export default function MyJobPostsPage() {
 
           {!isLoading && !isError && myVacancies.length > 0 ? (
             <>
-              <div className={jobsGridClassName}>
-                {visibleVacancies.map((job, index) => (
-                  <JobCard
-                    key={job.id}
-                    job={job}
-                    tone={getTone((currentPage - 1) * MY_JOB_POSTS_PER_PAGE + index)}
-                    primaryAction={
-                      <button
-                        type="button"
-                        className={myJobCardEditButtonClassName}
-                        onClick={() => handleEditJob(job)}
-                      >
-                        Edit
-                      </button>
-                    }
-                    panelAction={
-                      <button
-                        type="button"
-                        className={myJobCardDeleteActionClassName}
-                        onClick={() => setJobToDelete(job)}
-                        aria-label={`Delete ${job.title}`}
-                        title="Delete job"
-                      >
-                        <Trash2 className="h-[1.25rem] w-[1.25rem]" strokeWidth={2.35} />
-                      </button>
-                    }
+              {filteredVacancies.length > 0 ? (
+                <>
+                  <div className={jobsGridClassName}>
+                    {visibleVacancies.map((job, index) => (
+                      <JobCard
+                        key={job.id}
+                        job={job}
+                        tone={getTone((currentPage - 1) * MY_JOB_POSTS_PER_PAGE + index)}
+                        primaryAction={
+                          <button
+                            type="button"
+                            className={myJobCardEditButtonClassName}
+                            onClick={() => handleEditJob(job)}
+                          >
+                            Edit
+                          </button>
+                        }
+                        panelAction={
+                          <button
+                            type="button"
+                            className={myJobCardDeleteActionClassName}
+                            onClick={() => setJobToDelete(job)}
+                            aria-label={`Delete ${job.title}`}
+                            title="Delete job"
+                          >
+                            <Trash2 className="h-[1.25rem] w-[1.25rem]" strokeWidth={2.35} />
+                          </button>
+                        }
+                      />
+                    ))}
+                  </div>
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
                   />
-                ))}
-              </div>
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={handlePageChange}
-              />
+                </>
+              ) : (
+                <EmptyState
+                  icon={SearchX}
+                  title="No matching job posts"
+                  description="Try changing your search or filters."
+                  actionLabel="Clear filters"
+                  onAction={clearAllFilters}
+                />
+              )}
             </>
           ) : null}
         </section>

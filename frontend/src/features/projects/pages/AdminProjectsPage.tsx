@@ -99,6 +99,12 @@ export default function AdminProjectsPage() {
   const pageStart = (currentPage - 1) * ITEMS_PER_PAGE;
   const visible = filtered.slice(pageStart, pageStart + ITEMS_PER_PAGE);
 
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const changePage = (p: number) => {
     setCurrentPage(p);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -241,6 +247,10 @@ export default function AdminProjectsPage() {
           {/* Pagination */}
           {!isLoading && totalPages > 1 && (
             <div className="sticky bottom-0 mt-6 bg-[#F8F8F7] py-4">
+              <div className="text-center text-[11px] text-gray-400">
+                Showing {pageStart + 1}-{Math.min(pageStart + ITEMS_PER_PAGE, filtered.length)} of{' '}
+                {filtered.length} projects
+              </div>
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}

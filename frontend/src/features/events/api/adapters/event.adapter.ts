@@ -7,6 +7,7 @@ import {
   safeParseDate,
 } from '@/lib/utils/adapters';
 import { EVENT_SURVEY_TAG } from '../../lib/eventSurveyAvailability';
+import { EVENT_ANNOUNCEMENT_TAG } from '../../lib/eventAnnouncementVisibility';
 
 function mapRSVPStatus(status: unknown): 'going' | 'maybe' | 'not_going' | null {
   if (!status || status === '') return 'not_going'; // clean "unregistered"
@@ -37,6 +38,7 @@ export function mapBackendEventToFrontend(raw: unknown): Event {
   const hasRegistrationQuestions =
     readRegistrationQuestionFlag(d, normalizedTags) ??
     (normalizedTags.includes(EVENT_SURVEY_TAG) ? true : null);
+  const showInAnnouncements = normalizedTags.includes(EVENT_ANNOUNCEMENT_TAG);
 
   return {
     id: String(d.id ?? ''),
@@ -60,7 +62,10 @@ export function mapBackendEventToFrontend(raw: unknown): Event {
     virtualLink: d.virtual_link || undefined,
     attire: d.attire || undefined,
     category: d.category || undefined,
-    tags: normalizedTags.filter((tag) => tag !== EVENT_SURVEY_TAG),
+    tags: normalizedTags.filter(
+      (tag) => tag !== EVENT_SURVEY_TAG && tag !== EVENT_ANNOUNCEMENT_TAG,
+    ),
+    showInAnnouncements,
 
     featured: stringToBoolean(d.is_featured) ?? false,
 
@@ -117,6 +122,7 @@ export function mapEventToCreatePayload(
     max_attendees?: number;
     event_banner?: File | null;
     tags?: string[];
+    show_in_announcements?: boolean;
   },
   userId: string,
   chapterId?: string,
@@ -139,7 +145,9 @@ export function mapEventToCreatePayload(
   if (formData.end_time) base.end_time = formData.end_time;
   if (formData.color) base.color = formData.color;
   // if (formData.max_attendees) base.max_attendees = String(formData.max_attendees);
-  if (formData.tags?.length) base.tags = JSON.stringify(formData.tags);
+  const tags = [...(formData.tags ?? [])].filter((tag) => tag !== EVENT_ANNOUNCEMENT_TAG);
+  if (formData.show_in_announcements) tags.push(EVENT_ANNOUNCEMENT_TAG);
+  if (tags.length) base.tags = JSON.stringify(tags);
 
   if (formData.event_banner) {
     const fd = new FormData();
@@ -175,6 +183,7 @@ export function mapEventToUpdatePayload(
     max_attendees?: number;
     status?: string;
     tags?: string[];
+    show_in_announcements?: boolean;
   },
 ): FormData | Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -197,7 +206,11 @@ export function mapEventToUpdatePayload(
   if (formData.visibility) base.visibility = formData.visibility;
   if (formData.max_attendees) base.max_attendees = String(formData.max_attendees);
   if (formData.status) base.status = formData.status;
-  if (formData.tags?.length) base.tags = JSON.stringify(formData.tags);
+  if (formData.tags !== undefined || formData.show_in_announcements !== undefined) {
+    const tags = [...(formData.tags ?? [])].filter((tag) => tag !== EVENT_ANNOUNCEMENT_TAG);
+    if (formData.show_in_announcements) tags.push(EVENT_ANNOUNCEMENT_TAG);
+    base.tags = JSON.stringify(tags);
+  }
 
   if (formData.event_banner) {
     const fd = new FormData();

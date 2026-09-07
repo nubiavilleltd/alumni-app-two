@@ -30,6 +30,9 @@ export const marketplaceService = {
       const payload = mapFilterListingsPayload({
         search: params?.search,
         category: params?.category,
+        chapterId: params?.chapterId,
+        year: params?.year,
+        userId: params?.userId,
         status: 'active',
       });
 

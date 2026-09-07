@@ -26,6 +26,8 @@ export type Event = {
   category: string;
   tags: string[];
   featured: boolean;
+  /** Temporary bridge flag derived from EVENT_ANNOUNCEMENT_TAG. */
+  showInAnnouncements?: boolean;
   status?: 'draft' | 'published' | 'cancelled' | 'completed'; // ➕ NEW
 
   // ── Registration ──────────────────────────────────────────────────────

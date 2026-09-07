@@ -4,7 +4,7 @@ import { renderIcon, type AppIcon } from '@/shared/utils/renderIcon';
 interface FilterDropdownProps {
   value: string;
   onChange: (value: string) => void;
-  options: { label: string; value: string }[];
+  options: { label: string; value: string; count?: number; disabled?: boolean }[];
   label?: string;
   placeholder?: string;
   className?: string;

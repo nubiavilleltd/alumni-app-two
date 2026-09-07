@@ -14,6 +14,7 @@ import {
   Phone,
   Plus,
   Search,
+  SlidersHorizontal,
   Store,
 } from 'lucide-react';
 
@@ -30,6 +31,7 @@ import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { PostBusinessModal } from '../components/PostYourBusinessModal';
@@ -154,7 +156,6 @@ function sortBusinessesForDemo(a: Business, b: Business) {
   return aPriority - bPriority;
 }
 
-
 // ─── Business Card ────────────────────────────────────────────────────────────
 function BusinessCard({
   business,
@@ -182,13 +183,11 @@ function BusinessCard({
   const hasWebsite = Boolean(business.website?.trim());
   const hasWhatsapp = Boolean(business.whatsapp?.trim());
 
-
   const instagramHref = business.socials?.instagram?.trim();
   // const hashtags = parseHashtags(business.socials?.instagramHashtag);
-    const hashtags = parseHashtags(normalizeLegacyHashtags(business.socials?.instagramHashtag));
+  const hashtags = parseHashtags(normalizeLegacyHashtags(business.socials?.instagramHashtag));
 
   const hasHashtagRow = hashtags.length > 0;
-
 
   const socialLinks: SocialLinkEntry[] = (
     [
@@ -199,7 +198,7 @@ function BusinessCard({
       //   Icon: IconBrandInstagram,
       // },
 
-          !hasHashtagRow &&
+      !hasHashtagRow &&
         instagramHref && {
           key: 'instagram',
           href: instagramHref,
@@ -397,7 +396,6 @@ function BusinessCard({
               <span className="min-w-0 break-all">{business.website}</span>
             </a>
           )}
-
         </div>
 
         {/* {(socialLinks.length > 0 || business.socials?.instagramHashtag) && (
@@ -435,14 +433,13 @@ function BusinessCard({
           </div>
         )} */}
 
-
-                {(hasHashtagRow || socialLinks.length > 0) && (
+        {(hasHashtagRow || socialLinks.length > 0) && (
           <div className="mt-3 flex flex-col gap-2">
             {hasHashtagRow && (
               <div className="flex flex-wrap items-center gap-2">
                 {instagramHref && (
-                  
-                    <a href={getWebsiteHref(instagramHref)}
+                  <a
+                    href={getWebsiteHref(instagramHref)}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={`${business.name} on Instagram`}
@@ -453,8 +450,8 @@ function BusinessCard({
                   </a>
                 )}
                 {hashtags.map((tag) => (
-                  
-                    <a key={tag}
+                  <a
+                    key={tag}
                     href={`https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -471,8 +468,8 @@ function BusinessCard({
             {socialLinks.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 {socialLinks.map(({ key, href, label, Icon }) => (
-                  
-                    <a key={key}
+                  <a
+                    key={key}
                     href={getWebsiteHref(href)}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -487,8 +484,6 @@ function BusinessCard({
             )}
           </div>
         )}
-
-
 
         <div
           className="mt-auto flex items-center gap-3 pt-3 max-sm:flex-wrap"
@@ -508,10 +503,9 @@ function BusinessCard({
             <span>{isMessagePending ? 'Opening...' : 'Send Message'}</span>
           </Button>
 
-
           {hasWhatsapp && (
-
-            <a href={`https://wa.me/${business.whatsapp!.replace(/\D/g, '')}`}
+            <a
+              href={`https://wa.me/${business.whatsapp!.replace(/\D/g, '')}`}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`Message ${business.name} on WhatsApp`}
@@ -531,6 +525,10 @@ function BusinessCard({
 export default function MarketPlacePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [category, setCategory] = useState('');
+  const [location, setLocation] = useState('');
+  const [chapterId, setChapterId] = useState('');
+  const [year, setYear] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [showPostModal, setShowPostModal] = useState(false);
   const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
@@ -539,7 +537,17 @@ export default function MarketPlacePage() {
   const { startDirectConversation, isPending: isStartingConversation } =
     useStartDirectConversation();
 
-  const { data: businesses = [], isLoading, error } = useMarketplace();
+  const marketplaceParams = useMemo(
+    () => ({
+      // Keep search local so description matches continue to work. The backend
+      // currently applies `search` to listing titles only.
+      category: category || undefined,
+      chapterId: chapterId || undefined,
+      year: year || undefined,
+    }),
+    [category, chapterId, year],
+  );
+  const { data: businesses = [], isLoading, error } = useMarketplace(marketplaceParams);
   const { data: categoriesList = [] } = useMarketplaceCategories();
   const { data: alumni = [] } = useAlumni({ action_type: 'approved' });
   const isSignedIn = Boolean(currentUser?.memberId);
@@ -576,15 +584,18 @@ export default function MarketPlacePage() {
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
+    const normalizedLocation = location.trim().toLowerCase();
     return businesses
       .filter((b) => {
         const matchesSearch =
           !q || b.name.toLowerCase().includes(q) || b.description.toLowerCase().includes(q);
         const matchesCategory = !category || b.category === category;
-        return matchesSearch && matchesCategory;
+        const matchesLocation =
+          !normalizedLocation || b.location.trim().toLowerCase() === normalizedLocation;
+        return matchesSearch && matchesCategory && matchesLocation;
       })
       .sort(sortBusinessesForDemo);
-  }, [businesses, searchTerm, category]);
+  }, [businesses, category, location, searchTerm]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const visible = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -592,6 +603,48 @@ export default function MarketPlacePage() {
     () => categoriesList.map((cat) => ({ label: formatCategoryLabel(cat), value: cat })),
     [categoriesList],
   );
+
+  const locationOptions = useMemo(() => {
+    const values = new Set(businesses.map((business) => business.location.trim()).filter(Boolean));
+    if (location) values.add(location);
+
+    return Array.from(values)
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
+  }, [businesses, location]);
+
+  const chapterOptions = useMemo(() => {
+    const chapterLabels = new Map<string, string>();
+
+    businesses.forEach((business) => {
+      if (business.chapterId) {
+        chapterLabels.set(
+          business.chapterId,
+          business.chapterName || `Chapter ${business.chapterId}`,
+        );
+      }
+    });
+
+    if (chapterId && !chapterLabels.has(chapterId)) {
+      chapterLabels.set(chapterId, `Chapter ${chapterId}`);
+    }
+
+    return Array.from(chapterLabels, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [businesses, chapterId]);
+
+  const yearOptions = useMemo(() => {
+    const values = new Set(businesses.map((business) => business.year).filter(Boolean) as string[]);
+    if (year) values.add(year);
+
+    return Array.from(values)
+      .sort((a, b) => Number(b) - Number(a))
+      .map((value) => ({ label: value, value }));
+  }, [businesses, year]);
+
+  const activeAdvancedFilterCount = [location, chapterId, year].filter(Boolean).length;
+  const hasActiveFilters = Boolean(searchTerm.trim() || category || activeAdvancedFilterCount > 0);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -612,6 +665,25 @@ export default function MarketPlacePage() {
 
   const handleFilterChange = (setter: (v: string) => void) => (value: string) => {
     setter(value);
+    setCurrentPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    const setters: Record<string, (nextValue: string) => void> = {
+      location: setLocation,
+      chapterId: setChapterId,
+      year: setYear,
+    };
+    setters[key]?.(value);
+    setCurrentPage(1);
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setCategory('');
+    setLocation('');
+    setChapterId('');
+    setYear('');
     setCurrentPage(1);
   };
 
@@ -708,18 +780,94 @@ export default function MarketPlacePage() {
               />
             </div>
 
-            <FilterDropdown
-              value={category}
-              onChange={handleFilterChange(setCategory)}
-              options={categoryOptions}
-              placeholder="Filter by Category"
-              className="h-[3.1rem] w-full sm:!w-full lg:h-12 lg:!w-[12.5rem] lg:!min-w-[12.5rem]"
-              selectClassName={marketplaceFilterSelectClassName}
-              clearIcon={CircleX}
-              chevronDownIcon={ChevronDown}
-              chevronUpIcon={ChevronUp}
-            />
+            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+              <FilterDropdown
+                value={category}
+                onChange={handleFilterChange(setCategory)}
+                options={categoryOptions}
+                placeholder="Filter by Category"
+                className="h-[3.1rem] w-full sm:!w-full lg:h-12 lg:!w-[12.5rem] lg:!min-w-[12.5rem]"
+                selectClassName={marketplaceFilterSelectClassName}
+                clearIcon={CircleX}
+                chevronDownIcon={ChevronDown}
+                chevronUpIcon={ChevronUp}
+              />
+              <Button
+                type="button"
+                variant="white"
+                size="sm"
+                onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                leftIcon={SlidersHorizontal}
+                aria-expanded={showAdvancedFilters}
+                className="h-[3.1rem] w-full whitespace-nowrap border border-[#e1e6ec] text-[#58606b] shadow-sm hover:bg-[#f5f8fa] lg:h-12 lg:w-auto"
+              >
+                Advanced filters
+                {activeAdvancedFilterCount > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                    {activeAdvancedFilterCount}
+                  </span>
+                )}
+              </Button>
+            </div>
           </div>
+
+          {showAdvancedFilters && (
+            <AdvancedFiltersPanel
+              title="Refine marketplace results"
+              description="Narrow businesses by where they operate, chapter, or listing year."
+              gridClassName="grid-cols-1 gap-4 md:grid-cols-3"
+              fields={[
+                {
+                  key: 'location',
+                  kind: 'select',
+                  label: 'Location',
+                  value: location,
+                  placeholder: 'All locations',
+                  options: locationOptions,
+                },
+                {
+                  key: 'chapterId',
+                  kind: 'select',
+                  label: 'Chapter',
+                  value: chapterId,
+                  placeholder: 'All chapters',
+                  options: chapterOptions,
+                },
+                {
+                  key: 'year',
+                  kind: 'select',
+                  label: 'Listed in',
+                  value: year,
+                  placeholder: 'Any year',
+                  options: yearOptions,
+                },
+              ]}
+              onFieldChange={handleAdvancedFilterChange}
+              onReset={() => {
+                setLocation('');
+                setChapterId('');
+                setYear('');
+                setCurrentPage(1);
+              }}
+              hasActiveFilters={Boolean(location || chapterId || year)}
+            />
+          )}
+
+          {hasActiveFilters && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+              <span>
+                Showing {filtered.length} {filtered.length === 1 ? 'business' : 'businesses'}{' '}
+                matching your filters
+              </span>
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
 
           {/* Error State */}
           {error && (

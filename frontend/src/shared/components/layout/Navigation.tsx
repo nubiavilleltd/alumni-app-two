@@ -15,7 +15,7 @@ import { ADMIN_ROUTES } from '@/features/admin/routes';
 import { ALUMNI_ROUTES } from '@/features/alumni/routes';
 import { EVENT_ROUTES } from '@/features/events/routes';
 import { MARKETPLACE_ROUTES } from '@/features/marketplace/routes';
-import { ANNOUNCEMENT_ROUTES } from '@/features/announcements/routes';
+// import { ANNOUNCEMENT_ROUTES } from '@/features/announcements/routes';
 
 import { useMessagesInbox } from '@/features/messages/hooks/useMessages';
 import type { MessageThreadSummary } from '@/features/messages/types/messages.types';
@@ -27,7 +27,6 @@ import { AppLink } from '../ui/AppLink';
 import { useToastStore } from '../ui/Toast';
 import HeaderLogo from '../ui/HeaderLogo';
 import { useCartStore } from '@/features/store/stores/useCartStore';
-
 
 type NavChild = {
   label: string;
@@ -85,11 +84,11 @@ const expandedNavColumns: NavItem[][] = [
           url: ROUTES.PROJECTS.ROOT,
           description: 'Community initiatives in action',
         },
-        {
-          label: 'Blog',
-          url: ANNOUNCEMENT_ROUTES.BLOG,
-          description: 'Stories, insights and updates',
-        },
+        // {
+        //   label: 'Blog',
+        //   url: ANNOUNCEMENT_ROUTES.BLOG,
+        //   description: 'Stories, insights and updates',
+        // },
         {
           label: 'Live News',
           url: ROUTES.LIVE_NEWS.ROOT,
@@ -122,9 +121,7 @@ const expandedNavColumns: NavItem[][] = [
     },
     { label: 'Alumni Directory', url: ALUMNI_ROUTES.PROFILES },
   ],
-  [
-    { label: 'Welfare', url: ROUTES.WELFARE },
-  ],
+  [{ label: 'Welfare', url: ROUTES.WELFARE }],
   [
     { label: 'Volunteer', url: ROUTES.JOIN_PROJECTS.VOLUNTEER },
     { label: 'Contact Us', url: ROUTES.CONTACT },
@@ -348,7 +345,7 @@ function UserDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
-  const isAdmin = currentUser.role?.includes("admin");
+  const isAdmin = currentUser.role?.includes('admin');
   const displayName = getDisplayName(currentUser);
 
   const baseMenuItems = authenticatedMenuItems.map((item) => {
@@ -549,8 +546,6 @@ export function Navigation() {
 
     previousThreadStatesRef.current = nextThreadStates;
   }, [activeMessagesThreadId, authenticatedUser, inboxQuery.data, pathname]);
-
-
 
   const handleLogout = async () => {
     const setLoggingOut = useTokenStore.getState().setLoggingOut;

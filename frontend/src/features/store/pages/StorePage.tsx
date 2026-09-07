@@ -19,12 +19,18 @@ import { useProductModalStore } from '../stores/useProductModalStore';
 import { ProductDetailsModal } from '../components/ProductDetailsModal';
 import { useNavigate } from 'react-router-dom';
 import { STORE_ROUTES } from '../routes';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import { SlidersHorizontal } from 'lucide-react';
 
 export function StorePage() {
     const { products, isLoading } = useProducts();
 
     const [search, setSearch] = useState('');
     const [category, setCategory] = useState('');
+    const [priceRange, setPriceRange] = useState('');
+    const [availability, setAvailability] = useState('');
+    const [variantFilter, setVariantFilter] = useState('');
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
     const [page, setPage] = useState(1);
 
     const ITEMS_PER_PAGE = useItemsPerPage();
@@ -43,27 +49,58 @@ export function StorePage() {
 
     const filtered = useMemo(() => {
         return products.filter((product) => {
-            const searchMatch = product.name
+            const normalizedSearch = search.toLowerCase();
+            const searchMatch = [product.name, product.category, product.description]
+                .filter(Boolean)
+                .join(' ')
                 .toLowerCase()
-                .includes(search.toLowerCase()) || product.category.toLowerCase()
-                .includes(search.toLowerCase()) || product.price?.toString().toLowerCase()
-                .includes(search.toLowerCase());
+                .includes(normalizedSearch) || product.price?.toString().includes(normalizedSearch);
 
             const categoryMatch =
                 !category || product.category === category;
+            const priceMatch =
+                !priceRange ||
+                (priceRange === 'under-5000'
+                    ? product.price < 5000
+                    : priceRange === '5000-15000'
+                        ? product.price >= 5000 && product.price < 15000
+                        : priceRange === '15000-30000'
+                            ? product.price >= 15000 && product.price < 30000
+                            : product.price >= 30000);
+            const availabilityMatch =
+                !availability ||
+                (availability === 'in-stock' ? product.totalStock > 0 : product.totalStock <= 0);
+            const variantMatch =
+                !variantFilter ||
+                (variantFilter === 'sizes' ? product.hasSizes : product.hasColors);
 
-            return searchMatch && categoryMatch;
+            return searchMatch && categoryMatch && priceMatch && availabilityMatch && variantMatch;
         });
-    }, [products, search, category]);
+    }, [products, search, category, priceRange, availability, variantFilter]);
 
-    const totalPages = Math.ceil(
+    const totalPages = Math.max(1, Math.ceil(
         filtered.length / ITEMS_PER_PAGE,
-    );
+    ));
 
     const visible = filtered.slice(
         (page - 1) * ITEMS_PER_PAGE,
         page * ITEMS_PER_PAGE,
     );
+
+    const activeAdvancedFilterCount = [priceRange, availability, variantFilter].filter(Boolean).length;
+    const hasActiveFilters = Boolean(search.trim() || category || activeAdvancedFilterCount);
+    const handleFilterChange = (setter: (value: string) => void) => (value: string) => {
+        setter(value);
+        setPage(1);
+    };
+    const clearAllFilters = () => {
+        setSearch('');
+        setCategory('');
+        setPriceRange('');
+        setAvailability('');
+        setVariantFilter('');
+        setPage(1);
+    };
 
     return (
         <>
@@ -89,14 +126,100 @@ export function StorePage() {
                     </div>
 
                     {/* FILTERS */}
-                    <StoreFilters
-                        search={search}
-                        category={category}
-                        categories={categories}
-                        onSearch={setSearch}
-                        onCategoryChange={setCategory}
-                        className='mb-8'
-                    />
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div className="min-w-0 flex-1">
+                            <StoreFilters
+                                search={search}
+                                category={category}
+                                categories={categories}
+                                onSearch={handleFilterChange(setSearch)}
+                                onCategoryChange={handleFilterChange(setCategory)}
+                                className="mb-0"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                            aria-expanded={showAdvancedFilters}
+                            className="flex h-10 w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:w-auto"
+                        >
+                            <SlidersHorizontal className="h-4 w-4" />
+                            Advanced filters
+                            {activeAdvancedFilterCount > 0 && (
+                                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                                    {activeAdvancedFilterCount}
+                                </span>
+                            )}
+                        </button>
+                    </div>
+
+                    {showAdvancedFilters && (
+                        <AdvancedFiltersPanel
+                            title="Refine store products"
+                            description="Narrow products by price, availability, or available variants."
+                            gridClassName="grid-cols-1 gap-4 md:grid-cols-3"
+                            fields={[
+                                {
+                                    key: 'priceRange',
+                                    kind: 'select',
+                                    label: 'Price range',
+                                    value: priceRange,
+                                    placeholder: 'Any price',
+                                    options: [
+                                        { label: 'Under 5,000', value: 'under-5000' },
+                                        { label: '5,000–15,000', value: '5000-15000' },
+                                        { label: '15,000–30,000', value: '15000-30000' },
+                                        { label: '30,000 and above', value: '30000-plus' },
+                                    ],
+                                },
+                                {
+                                    key: 'availability',
+                                    kind: 'select',
+                                    label: 'Availability',
+                                    value: availability,
+                                    placeholder: 'All products',
+                                    options: [
+                                        { label: 'In stock', value: 'in-stock' },
+                                        { label: 'Out of stock', value: 'out-of-stock' },
+                                    ],
+                                },
+                                {
+                                    key: 'variantFilter',
+                                    kind: 'select',
+                                    label: 'Options',
+                                    value: variantFilter,
+                                    placeholder: 'Any options',
+                                    options: [
+                                        { label: 'Available in sizes', value: 'sizes' },
+                                        { label: 'Available in colors', value: 'colors' },
+                                    ],
+                                },
+                            ]}
+                            onFieldChange={(key, value) => {
+                                if (key === 'priceRange') setPriceRange(value);
+                                if (key === 'availability') setAvailability(value);
+                                if (key === 'variantFilter') setVariantFilter(value);
+                                setPage(1);
+                            }}
+                            onReset={clearAllFilters}
+                            hasActiveFilters={activeAdvancedFilterCount > 0}
+                        />
+                    )}
+
+                    {hasActiveFilters && (
+                        <div className="mb-8 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                            <span>
+                                Showing {filtered.length} {filtered.length === 1 ? 'product' : 'products'} matching your filters
+                            </span>
+                            <button
+                                type="button"
+                                onClick={clearAllFilters}
+                                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                            >
+                                Clear all filters
+                            </button>
+                        </div>
+                    )}
 
                     {/* GRID */}
                     {isLoading ? (

@@ -69,7 +69,6 @@ export type GetVacanciesFilters = Partial<{
   workplace_type: WorkplaceType;
   level_of_expertise: LevelOfExpertise;
   location: string;
-  chapter_id: number | string;
 }>;
 
 export type UpdateVacancyPayload = Partial<CreateVacancyPayload> & {

@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BriefcaseBusiness, Plus, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import { SEO } from '@/shared/common/SEO';
@@ -506,8 +515,31 @@ export function JobCard({
 }) {
   const pillLabels = getJobPillLabels(job);
 
+  const handleCardClick = (event: MouseEvent<HTMLElement>) => {
+    if (!onDetails) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, select, textarea')) return;
+
+    onDetails(job);
+  };
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!onDetails || (event.key !== 'Enter' && event.key !== ' ')) return;
+
+    event.preventDefault();
+    onDetails(job);
+  };
+
   return (
-    <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-[#d7e7f4] bg-white shadow-[0_1px_2px_rgba(7,17,22,0.03)]">
+    <article
+      className={`flex h-full flex-col overflow-hidden rounded-2xl border border-[#d7e7f4] bg-white shadow-[0_1px_2px_rgba(7,17,22,0.03)]${onDetails ? ' cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-200' : ''}`}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      role={onDetails ? 'link' : undefined}
+      tabIndex={onDetails ? 0 : undefined}
+      aria-label={onDetails ? `View details for ${job.title}` : undefined}
+    >
       <div
         className={`m-[0.55rem] flex min-h-[15.8rem] flex-1 flex-col rounded-[0.8rem] px-[1.35rem] pb-[1.25rem] pt-[1.35rem] ${jobPanelToneClassNames[tone]}`}
       >
@@ -557,16 +589,7 @@ export function JobCard({
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
-          {primaryAction ??
-            (onDetails ? (
-              <button
-                type="button"
-                className="min-h-[2.5rem] rounded-full bg-primary-500 px-4 py-1 text-[0.95rem] font-extrabold leading-none text-white transition-colors hover:bg-primary-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-200"
-                onClick={() => onDetails(job)}
-              >
-                Details
-              </button>
-            ) : null)}
+          {primaryAction}
           {actions}
         </div>
       </div>

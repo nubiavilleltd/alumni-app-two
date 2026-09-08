@@ -9,13 +9,15 @@ export function hasAnnouncementMarker(value: unknown): boolean {
 }
 
 export function stripAnnouncementMarker(value: string): string {
-  const markerIndex = value.toLowerCase().lastIndexOf(SYSTEM_ANNOUNCEMENT_MARKER);
-  if (markerIndex < 0) return value;
+  const markerPattern = new RegExp(
+    SYSTEM_ANNOUNCEMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    'gi',
+  );
 
-  const trailingContent = value.slice(markerIndex + SYSTEM_ANNOUNCEMENT_MARKER.length).trim();
-  if (trailingContent) return value;
-
-  return value.slice(0, markerIndex).trimEnd();
+  return value
+    .replace(markerPattern, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
 }
 
 export function serializeAnnouncementDescription(

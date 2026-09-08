@@ -6,9 +6,11 @@ import EmptyState from '@/shared/components/ui/EmptyState';
 import { EVENT_ROUTES } from '@/features/events/routes';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
 import { HomeSectionHeader } from './HomeSectionHeader';
+import { stripEventAnnouncementMarker } from '@/features/events/lib/eventAnnouncementVisibility';
 
 function HomeEventCard({ event }: { event: Event }) {
   const dateRange = formatDateRange(event.startDate, event.endDate);
+  const cleanDescription = stripEventAnnouncementMarker(event.description ?? '');
 
   return (
     <article className="home-event-card">
@@ -24,7 +26,7 @@ function HomeEventCard({ event }: { event: Event }) {
 
       <div className="home-event-card__body">
         <h3>{event.title}</h3>
-        <p>{event.description}</p>
+        <p>{cleanDescription}</p>
 
         <div className="home-event-card__meta">
           {event.location && (

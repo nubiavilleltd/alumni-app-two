@@ -18,6 +18,7 @@ import { toast } from '@/shared/components/ui/Toast';
 import { EVENT_ROUTES } from '../routes';
 import type { Event } from '../types/event.types';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
+import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
 import { Calendar, MapPin, SlidersHorizontal } from 'lucide-react';
 const MY_EVENTS_PER_PAGE = 6;
 
@@ -222,6 +223,7 @@ function MyEventCard({
 }) {
   const navigate = useNavigate();
   const isCancelled = event.status === 'cancelled';
+  const cleanDescription = stripEventAnnouncementMarker(event.description ?? '');
 
   // Date range: show "startDate - endDate" or just startDate
   // const formatEventDate = (iso: string) =>
@@ -284,7 +286,7 @@ function MyEventCard({
 
         {/* Description */}
         <p className="text-gray-600 text-sm leading-relaxed line-clamp-2 mb-4">
-          {event.description}
+          {cleanDescription}
         </p>
 
         {/* Meta — pushed to bottom */}

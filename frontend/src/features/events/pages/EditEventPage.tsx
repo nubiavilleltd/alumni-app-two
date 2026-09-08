@@ -685,8 +685,9 @@ export default function EditEventPage() {
                   Show this event in announcements
                 </span>
                 <span className="mt-1 block text-xs leading-5 text-gray-500">
-                  This keeps the event as the single source of truth while also displaying it in the
-                  public announcements feed.
+                  {isPast
+                    ? 'Past events cannot be shown in the public announcements feed.'
+                    : 'This keeps the event as the single source of truth while also displaying it in the public announcements feed.'}
                 </span>
               </span>
             </label>

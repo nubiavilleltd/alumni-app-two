@@ -35,10 +35,13 @@ const sideListClassName = 'grid gap-3.5 min-[1181px]:grid-rows-3 [&>*]:h-full';
 const continuationGridClassName = 'mt-5 hidden gap-5 min-[1181px]:grid min-[1181px]:grid-cols-2';
 const stackedListClassName = 'grid gap-5 min-[1181px]:hidden';
 
-const typeFilters: Array<{ label: string; value: 'all' | AnnouncementType }> = [
+type AnnouncementFilter = 'all' | AnnouncementType | 'project';
+
+const typeFilters: Array<{ label: string; value: AnnouncementFilter }> = [
   { label: 'All updates', value: 'all' },
   { label: 'Info', value: 'info' },
   { label: 'Events', value: 'event' },
+  { label: 'Projects', value: 'project' },
 ];
 
 const DESKTOP_SIDE_CARD_GAP_PX = 14;
@@ -125,7 +128,7 @@ function AnnouncementCardSkeleton({ compact = false }: { compact?: boolean }) {
 
 export default function BlogIndexPage() {
   const user = useIdentityStore((state) => state.user);
-  const [selectedType, setSelectedType] = useState<'all' | AnnouncementType>('all');
+  const [selectedType, setSelectedType] = useState<AnnouncementFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [yearFilter, setYearFilter] = useState('');
   const [dateRangeFilter, setDateRangeFilter] = useState('');
@@ -178,7 +181,9 @@ export default function BlogIndexPage() {
             .join(' ')
             .toLowerCase()
             .includes(q);
-        const matchesType = selectedType === 'all' || item.type === selectedType;
+        const matchesType =
+          selectedType === 'all' ||
+          (selectedType === 'project' ? item.source === 'project' : item.type === selectedType);
         const matchesYear = !yearFilter || itemYear === yearFilter;
         const matchesDateRange =
           !dateRangeFilter ||

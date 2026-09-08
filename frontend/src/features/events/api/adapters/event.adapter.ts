@@ -10,6 +10,7 @@ import { EVENT_SURVEY_TAG } from '../../lib/eventSurveyAvailability';
 import {
   EVENT_ANNOUNCEMENT_TAG,
   hasEventAnnouncementMarker,
+  isEventPast,
   serializeEventDescription,
   stripEventAnnouncementMarker,
 } from '../../lib/eventAnnouncementVisibility';
@@ -49,9 +50,15 @@ export function mapBackendEventToFrontend(raw: unknown): Event {
     readRegistrationQuestionFlag(d, normalizedTags) ??
     (normalizedTags.includes(EVENT_SURVEY_TAG) ? true : null);
   const showInAnnouncements =
-    hasDescriptionAnnouncementMarker ||
-    normalizedTags.includes(EVENT_ANNOUNCEMENT_TAG) ||
-    stringToBoolean(d.show_in_announcements ?? d.showInAnnouncements) === true;
+    !isEventPast({
+      startDate: String(d.start_date ?? d.event_date ?? ''),
+      endDate: d.end_date ? String(d.end_date) : undefined,
+      startTime: d.start_time ? String(d.start_time) : undefined,
+      endTime: d.end_time ? String(d.end_time) : undefined,
+    }) &&
+    (hasDescriptionAnnouncementMarker ||
+      normalizedTags.includes(EVENT_ANNOUNCEMENT_TAG) ||
+      stringToBoolean(d.show_in_announcements ?? d.showInAnnouncements) === true);
 
   return {
     id: String(d.id ?? ''),
@@ -144,7 +151,16 @@ export function mapEventToCreatePayload(
     user_id: userId,
     chapter_id: chapterId,
     title: formData.title,
-    description: serializeEventDescription(formData.description, formData.show_in_announcements),
+    description: serializeEventDescription(
+      formData.description,
+      formData.show_in_announcements &&
+        !isEventPast({
+          startDate: formData.start_date,
+          endDate: formData.end_date,
+          startTime: formData.start_time,
+          endTime: formData.end_time,
+        }),
+    ),
     location: formData.location,
     start_date: formData.start_date,
     end_date: formData.end_date,
@@ -202,7 +218,16 @@ export function mapEventToUpdatePayload(
     id: eventId,
     function_type: 'update',
     title: formData.title,
-    description: serializeEventDescription(formData.description, formData.show_in_announcements),
+    description: serializeEventDescription(
+      formData.description,
+      formData.show_in_announcements &&
+        !isEventPast({
+          startDate: formData.start_date,
+          endDate: formData.end_date,
+          startTime: formData.start_time,
+          endTime: formData.end_time,
+        }),
+    ),
     location: formData.location,
     end_date: formData.end_date,
     end_time: formData.end_time,

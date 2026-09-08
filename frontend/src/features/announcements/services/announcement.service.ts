@@ -16,6 +16,7 @@ import {
   mapProjectToAnnouncement,
 } from '@/features/announcements/api/adapters/announcement.adapter';
 import { eventsService } from '@/features/events/services/event.service';
+import { isEventPast } from '@/features/events/lib/eventAnnouncementVisibility';
 import { projectsService } from '@/features/projects/services/projects.service';
 import type {
   AnnouncementMutationInput,
@@ -77,7 +78,7 @@ export const announcementService = {
     const events =
       eventsResult.status === 'fulfilled'
         ? eventsResult.value
-            .filter((event) => event.showInAnnouncements)
+            .filter((event) => event.showInAnnouncements && !isEventPast(event))
             .map(mapEventToAnnouncement)
         : [];
     const projects =

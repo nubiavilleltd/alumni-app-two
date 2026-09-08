@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/shared/components/ui/Toast';
+import { publicAnnouncementKeys } from '@/features/announcements/hooks/useAnnouncements';
 import { projectsService } from '../services/projects.service';
 import type {
   CreateProjectFormData,
@@ -47,6 +48,7 @@ export function useCreateProject() {
     mutationFn: (formData: CreateProjectFormData) => projectsService.create(formData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      queryClient.invalidateQueries({ queryKey: publicAnnouncementKeys.all });
       toast.success('Project created successfully.');
     },
     onError: (error: any) => toast.fromError(error),
@@ -62,6 +64,7 @@ export function useUpdateProject() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: projectKeys.list() });
+      queryClient.invalidateQueries({ queryKey: publicAnnouncementKeys.all });
       toast.success('Project updated successfully.');
     },
     onError: (error: any) => toast.fromError(error),
@@ -75,6 +78,7 @@ export function useDeleteProject() {
     mutationFn: (id: string) => projectsService.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      queryClient.invalidateQueries({ queryKey: publicAnnouncementKeys.all });
       toast.success('Project deleted.');
     },
     onError: (error: any) => toast.fromError(error),

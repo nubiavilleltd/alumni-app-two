@@ -12,7 +12,7 @@
 //   created_by_name → createdByName
 //   chapter_name  → chapterName
 
-import { parseImages } from '@/lib/utils/adapters';
+import { parseImages, stringToBoolean } from '@/lib/utils/adapters';
 import {
   hasAnnouncementMarker,
   serializeAnnouncementDescription,
@@ -64,6 +64,9 @@ function normalizeDate(value: unknown): string | undefined {
 export function mapBackendProject(raw: unknown): Project {
   const d = raw as Record<string, unknown>;
   const rawDescription = String(d.description ?? '');
+  const showInAnnouncements =
+    hasAnnouncementMarker(rawDescription) ||
+    stringToBoolean(d.show_in_announcements ?? d.showInAnnouncements) === true;
 
   return {
     id: String(d.id ?? ''),
@@ -79,7 +82,7 @@ export function mapBackendProject(raw: unknown): Project {
     endDate: normalizeDate(d.end_date),
     sortOrder: d.sort_order ? Number(d.sort_order) : undefined,
     isFeatured: d.is_featured ? Number(d.is_featured) : 0,
-    showInAnnouncements: hasAnnouncementMarker(rawDescription),
+    showInAnnouncements,
     createdAt: d.created_at ? String(d.created_at) : undefined,
     createdByName: d.created_by_name ? String(d.created_by_name) : undefined,
     chapterName: d.chapter_name ? String(d.chapter_name) : null,
@@ -114,6 +117,7 @@ export function mapProjectToCreatePayload(
       formData.description,
       formData.show_in_announcements,
     ),
+    show_in_announcements: formData.show_in_announcements ? '1' : '0',
     status: formData.status,
     conducted_by: formData.conductedBy,
     location: formData.location,
@@ -157,6 +161,9 @@ export function mapProjectToUpdatePayload(
       formData.description,
       formData.show_in_announcements,
     );
+  }
+  if (formData.show_in_announcements != null) {
+    base.show_in_announcements = formData.show_in_announcements ? '1' : '0';
   }
   if (formData.status != null) base.status = formData.status;
   if (formData.conductedBy != null) base.conducted_by = formData.conductedBy;

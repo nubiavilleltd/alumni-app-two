@@ -18,7 +18,7 @@ export interface Announcement {
   startsAt?: string;
   endsAt?: string;
   featured?: boolean;
-  source?: 'announcement' | 'event';
+  source?: 'announcement' | 'event' | 'project';
   sourceId?: string;
   href?: string;
 }

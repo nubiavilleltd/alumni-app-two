@@ -15,6 +15,8 @@ import type {
 } from '@/features/announcements/types/announcement.types';
 import type { Event } from '@/features/events/types/event.types';
 import { EVENT_ROUTES } from '@/features/events/routes';
+import type { Project } from '@/features/projects/types/project.types';
+import { PROJECT_ROUTES } from '@/features/projects/routes';
 
 const ANNOUNCEMENT_FALLBACK_IMAGE = '/news-1.png';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') ?? '';
@@ -191,6 +193,32 @@ export function mapEventToAnnouncement(event: Event): Announcement {
     source: 'event',
     sourceId: event.id,
     href: EVENT_ROUTES.DETAIL(event.id),
+  };
+}
+
+/** Map a marked project into the public announcement-feed shape. */
+export function mapProjectToAnnouncement(project: Project): Announcement {
+  const projectDate = project.startDate || project.createdAt || '';
+  const parsedYear = new Date(projectDate).getFullYear();
+
+  return {
+    id: `project:${project.id}`,
+    slug: generateSlug(project.title, project.id, 'project'),
+    title: project.title,
+    content: project.description,
+    excerpt: createExcerpt(project.description),
+    image: project.images[0] || ANNOUNCEMENT_FALLBACK_IMAGE,
+    date: projectDate,
+    type: 'info',
+    tag: 'PROJECT',
+    createdBy: project.conductedBy,
+    year: Number.isNaN(parsedYear) ? undefined : parsedYear,
+    startsAt: project.startDate || undefined,
+    endsAt: project.endDate,
+    featured: Boolean(project.isFeatured),
+    source: 'project',
+    sourceId: project.id,
+    href: PROJECT_ROUTES.DETAIL(project.id),
   };
 }
 

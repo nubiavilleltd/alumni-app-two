@@ -38,12 +38,15 @@ import { ROUTES } from '@/shared/constants/routes';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { toTitleCase } from '@/shared/utils/textHelpers';
 import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
+import { matchesLocationPart } from '@/shared/utils/location';
 const MY_BUSINESSES_PER_PAGE = 6;
 
 type MyBusinessFilterState = {
   search: string;
   category: string;
-  location: string;
+  address: string;
+  city: string;
+  state: string;
 };
 
 function matchesMyBusinessFilters(business: Business, filters: MyBusinessFilterState) {
@@ -54,12 +57,17 @@ function matchesMyBusinessFilters(business: Business, filters: MyBusinessFilterS
     business.category,
     business.description,
     business.location,
+    business.address,
+    business.city,
+    business.state,
   ];
 
   return (
     (!query || searchableFields.some((field) => field.toLowerCase().includes(query))) &&
     (!filters.category || business.category === filters.category) &&
-    (!filters.location || business.location === filters.location)
+    matchesLocationPart(business.address, filters.address) &&
+    matchesLocationPart(business.city, filters.city) &&
+    matchesLocationPart(business.state, filters.state)
   );
 }
 
@@ -306,7 +314,9 @@ function MyBusinessCard({
 
           <div className="flex items-start gap-3">
             <MapPin strokeWidth={2.6} className="mt-0.5 h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 break-words">{business.location}</span>
+            <span className="min-w-0 break-words">
+              {[business.address, business.city, business.state].filter(Boolean).join(', ')}
+            </span>
           </div>
 
           {hasWebsite && (
@@ -462,7 +472,9 @@ export default function MyBusinessPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
+  const [addressFilter, setAddressFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const currentUser = useIdentityStore((state) => state.user);
 
@@ -490,8 +502,14 @@ export default function MyBusinessPage() {
     refetch();
   };
   const filterState = useMemo<MyBusinessFilterState>(
-    () => ({ search, category: categoryFilter, location: locationFilter }),
-    [categoryFilter, locationFilter, search],
+    () => ({
+      search,
+      category: categoryFilter,
+      address: addressFilter,
+      city: cityFilter,
+      state: stateFilter,
+    }),
+    [addressFilter, categoryFilter, cityFilter, search, stateFilter],
   );
   const filteredBusinesses = useMemo(
     () => myBusinesses.filter((business) => matchesMyBusinessFilters(business, filterState)),
@@ -503,15 +521,21 @@ export default function MyBusinessPage() {
     )
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ label: value, value }));
-    const locations = Array.from(
-      new Set(myBusinesses.map((business) => business.location.trim()).filter(Boolean)),
-    )
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ label: value, value }));
+    const toOptions = (values: Array<string | undefined>) =>
+      Array.from(new Set(values.filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value }));
 
-    return { categories, locations };
+    return {
+      categories,
+      addresses: toOptions(myBusinesses.map((business) => business.address)),
+      cities: toOptions(myBusinesses.map((business) => business.city)),
+      states: toOptions(myBusinesses.map((business) => business.state)),
+    };
   }, [myBusinesses]);
-  const activeAdvancedFilterCount = [categoryFilter, locationFilter].filter(Boolean).length;
+  const activeAdvancedFilterCount = [categoryFilter, addressFilter, cityFilter, stateFilter].filter(
+    Boolean,
+  ).length;
   const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
   const totalPages = Math.max(1, Math.ceil(filteredBusinesses.length / MY_BUSINESSES_PER_PAGE));
   const visibleBusinesses = filteredBusinesses.slice(
@@ -527,7 +551,7 @@ export default function MyBusinessPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [categoryFilter, locationFilter, search]);
+  }, [addressFilter, categoryFilter, cityFilter, search, stateFilter]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -537,13 +561,17 @@ export default function MyBusinessPage() {
   const clearAllFilters = () => {
     setSearch('');
     setCategoryFilter('');
-    setLocationFilter('');
+    setAddressFilter('');
+    setCityFilter('');
+    setStateFilter('');
     setCurrentPage(1);
   };
 
   const handleAdvancedFilterChange = (key: string, value: string) => {
     if (key === 'category') setCategoryFilter(value);
-    if (key === 'location') setLocationFilter(value);
+    if (key === 'address') setAddressFilter(value);
+    if (key === 'city') setCityFilter(value);
+    if (key === 'state') setStateFilter(value);
   };
 
   const breadcrumbItems = [
@@ -623,12 +651,28 @@ export default function MyBusinessPage() {
                       options: facetOptions.categories,
                     },
                     {
-                      key: 'location',
+                      key: 'address',
                       kind: 'select',
-                      label: 'Location',
-                      value: locationFilter,
-                      placeholder: 'All locations',
-                      options: facetOptions.locations,
+                      label: 'Address',
+                      value: addressFilter,
+                      placeholder: 'All addresses',
+                      options: facetOptions.addresses,
+                    },
+                    {
+                      key: 'city',
+                      kind: 'select',
+                      label: 'City',
+                      value: cityFilter,
+                      placeholder: 'All cities',
+                      options: facetOptions.cities,
+                    },
+                    {
+                      key: 'state',
+                      kind: 'select',
+                      label: 'State',
+                      value: stateFilter,
+                      placeholder: 'All states',
+                      options: facetOptions.states,
                     },
                   ]}
                   onFieldChange={handleAdvancedFilterChange}

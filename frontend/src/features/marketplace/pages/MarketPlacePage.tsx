@@ -36,6 +36,7 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { PostBusinessModal } from '../components/PostYourBusinessModal';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { EmailInstructionModal } from '@/shared/components/ui/EmailInstructionModal';
 import {
   useMarketplace,
   useMarketplaceCategories,
@@ -47,6 +48,7 @@ import { useAlumni } from '@/features/alumni/hooks/useAlumni';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
 import { MARKETPLACE_ROUTES } from '../routes';
 import { resolveProfilePhoto } from '@/features/user/utils/profileUtils';
+import { matchesLocationPart } from '@/shared/utils/location';
 
 const ITEMS_PER_PAGE = 9;
 const DEMO_PRIORITY_BUSINESS_OWNERS = ['lolu jumat', 'fcd fcd', 'felix ohemu'];
@@ -174,6 +176,7 @@ function BusinessCard({
 }) {
   const [imgIndex, setImgIndex] = useState(0);
   const [ownerPhotoFailed, setOwnerPhotoFailed] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const navigate = useNavigate();
   const isOwnBusiness = business.ownerId === currentUserMemberId;
   const ownerInitials = getOwnerInitials(business.owner);
@@ -360,17 +363,20 @@ function BusinessCard({
           )}
 
           {hasEmail && (
-            <a
-              href={`mailto:${business.email}`}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsEmailModalOpen(true);
+              }}
               className="flex items-start gap-2.5 no-underline transition-colors hover:text-primary-600"
-              onClick={(event) => event.stopPropagation()}
             >
               <Mail
                 strokeWidth={2.6}
                 className="mt-0.5 h-[1.05rem] w-[1.05rem] shrink-0 text-[#5f6873]"
               />
               <span className="min-w-0 break-all">{business.email}</span>
-            </a>
+            </button>
           )}
 
           <div className="flex items-start gap-2.5">
@@ -378,7 +384,9 @@ function BusinessCard({
               strokeWidth={2.6}
               className="mt-0.5 h-[1.05rem] w-[1.05rem] shrink-0 text-[#5f6873]"
             />
-            <span className="min-w-0 break-words">{business.location}</span>
+            <span className="min-w-0 break-words">
+              {[business.address, business.city, business.state].filter(Boolean).join(', ')}
+            </span>
           </div>
 
           {hasWebsite && (
@@ -517,6 +525,14 @@ function BusinessCard({
           )}
         </div>
       </div>
+
+      <EmailInstructionModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        email={business.email ?? ''}
+        title={`Contact ${business.name}`}
+        description="Send an email to this business:"
+      />
     </article>
   );
 }
@@ -525,7 +541,9 @@ function BusinessCard({
 export default function MarketPlacePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [category, setCategory] = useState('');
-  const [location, setLocation] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [chapterId, setChapterId] = useState('');
   const [year, setYear] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -584,18 +602,21 @@ export default function MarketPlacePage() {
 
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const normalizedLocation = location.trim().toLowerCase();
     return businesses
       .filter((b) => {
         const matchesSearch =
           !q || b.name.toLowerCase().includes(q) || b.description.toLowerCase().includes(q);
         const matchesCategory = !category || b.category === category;
-        const matchesLocation =
-          !normalizedLocation || b.location.trim().toLowerCase() === normalizedLocation;
-        return matchesSearch && matchesCategory && matchesLocation;
+        return (
+          matchesSearch &&
+          matchesCategory &&
+          matchesLocationPart(b.address, address) &&
+          matchesLocationPart(b.city, city) &&
+          matchesLocationPart(b.state, state)
+        );
       })
       .sort(sortBusinessesForDemo);
-  }, [businesses, category, location, searchTerm]);
+  }, [address, businesses, category, city, searchTerm, state]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const visible = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -605,13 +626,17 @@ export default function MarketPlacePage() {
   );
 
   const locationOptions = useMemo(() => {
-    const values = new Set(businesses.map((business) => business.location.trim()).filter(Boolean));
-    if (location) values.add(location);
+    const toOptions = (values: Array<string | undefined>) =>
+      Array.from(new Set(values.filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value }));
 
-    return Array.from(values)
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ label: value, value }));
-  }, [businesses, location]);
+    return {
+      addresses: toOptions(businesses.map((business) => business.address)),
+      cities: toOptions(businesses.map((business) => business.city)),
+      states: toOptions(businesses.map((business) => business.state)),
+    };
+  }, [businesses]);
 
   const chapterOptions = useMemo(() => {
     const chapterLabels = new Map<string, string>();
@@ -643,7 +668,7 @@ export default function MarketPlacePage() {
       .map((value) => ({ label: value, value }));
   }, [businesses, year]);
 
-  const activeAdvancedFilterCount = [location, chapterId, year].filter(Boolean).length;
+  const activeAdvancedFilterCount = [address, city, state, chapterId, year].filter(Boolean).length;
   const hasActiveFilters = Boolean(searchTerm.trim() || category || activeAdvancedFilterCount > 0);
 
   useEffect(() => {
@@ -670,7 +695,9 @@ export default function MarketPlacePage() {
 
   const handleAdvancedFilterChange = (key: string, value: string) => {
     const setters: Record<string, (nextValue: string) => void> = {
-      location: setLocation,
+      address: setAddress,
+      city: setCity,
+      state: setState,
       chapterId: setChapterId,
       year: setYear,
     };
@@ -681,7 +708,9 @@ export default function MarketPlacePage() {
   const clearAllFilters = () => {
     setSearchTerm('');
     setCategory('');
-    setLocation('');
+    setAddress('');
+    setCity('');
+    setState('');
     setChapterId('');
     setYear('');
     setCurrentPage(1);
@@ -702,7 +731,7 @@ export default function MarketPlacePage() {
         avatar: ownerPhotoById.get(String(business.ownerId)) ?? undefined,
         photoVisibility: ownerEntry?.privacy?.photo,
         headline: `Owner of ${business.name}`,
-        location: business.location,
+        location: [business.address, business.city, business.state].filter(Boolean).join(', '),
         profileHref: `/alumni/profiles/${business.ownerId}`,
       },
     });
@@ -818,12 +847,28 @@ export default function MarketPlacePage() {
               gridClassName="grid-cols-1 gap-4 md:grid-cols-3"
               fields={[
                 {
-                  key: 'location',
+                  key: 'address',
                   kind: 'select',
-                  label: 'Location',
-                  value: location,
-                  placeholder: 'All locations',
-                  options: locationOptions,
+                  label: 'Address',
+                  value: address,
+                  placeholder: 'All addresses',
+                  options: locationOptions.addresses,
+                },
+                {
+                  key: 'city',
+                  kind: 'select',
+                  label: 'City',
+                  value: city,
+                  placeholder: 'All cities',
+                  options: locationOptions.cities,
+                },
+                {
+                  key: 'state',
+                  kind: 'select',
+                  label: 'State',
+                  value: state,
+                  placeholder: 'All states',
+                  options: locationOptions.states,
                 },
                 {
                   key: 'chapterId',
@@ -844,12 +889,14 @@ export default function MarketPlacePage() {
               ]}
               onFieldChange={handleAdvancedFilterChange}
               onReset={() => {
-                setLocation('');
+                setAddress('');
+                setCity('');
+                setState('');
                 setChapterId('');
                 setYear('');
                 setCurrentPage(1);
               }}
-              hasActiveFilters={Boolean(location || chapterId || year)}
+              hasActiveFilters={Boolean(address || city || state || chapterId || year)}
             />
           )}
 

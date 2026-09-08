@@ -259,6 +259,34 @@ export default function CreateEventPage() {
         }
       } else {
         setStoredEventSurveyAvailability(createdEvent.id, false);
+
+        // The create endpoint may ignore the temporary tags bridge. Re-send the
+        // marker through the existing event-management update endpoint so the
+        // public announcements feed can read it after a fresh fetch.
+        if (data.show_in_announcements) {
+          try {
+            await eventsService.update(
+              createdEvent.id,
+              mapEventToUpdatePayload(createdEvent.id, {
+                title: data.title,
+                description: data.description,
+                location: data.location,
+                start_date: data.start_date,
+                end_date: data.end_date,
+                start_time: data.start_time,
+                end_time: data.end_time,
+                visibility: data.visibility,
+                status: data.status,
+                show_in_announcements: true,
+                tags: [],
+              }),
+            );
+          } catch {
+            toast.error(
+              'Event created, but we could not sync its announcements visibility. Please edit the event and try again.',
+            );
+          }
+        }
       }
 
       navigate(EVENT_ROUTES.ROOT);
@@ -485,10 +513,7 @@ export default function CreateEventPage() {
                 <span className="block text-sm font-semibold text-gray-800">
                   Show this event in announcements
                 </span>
-                <span className="mt-1 block text-xs leading-5 text-gray-500">
-                  This keeps the event as the single source of truth while also displaying it in the
-                  public announcements feed.
-                </span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500"></span>
               </span>
             </label>
 

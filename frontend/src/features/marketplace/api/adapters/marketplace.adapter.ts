@@ -17,6 +17,7 @@ import type {
   UpdateListingFormData,
 } from '../../types/marketplace.types';
 import { generateSlug, parseImages, extractList } from '@/lib/utils/adapters';
+import { combineLocationParts, splitLocation } from '@/shared/utils/location';
 
 // ─── Inbound (backend → frontend) ────────────────────────────────────────────
 
@@ -159,6 +160,8 @@ function payloadFieldsToSocials(raw: Record<string, unknown>): Socials | undefin
 
 export function mapBackendListingToBusiness(raw: unknown): Business {
   const d = raw as Record<string, unknown>;
+  const location = String(d.location ?? '');
+  const locationParts = splitLocation(location);
 
   return {
     businessId: String(d.id ?? ''),
@@ -173,7 +176,8 @@ export function mapBackendListingToBusiness(raw: unknown): Business {
     name: String(d.title ?? 'Untitled'),
     category: String(d.category ?? 'other'),
     description: String(d.description ?? ''),
-    location: String(d.location ?? ''),
+    location,
+    ...locationParts,
     phone: String(d.phone ?? ''),
     email: resolveListingEmail(d),
     website: d.website ? String(d.website) : undefined,
@@ -215,7 +219,7 @@ export function mapBusinessToCreatePayload(
     title: formData.name,
     description: formData.description,
     category: formData.category,
-    location: formData.location,
+    location: combineLocationParts(formData),
     phone: formData.phone,
     business_name: formData.name,
     contact_info: formData.phone,
@@ -253,7 +257,7 @@ export function mapBusinessToUpdatePayload(
     title: formData.name,
     description: formData.description,
     category: formData.category,
-    location: formData.location,
+    location: combineLocationParts(formData),
     phone: formData.phone,
     status: 'active',
     message_prompt: formData.messagePrompt?.trim() ?? '',

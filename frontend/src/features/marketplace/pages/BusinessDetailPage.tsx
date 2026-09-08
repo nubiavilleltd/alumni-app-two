@@ -27,6 +27,7 @@ import { SEO } from '@/shared/common/SEO';
 import { Breadcrumbs } from '@/shared/components/ui/Breadcrumbs';
 import { Button, ButtonLink } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { EmailInstructionModal } from '@/shared/components/ui/EmailInstructionModal';
 import { toast } from '@/shared/components/ui/Toast';
 import { useStartDirectConversation } from '@/features/messages/hooks/useStartDirectConversation';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
@@ -127,6 +128,7 @@ export default function BusinessDetailPage() {
     useStartDirectConversation();
   const [activeImage, setActiveImage] = useState(0);
   const [isMessagePending, setIsMessagePending] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   const images = business?.images ?? [];
   const activeImageSrc = images[activeImage];
@@ -136,9 +138,7 @@ export default function BusinessDetailPage() {
   const socialLinks = useMemo(() => (business ? buildSocialLinks(business) : []), [business]);
   const hashtags = useMemo(
     () =>
-      business
-        ? parseHashtags(normalizeLegacyHashtags(business.socials?.instagramHashtag))
-        : [],
+      business ? parseHashtags(normalizeLegacyHashtags(business.socials?.instagramHashtag)) : [],
     [business],
   );
 
@@ -179,7 +179,7 @@ export default function BusinessDetailPage() {
         fullName: business.owner,
         avatar: business.ownerPhoto,
         headline: `Owner of ${business.name}`,
-        location: business.location,
+        location: [business.address, business.city, business.state].filter(Boolean).join(', '),
         profileHref: `/alumni/profiles/${business.ownerId}`,
       },
     });
@@ -306,10 +306,10 @@ export default function BusinessDetailPage() {
                   <User className="h-4 w-4" />
                   {business.owner}
                 </span>
-                {business.location ? (
+                {business.address || business.city || business.state ? (
                   <span className="inline-flex items-center gap-2">
                     <MapPin className="h-4 w-4" />
-                    {business.location}
+                    {[business.address, business.city, business.state].filter(Boolean).join(', ')}
                   </span>
                 ) : null}
               </div>
@@ -326,11 +326,7 @@ export default function BusinessDetailPage() {
               <div className="mb-5 flex items-center gap-3">
                 <div className="flex h-14 w-14 flex-none items-center justify-center overflow-hidden rounded-2xl bg-primary-50 text-base font-extrabold text-primary-500">
                   {business.ownerPhoto ? (
-                    <img
-                      src={business.ownerPhoto}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
+                    <img src={business.ownerPhoto} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <span>{getOwnerInitials(business.owner)}</span>
                   )}
@@ -355,13 +351,14 @@ export default function BusinessDetailPage() {
                 ) : null}
 
                 {business.email ? (
-                  <a
-                    href={`mailto:${business.email}`}
+                  <button
+                    type="button"
+                    onClick={() => setIsEmailModalOpen(true)}
                     className="flex items-start gap-2.5 transition-colors hover:text-primary-600"
                   >
                     <Mail className="mt-0.5 h-4 w-4 flex-none" />
                     <span className="min-w-0 break-all">{business.email}</span>
-                  </a>
+                  </button>
                 ) : null}
 
                 {business.website ? (
@@ -454,6 +451,14 @@ export default function BusinessDetailPage() {
           </div>
         </section>
       </main>
+
+      <EmailInstructionModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        email={business.email ?? ''}
+        title={`Contact ${business.name}`}
+        description="Send an email to this business:"
+      />
     </>
   );
 }

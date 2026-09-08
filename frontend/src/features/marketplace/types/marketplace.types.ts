@@ -29,6 +29,9 @@ export interface Business {
   category: string;
   description: string;
   location: string;
+  address: string;
+  city: string;
+  state: string;
   phone: string;
   email?: string;
   website?: string;
@@ -54,6 +57,9 @@ export interface PostBusinessPayload {
   category: string;
   description: string;
   location: string;
+  address: string;
+  city: string;
+  state: string;
   phone: string;
   website?: string;
   whatsapp?: string;
@@ -66,7 +72,10 @@ export interface CreateListingFormData {
   name: string;
   category: string;
   description: string;
-  location: string;
+  location?: string;
+  address: string;
+  city: string;
+  state: string;
   phone: string;
   website?: string;
   whatsapp?: string;

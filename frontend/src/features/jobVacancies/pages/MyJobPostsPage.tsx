@@ -11,6 +11,7 @@ import { toast } from '@/shared/components/ui/Toast';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { useJobVacancies } from '../hooks/useJobVacancies';
 import { useDeleteVacancy } from '../hooks/useManageVacancy';
+import { matchesLocationPart } from '@/shared/utils/location';
 import type { JobVacancyViewModel } from '../api/adapters';
 import {
   getTone,
@@ -36,7 +37,9 @@ type MyJobPostFilterState = {
   status: string;
   jobType: string;
   workplace: string;
-  location: string;
+  address: string;
+  city: string;
+  state: string;
 };
 
 const JOB_POST_STATUS_OPTIONS = [
@@ -55,6 +58,9 @@ function matchesMyJobPostFilters(job: JobVacancyViewModel, filters: MyJobPostFil
     job.title,
     job.companyName,
     job.location,
+    job.address ?? '',
+    job.city ?? '',
+    job.state ?? '',
     job.jobType,
     job.workplaceType,
     job.levelOfExpertise,
@@ -67,7 +73,9 @@ function matchesMyJobPostFilters(job: JobVacancyViewModel, filters: MyJobPostFil
       (filters.status === 'expired' ? isExpiredJobPost(job) : !isExpiredJobPost(job))) &&
     (!filters.jobType || job.jobType === filters.jobType) &&
     (!filters.workplace || job.workplaceType === filters.workplace) &&
-    (!filters.location || job.location === filters.location)
+    matchesLocationPart(job.address, filters.address) &&
+    matchesLocationPart(job.city, filters.city) &&
+    matchesLocationPart(job.state, filters.state)
   );
 }
 
@@ -97,7 +105,9 @@ export default function MyJobPostsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('');
   const [workplaceFilter, setWorkplaceFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
+  const [addressFilter, setAddressFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const myVacancies = useMemo(
@@ -113,28 +123,35 @@ export default function MyJobPostsPage() {
       status: statusFilter,
       jobType: jobTypeFilter,
       workplace: workplaceFilter,
-      location: locationFilter,
+      address: addressFilter,
+      city: cityFilter,
+      state: stateFilter,
     }),
-    [jobTypeFilter, locationFilter, search, statusFilter, workplaceFilter],
+    [addressFilter, cityFilter, jobTypeFilter, search, stateFilter, statusFilter, workplaceFilter],
   );
   const filteredVacancies = useMemo(
     () => myVacancies.filter((job) => matchesMyJobPostFilters(job, filterState)),
     [filterState, myVacancies],
   );
   const facetOptions = useMemo(() => {
-    const locations = Array.from(
-      new Set(myVacancies.map((job) => job.location.trim()).filter(Boolean)),
-    )
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ label: value, value }));
+    const toOptions = (values: Array<string | undefined>) =>
+      Array.from(new Set(values.filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value }));
 
-    return { locations };
+    return {
+      addresses: toOptions(myVacancies.map((job) => job.address)),
+      cities: toOptions(myVacancies.map((job) => job.city)),
+      states: toOptions(myVacancies.map((job) => job.state)),
+    };
   }, [myVacancies]);
   const activeAdvancedFilterCount = [
     statusFilter,
     jobTypeFilter,
     workplaceFilter,
-    locationFilter,
+    addressFilter,
+    cityFilter,
+    stateFilter,
   ].filter(Boolean).length;
   const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
   const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / MY_JOB_POSTS_PER_PAGE));
@@ -151,7 +168,15 @@ export default function MyJobPostsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [jobTypeFilter, locationFilter, search, statusFilter, workplaceFilter]);
+  }, [
+    addressFilter,
+    cityFilter,
+    jobTypeFilter,
+    search,
+    stateFilter,
+    statusFilter,
+    workplaceFilter,
+  ]);
 
   const handleDeleteVacancy = async () => {
     if (!jobToDelete) return;
@@ -179,7 +204,9 @@ export default function MyJobPostsPage() {
     setStatusFilter('');
     setJobTypeFilter('');
     setWorkplaceFilter('');
-    setLocationFilter('');
+    setAddressFilter('');
+    setCityFilter('');
+    setStateFilter('');
     setCurrentPage(1);
   };
 
@@ -187,7 +214,9 @@ export default function MyJobPostsPage() {
     if (key === 'status') setStatusFilter(value);
     if (key === 'jobType') setJobTypeFilter(value);
     if (key === 'workplace') setWorkplaceFilter(value);
-    if (key === 'location') setLocationFilter(value);
+    if (key === 'address') setAddressFilter(value);
+    if (key === 'city') setCityFilter(value);
+    if (key === 'state') setStateFilter(value);
   };
 
   const hasOwnerIdentity = ownerIds.size > 0;
@@ -289,12 +318,28 @@ export default function MyJobPostsPage() {
                       ],
                     },
                     {
-                      key: 'location',
+                      key: 'address',
                       kind: 'select',
-                      label: 'Location',
-                      value: locationFilter,
-                      placeholder: 'All locations',
-                      options: facetOptions.locations,
+                      label: 'Address',
+                      value: addressFilter,
+                      placeholder: 'All addresses',
+                      options: facetOptions.addresses,
+                    },
+                    {
+                      key: 'city',
+                      kind: 'select',
+                      label: 'City',
+                      value: cityFilter,
+                      placeholder: 'All cities',
+                      options: facetOptions.cities,
+                    },
+                    {
+                      key: 'state',
+                      kind: 'select',
+                      label: 'State',
+                      value: stateFilter,
+                      placeholder: 'All states',
+                      options: facetOptions.states,
                     },
                   ]}
                   onFieldChange={handleAdvancedFilterChange}

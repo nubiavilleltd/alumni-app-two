@@ -20,6 +20,7 @@ import { ROUTES } from '@/shared/constants/routes';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { useTokenStore } from '@/features/authentication/stores/useTokenStore';
+import { combineLocationParts, matchesLocationPart } from '@/shared/utils/location';
 import { useCreateVacancy } from '../hooks/useCreateVacancy';
 import { useJobVacancies } from '../hooks/useJobVacancies';
 import { useUpdateVacancy } from '../hooks/useManageVacancy';
@@ -52,7 +53,9 @@ type JobFormState = {
   jobType: JobType | '';
   workplaceType: WorkplaceType | '';
   level: LevelOfExpertise | '';
-  location: string;
+  address: string;
+  city: string;
+  state: string;
   salary: string;
   currency: VacancyCurrency;
   deadline: string;
@@ -92,7 +95,9 @@ type JobFilterState = {
   jobType: string;
   workplace: string;
   expertise: string;
-  location: string;
+  address: string;
+  city: string;
+  state: string;
   currency: string;
   deadline: string;
 };
@@ -142,7 +147,9 @@ const initialJobFormState: JobFormState = {
   jobType: '',
   workplaceType: '',
   level: '',
-  location: '',
+  address: '',
+  city: '',
+  state: '',
   salary: '',
   currency: 'NGN',
   deadline: '',
@@ -231,6 +238,9 @@ function matchesJobVacancyFilters(job: JobVacancyViewModel, filters: JobFilterSt
     job.companyName,
     job.postedByName ?? '',
     job.location,
+    job.address ?? '',
+    job.city ?? '',
+    job.state ?? '',
     formatJobDate(job.createdAt || job.postedAt),
     getSalaryDisplay(job),
     ...getJobPillLabels(job),
@@ -242,7 +252,9 @@ function matchesJobVacancyFilters(job: JobVacancyViewModel, filters: JobFilterSt
     (!filters.jobType || job.jobType === filters.jobType) &&
     (!filters.workplace || job.workplaceType === filters.workplace) &&
     (!filters.expertise || job.levelOfExpertise === filters.expertise) &&
-    (!filters.location || job.location.trim().toLowerCase() === filters.location.toLowerCase()) &&
+    matchesLocationPart(job.address, filters.address) &&
+    matchesLocationPart(job.city, filters.city) &&
+    matchesLocationPart(job.state, filters.state) &&
     (!filters.currency || job.currency === filters.currency) &&
     (!filters.deadline || matchesDeadlineFilter(job.postedAt, filters.deadline))
   );
@@ -279,7 +291,9 @@ function jobToFormState(job?: JobVacancyViewModel | null): JobFormState {
     jobType: job.jobType,
     workplaceType: job.workplaceType,
     level: job.levelOfExpertise,
-    location: job.location,
+    address: job.address ?? job.location,
+    city: job.city ?? '',
+    state: job.state ?? '',
     salary: getSalaryFormValue(job.salary),
     currency: isVacancyCurrency(job.currency) ? job.currency : 'NGN',
     deadline: getDateInputValue(job.postedAt),
@@ -343,7 +357,9 @@ function validateJobForm(form: JobFormState): JobFormErrors {
   if (!form.jobType) errors.jobType = 'Select a job type.';
   if (!form.workplaceType) errors.workplaceType = 'Select a workplace type.';
   if (!form.level) errors.level = 'Select a level of expertise.';
-  if (!form.location.trim()) errors.location = 'Location is required.';
+  if (!form.address.trim()) errors.address = 'Address is required.';
+  if (!form.city.trim()) errors.city = 'City is required.';
+  if (!form.state.trim()) errors.state = 'State is required.';
   if (!form.salary.trim()) errors.salary = 'Salary is required.';
   if (form.salary.trim() && parseSalaryAmount(form.salary) === null) {
     errors.salary = 'Enter a valid salary amount.';
@@ -536,7 +552,7 @@ export function JobCard({
             {getSalaryDisplay(job)}
           </p>
           <p className="mt-[0.35rem] text-[0.9rem] font-semibold leading-[1.15] text-[#59626c]">
-            {job.location}
+            {[job.address, job.city, job.state].filter(Boolean).join(', ') || job.location}
           </p>
         </div>
 
@@ -709,7 +725,7 @@ export function PostJobModal({
       job_type: form.jobType as JobType,
       workplace_type: form.workplaceType as WorkplaceType,
       level_of_expertise: form.level as LevelOfExpertise,
-      location: form.location.trim(),
+      location: combineLocationParts(form),
       salary: formatMoneyAmount(form.salary, form.currency, form.salary.trim()),
       currency: form.currency,
       application_deadline: form.deadline,
@@ -840,15 +856,41 @@ export function PostJobModal({
               disabled={isSubmitting}
             />
             <BaseInput
-              label="Location (City)"
+              label="Address"
               labelClassName={jobsFormLabelClassName}
               controlClassName={jobsFormControlClassName}
               inputClassName={jobsFormInputClassName}
-              name="location"
-              value={form.location}
-              onChange={(event) => handleFieldChange('location', event.target.value)}
-              placeholder="Enter the location of the job"
-              error={fieldErrors.location}
+              name="address"
+              value={form.address}
+              onChange={(event) => handleFieldChange('address', event.target.value)}
+              placeholder="Street address or area"
+              error={fieldErrors.address}
+              required
+              disabled={isSubmitting}
+            />
+            <BaseInput
+              label="City"
+              labelClassName={jobsFormLabelClassName}
+              controlClassName={jobsFormControlClassName}
+              inputClassName={jobsFormInputClassName}
+              name="city"
+              value={form.city}
+              onChange={(event) => handleFieldChange('city', event.target.value)}
+              placeholder="Enter the city"
+              error={fieldErrors.city}
+              required
+              disabled={isSubmitting}
+            />
+            <BaseInput
+              label="State"
+              labelClassName={jobsFormLabelClassName}
+              controlClassName={jobsFormControlClassName}
+              inputClassName={jobsFormInputClassName}
+              name="state"
+              value={form.state}
+              onChange={(event) => handleFieldChange('state', event.target.value)}
+              placeholder="Enter the state"
+              error={fieldErrors.state}
               required
               disabled={isSubmitting}
             />
@@ -1081,7 +1123,9 @@ export default function JobVacanciesPage() {
   const [jobTypeFilter, setJobTypeFilter] = useState('');
   const [workplaceFilter, setWorkplaceFilter] = useState('');
   const [expertiseFilter, setExpertiseFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
+  const [addressFilter, setAddressFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
   const [currencyFilter, setCurrencyFilter] = useState('');
   const [deadlineFilter, setDeadlineFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -1103,7 +1147,9 @@ export default function JobVacanciesPage() {
       jobType: jobTypeFilter,
       workplace: workplaceFilter,
       expertise: expertiseFilter,
-      location: locationFilter,
+      address: addressFilter,
+      city: cityFilter,
+      state: stateFilter,
       currency: currencyFilter,
       deadline: deadlineFilter,
     }),
@@ -1112,9 +1158,11 @@ export default function JobVacanciesPage() {
       deadlineFilter,
       expertiseFilter,
       jobTypeFilter,
-      locationFilter,
+      addressFilter,
+      cityFilter,
       salaryFilter,
       search,
+      stateFilter,
       workplaceFilter,
     ],
   );
@@ -1136,11 +1184,13 @@ export default function JobVacanciesPage() {
   }, [filterState, orderedVacancies]);
 
   const facetOptions = useMemo(() => {
-    const locationValues = Array.from(
-      new Set(vacancies.map((job) => job.location.trim()).filter(Boolean)),
-    )
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ label: value, value }));
+    const toOptions = (values: Array<string | undefined>) =>
+      Array.from(new Set(values.filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value }));
+    const addressValues = toOptions(vacancies.map((job) => job.address));
+    const cityValues = toOptions(vacancies.map((job) => job.city));
+    const stateValues = toOptions(vacancies.map((job) => job.state));
     const currencyValues = Array.from(new Set(vacancies.map((job) => job.currency).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ label: value, value }));
@@ -1150,7 +1200,9 @@ export default function JobVacanciesPage() {
       jobType: getFacetOptions(JOB_TYPE_OPTIONS, 'jobType', vacancies, filterState),
       workplace: getFacetOptions(WORKPLACE_TYPE_OPTIONS, 'workplace', vacancies, filterState),
       expertise: getFacetOptions(LEVEL_OF_EXPERTISE_OPTIONS, 'expertise', vacancies, filterState),
-      location: getFacetOptions(locationValues, 'location', vacancies, filterState),
+      address: getFacetOptions(addressValues, 'address', vacancies, filterState),
+      city: getFacetOptions(cityValues, 'city', vacancies, filterState),
+      state: getFacetOptions(stateValues, 'state', vacancies, filterState),
       currency: getFacetOptions(currencyValues, 'currency', vacancies, filterState),
       deadline: getFacetOptions(DEADLINE_FILTER_OPTIONS, 'deadline', vacancies, filterState),
     };
@@ -1161,7 +1213,9 @@ export default function JobVacanciesPage() {
     jobTypeFilter,
     workplaceFilter,
     expertiseFilter,
-    locationFilter,
+    addressFilter,
+    cityFilter,
+    stateFilter,
     currencyFilter,
     deadlineFilter,
   ].filter(Boolean).length;
@@ -1182,13 +1236,15 @@ export default function JobVacanciesPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [
+    addressFilter,
+    cityFilter,
     currencyFilter,
     deadlineFilter,
     expertiseFilter,
     jobTypeFilter,
-    locationFilter,
     salaryFilter,
     search,
+    stateFilter,
     workplaceFilter,
   ]);
 
@@ -1218,7 +1274,9 @@ export default function JobVacanciesPage() {
     setJobTypeFilter('');
     setWorkplaceFilter('');
     setExpertiseFilter('');
-    setLocationFilter('');
+    setAddressFilter('');
+    setCityFilter('');
+    setStateFilter('');
     setCurrencyFilter('');
     setDeadlineFilter('');
     setCurrentPage(1);
@@ -1229,7 +1287,9 @@ export default function JobVacanciesPage() {
     if (key === 'jobType') setJobTypeFilter(value);
     if (key === 'workplace') setWorkplaceFilter(value);
     if (key === 'expertise') setExpertiseFilter(value);
-    if (key === 'location') setLocationFilter(value);
+    if (key === 'address') setAddressFilter(value);
+    if (key === 'city') setCityFilter(value);
+    if (key === 'state') setStateFilter(value);
     if (key === 'currency') setCurrencyFilter(value);
     if (key === 'deadline') setDeadlineFilter(value);
     setCurrentPage(1);
@@ -1340,12 +1400,28 @@ export default function JobVacanciesPage() {
                       options: facetOptions.expertise,
                     },
                     {
-                      key: 'location',
+                      key: 'address',
                       kind: 'select',
-                      label: 'Location',
-                      value: locationFilter,
-                      placeholder: 'All locations',
-                      options: facetOptions.location,
+                      label: 'Address',
+                      value: addressFilter,
+                      placeholder: 'All addresses',
+                      options: facetOptions.address,
+                    },
+                    {
+                      key: 'city',
+                      kind: 'select',
+                      label: 'City',
+                      value: cityFilter,
+                      placeholder: 'All cities',
+                      options: facetOptions.city,
+                    },
+                    {
+                      key: 'state',
+                      kind: 'select',
+                      label: 'State',
+                      value: stateFilter,
+                      placeholder: 'All states',
+                      options: facetOptions.state,
                     },
                     {
                       key: 'currency',

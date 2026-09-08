@@ -13,8 +13,10 @@ import {
   mapBackendAnnouncementList,
   mapEventToAnnouncement,
   mapGetAnnouncementsPayload,
+  mapProjectToAnnouncement,
 } from '@/features/announcements/api/adapters/announcement.adapter';
 import { eventsService } from '@/features/events/services/event.service';
+import { projectsService } from '@/features/projects/services/projects.service';
 import type {
   AnnouncementMutationInput,
   AnnouncementType,
@@ -59,11 +61,12 @@ async function fetchAnnouncementsByTypeFallback(
 
 export const announcementService = {
   async getPublicFeed(params?: GetAnnouncementsParams): Promise<NewsItem[]> {
-    const [announcementsResult, eventsResult] = await Promise.allSettled([
+    const [announcementsResult, eventsResult, projectsResult] = await Promise.allSettled([
       announcementService.getAll(params),
       // Events are intentionally fetched without filter params so the temporary marker
       // can be evaluated client-side until the backend has a first-class boolean field.
       eventsService.getAll(),
+      projectsService.getAll(),
     ]);
 
     if (announcementsResult.status === 'rejected') {
@@ -77,8 +80,14 @@ export const announcementService = {
             .filter((event) => event.showInAnnouncements)
             .map(mapEventToAnnouncement)
         : [];
+    const projects =
+      projectsResult.status === 'fulfilled'
+        ? projectsResult.value
+            .filter((project) => project.showInAnnouncements)
+            .map(mapProjectToAnnouncement)
+        : [];
 
-    return [...announcements, ...events].sort(
+    return [...announcements, ...events, ...projects].sort(
       (a, b) => new Date(b.startsAt || b.date).getTime() - new Date(a.startsAt || a.date).getTime(),
     );
   },

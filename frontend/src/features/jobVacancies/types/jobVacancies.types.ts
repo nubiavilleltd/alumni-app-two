@@ -16,6 +16,9 @@ export type JobVacancy = {
   workplace_type: WorkplaceType;
   level_of_expertise: LevelOfExpertise;
   location: string;
+  address?: string;
+  city?: string;
+  state?: string;
   salary: string;
   currency?: VacancyCurrency | string;
   application_deadline: string;

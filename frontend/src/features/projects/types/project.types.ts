@@ -14,6 +14,7 @@ export interface Project {
   endDate?: string;
   sortOrder?: number;
   isFeatured?: number;
+  showInAnnouncements?: boolean;
   createdAt?: string;
   createdByName?: string;
   chapterName?: string | null;
@@ -39,6 +40,7 @@ export interface CreateProjectFormData {
   endDate?: string;
   sortOrder?: number;
   isFeatured?: boolean;
+  show_in_announcements?: boolean;
   images: File[];
 }
 

@@ -5,7 +5,8 @@
 // Admin Edit / Delete sit as icon buttons in the top-right corner of the image
 // so they don't disturb the clean overlay layout.
 
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   ChevronRight,
@@ -90,6 +91,7 @@ interface ProjectCardProps {
 export function ProjectCard({ project, showAdminActions = false, onEdit }: ProjectCardProps) {
   const deleteMutation = useDeleteProject();
   const [showDelete, setShowDelete] = useState(false);
+  const navigate = useNavigate();
 
   // const mainImage = project.images?.[0] || PLACEHOLDER;
   const mainImage = project.images?.[0] || placeholderImg;
@@ -110,9 +112,29 @@ export function ProjectCard({ project, showAdminActions = false, onEdit }: Proje
     });
   };
 
+  const detailHref = showAdminActions
+    ? ADMIN_ROUTES.PROJECT_DETAIL(project.id)
+    : ROUTES.PROJECTS.DETAIL(project.id);
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      navigate(detailHref);
+    }
+  };
+
   return (
     <>
-      <div className="relative rounded-2xl overflow-hidden shadow-md group aspect-[4/5] cursor-pointer">
+      <div
+        role="link"
+        tabIndex={0}
+        aria-label={`View ${project.title}`}
+        onClick={() => navigate(detailHref)}
+        onKeyDown={handleCardKeyDown}
+        className="group relative aspect-[4/5] cursor-pointer overflow-hidden rounded-2xl shadow-md transition-shadow hover:shadow-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-200"
+      >
         {/* Full-bleed image */}
         <div className="absolute inset-0">
           <img
@@ -128,7 +150,10 @@ export function ProjectCard({ project, showAdminActions = false, onEdit }: Proje
           <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
             <button
               type="button"
-              onClick={() => onEdit?.(project)}
+              onClick={(event) => {
+                event.stopPropagation();
+                onEdit?.(project);
+              }}
               title="Edit project"
               className="w-7 h-7 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow transition-colors"
             >
@@ -136,7 +161,10 @@ export function ProjectCard({ project, showAdminActions = false, onEdit }: Proje
             </button>
             <button
               type="button"
-              onClick={() => setShowDelete(true)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setShowDelete(true);
+              }}
               title="Delete project"
               className="w-7 h-7 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow transition-colors"
             >
@@ -145,7 +173,6 @@ export function ProjectCard({ project, showAdminActions = false, onEdit }: Proje
           </div>
         )}
 
-     
         {/* Blue overlay panel */}
         <div className="absolute bottom-4 left-4 right-4 h-40 bg-primary-600/80 backdrop-blur-[2px] rounded-2xl px-4 pt-3 pb-3 flex flex-col">
           {/* Title */}
@@ -177,7 +204,7 @@ export function ProjectCard({ project, showAdminActions = false, onEdit }: Proje
 
           {/* View details link */}
           <AppLink
-            href={showAdminActions ? ADMIN_ROUTES.PROJECT_DETAIL(project.id): ROUTES.PROJECTS.DETAIL(project.id)}
+            href={detailHref}
             className="mt-auto inline-flex items-center gap-0.5 text-white font-semibold text-[13px] hover:text-white/80 transition-colors"
           >
             View Details

@@ -13,6 +13,10 @@ import type {
   BirthdayResponse,
   GetAnnouncementsParams,
 } from '@/features/announcements/types/announcement.types';
+import type { Event } from '@/features/events/types/event.types';
+import { EVENT_ROUTES } from '@/features/events/routes';
+import type { Project } from '@/features/projects/types/project.types';
+import { PROJECT_ROUTES } from '@/features/projects/routes';
 
 const ANNOUNCEMENT_FALLBACK_IMAGE = '/news-1.png';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') ?? '';
@@ -58,7 +62,6 @@ export function mapGetAnnouncementsPayload(params?: GetAnnouncementsParams) {
     ...(params.id ? { id: String(params.id) } : {}),
     ...(params.createdBy ? { created_by: String(params.createdBy) } : {}),
     ...(params.type ? { type: params.type } : {}),
-    ...(params.chapterId ? { chapter_id: String(params.chapterId) } : {}),
     ...(params.year ? { year: String(params.year) } : {}),
   };
 }
@@ -158,10 +161,65 @@ export function mapBackendAnnouncement(raw: any): Announcement | null {
       startsAt: startsAt ? safeParseDate(startsAt) : undefined,
       endsAt: endsAt ? safeParseDate(endsAt) : undefined,
       featured: Boolean(raw?.featured),
+      source: 'announcement',
+      sourceId: String(id),
     };
   } catch {
     return null;
   }
+}
+
+/** Map a marked event into the public announcement-feed shape. */
+export function mapEventToAnnouncement(event: Event): Announcement {
+  const content = event.description || event.content || '';
+  const eventDate = event.startDate || event.createdAt;
+  const parsedYear = new Date(eventDate).getFullYear();
+
+  return {
+    id: `event:${event.id}`,
+    slug: `event-${event.slug || event.id}`,
+    title: event.title,
+    content,
+    excerpt: createExcerpt(content),
+    image: event.image || ANNOUNCEMENT_FALLBACK_IMAGE,
+    date: event.createdAt || eventDate,
+    type: 'event',
+    tag: 'EVENT',
+    createdBy: event.createdBy,
+    year: Number.isNaN(parsedYear) ? undefined : parsedYear,
+    startsAt: eventDate,
+    endsAt: event.endDate,
+    featured: event.featured,
+    source: 'event',
+    sourceId: event.id,
+    href: EVENT_ROUTES.DETAIL(event.id),
+  };
+}
+
+/** Map a marked project into the public announcement-feed shape. */
+export function mapProjectToAnnouncement(project: Project): Announcement {
+  const projectDate = project.startDate || project.createdAt || '';
+  const parsedYear = new Date(projectDate).getFullYear();
+
+  return {
+    id: `project:${project.id}`,
+    slug: generateSlug(project.title, project.id, 'project'),
+    title: project.title,
+    content: project.description,
+    excerpt: createExcerpt(project.description),
+    image: project.images[0] || ANNOUNCEMENT_FALLBACK_IMAGE,
+    date: projectDate,
+    type: 'info',
+    tag: 'PROJECT',
+    createdBy: project.conductedBy,
+    year: Number.isNaN(parsedYear) ? undefined : parsedYear,
+    startsAt: project.startDate || undefined,
+    endsAt: project.endDate,
+    featured: Boolean(project.isFeatured),
+    source: 'project',
+    sourceId: project.id,
+    href: PROJECT_ROUTES.DETAIL(project.id),
+  };
 }
 
 export function mapBackendAnnouncementList(data: unknown): Announcement[] {
@@ -183,12 +241,12 @@ export function extractAnnouncementFromResponse(data: unknown): Announcement | n
   return object ? mapBackendAnnouncement(object) : null;
 }
 
-export function adaptBirthday(data:BirthdayResponse):Birthday{
+export function adaptBirthday(data: BirthdayResponse): Birthday {
   return {
-    userId:data.user_id,
-    nameInSchool:data.name_in_school,
-    classLabel:data.class_label,
-    avatar:data.avatar,
-    fullName:data.fullname
-  }
+    userId: data.user_id,
+    nameInSchool: data.name_in_school,
+    classLabel: data.class_label,
+    avatar: data.avatar,
+    fullName: data.fullname,
+  };
 }

@@ -70,7 +70,7 @@ function AnnouncementMeta({ date }: { date: string }) {
 function FeaturedAnnouncementCard({ item }: { item: NewsItem }) {
   return (
     <AppLink
-      href={ANNOUNCEMENT_ROUTES.DETAIL(item.slug)}
+      href={item.href ?? ANNOUNCEMENT_ROUTES.DETAIL(item.slug)}
       className="group flex h-full flex-col overflow-hidden rounded-[1.4rem] bg-white text-[#071116] shadow-[0_16px_38px_rgba(7,17,22,0.08)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_22px_48px_rgba(7,17,22,0.12)]"
     >
       <div className="h-[280px] overflow-hidden bg-[#e9edf1] sm:h-[340px] lg:h-[384px]">
@@ -106,7 +106,7 @@ function FeaturedAnnouncementCard({ item }: { item: NewsItem }) {
 function AnnouncementListCard({ item }: { item: NewsItem }) {
   return (
     <AppLink
-      href={ANNOUNCEMENT_ROUTES.DETAIL(item.slug)}
+      href={item.href ?? ANNOUNCEMENT_ROUTES.DETAIL(item.slug)}
       className="group grid overflow-hidden rounded-[1.4rem] bg-white p-4 text-[#071116] shadow-[0_16px_38px_rgba(7,17,22,0.08)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_22px_48px_rgba(7,17,22,0.12)] sm:grid-cols-[240px_1fr] sm:gap-4"
     >
       <div className="h-[150px] overflow-hidden rounded-xl bg-[#e9edf1] sm:h-[138px]">

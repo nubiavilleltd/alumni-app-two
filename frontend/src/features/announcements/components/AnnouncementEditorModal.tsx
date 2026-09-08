@@ -25,8 +25,10 @@ type EditorState = {
   endsAt: string;
 };
 
-const announcementTypeOptions = [
-  { label: 'Info', value: 'info' },
+const announcementTypeOptions = [{ label: 'Info', value: 'info' }] as const;
+
+const legacyAnnouncementTypeOptions = [
+  ...announcementTypeOptions,
   { label: 'Event', value: 'event' },
 ] as const;
 
@@ -228,7 +230,11 @@ export function AnnouncementEditorModal({
         <div className="grid gap-4 md:grid-cols-2">
           <SelectInput
             label="Type"
-            options={announcementTypeOptions}
+            options={
+              announcement?.type === 'event'
+                ? legacyAnnouncementTypeOptions
+                : announcementTypeOptions
+            }
             value={form.type}
             onChange={(event) => handleFieldChange('type', event.target.value as AnnouncementType)}
           />

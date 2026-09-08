@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { SEO } from '@/shared/common/SEO';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { EmailInstructionModal } from '@/shared/components/ui/EmailInstructionModal';
 import { toast } from '@/shared/components/ui/Toast';
 import { ROUTES } from '@/shared/constants/routes';
 import { useJobVacancies } from '../hooks/useJobVacancies';
@@ -86,6 +87,7 @@ export default function JobVacancyDetailPage() {
   const { startDirectConversation, isPending: isStartingConversation } =
     useStartDirectConversation();
   const [isMessagePending, setIsMessagePending] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   const job = useMemo(() => vacancies.find((vacancy) => vacancy.id === id), [id, vacancies]);
 
@@ -117,7 +119,7 @@ export default function JobVacancyDetailPage() {
       recipientProfile: {
         fullName: job.postedByName ?? 'Job poster',
         headline: `${job.companyName} vacancy poster`,
-        location: job.location,
+        location: [job.address, job.city, job.state].filter(Boolean).join(', ') || job.location,
         profileHref: `/alumni/profiles/${job.ownerId}`,
       },
     });
@@ -177,7 +179,9 @@ export default function JobVacancyDetailPage() {
                   </h1>
                   <span className="inline-flex rounded-xl bg-[#078e00]/25 px-3 py-2 text-sm">
                     <span className="text-[#4B5563]">Deadline: </span>
-                    <span className="text-[#078E00] font-semibold ml-1">{formatJobDate(job.postedAt)}</span>
+                    <span className="text-[#078E00] font-semibold ml-1">
+                      {formatJobDate(job.postedAt)}
+                    </span>
                   </span>
                 </div>
 
@@ -188,7 +192,7 @@ export default function JobVacancyDetailPage() {
                   </p>
                   <p className="inline-flex items-center gap-1.5 text-sm font-semibold">
                     <MapPin className="h-4 w-4" strokeWidth={2.35} />
-                    {job.location}
+                    {[job.address, job.city, job.state].filter(Boolean).join(', ') || job.location}
                   </p>
                   <p className="text-sm font-medium text-slate-500">{postedLabel}</p>
                   {job.postedByName ? (
@@ -201,15 +205,26 @@ export default function JobVacancyDetailPage() {
 
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
                 {application?.label ? (
-                  <a
-                    href={application.href}
-                    target={application.target}
-                    rel={application.rel}
-                    className="inline-flex items-center justify-center gap-2 rounded-full bg-primary-500 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-primary-600"
-                  >
-                    Apply
-                    <application.icon className="h-4 w-4" strokeWidth={2.35} />
-                  </a>
+                  job.applicationMode === 'email' ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsEmailModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-primary-500 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-primary-600"
+                    >
+                      Apply
+                      <Mail className="h-4 w-4" strokeWidth={2.35} />
+                    </button>
+                  ) : (
+                    <a
+                      href={application.href}
+                      target={application.target}
+                      rel={application.rel}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-primary-500 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-primary-600"
+                    >
+                      Apply
+                      <application.icon className="h-4 w-4" strokeWidth={2.35} />
+                    </a>
+                  )
                 ) : null}
                 {job.ownerId ? (
                   <button
@@ -274,20 +289,39 @@ export default function JobVacancyDetailPage() {
                     ? 'Send your application to the email address below.'
                     : 'Use the application link below to continue.'}
                 </p>
-                <a
-                  href={application.href}
-                  target={application.target}
-                  rel={application.rel}
-                  className="inline-flex max-w-full items-center gap-2 rounded-full bg-primary-50 px-4 py-2 text-sm font-semibold text-primary-600 transition-colors hover:bg-primary-100"
-                >
-                  <application.icon className="h-4 w-4 shrink-0" strokeWidth={2.35} />
-                  <span className="truncate">{application.label}</span>
-                </a>
+                {job.applicationMode === 'email' ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsEmailModalOpen(true)}
+                    className="inline-flex max-w-full items-center gap-2 rounded-full bg-primary-50 px-4 py-2 text-sm font-semibold text-primary-600 transition-colors hover:bg-primary-100"
+                  >
+                    <Mail className="h-4 w-4 shrink-0" strokeWidth={2.35} />
+                    <span className="truncate">{application.label}</span>
+                  </button>
+                ) : (
+                  <a
+                    href={application.href}
+                    target={application.target}
+                    rel={application.rel}
+                    className="inline-flex max-w-full items-center gap-2 rounded-full bg-primary-50 px-4 py-2 text-sm font-semibold text-primary-600 transition-colors hover:bg-primary-100"
+                  >
+                    <application.icon className="h-4 w-4 shrink-0" strokeWidth={2.35} />
+                    <span className="truncate">{application.label}</span>
+                  </a>
+                )}
               </section>
             ) : null}
           </section>
         </div>
       </main>
+
+      <EmailInstructionModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        email={job.applicationEmail ?? ''}
+        title="Send your application"
+        description={`Send your application for ${job.title} to:`}
+      />
     </>
   );
 }

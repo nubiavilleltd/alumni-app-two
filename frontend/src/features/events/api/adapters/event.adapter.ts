@@ -7,6 +7,13 @@ import {
   safeParseDate,
 } from '@/lib/utils/adapters';
 import { EVENT_SURVEY_TAG } from '../../lib/eventSurveyAvailability';
+import {
+  EVENT_ANNOUNCEMENT_TAG,
+  hasEventAnnouncementMarker,
+  isEventPast,
+  serializeEventDescription,
+  stripEventAnnouncementMarker,
+} from '../../lib/eventAnnouncementVisibility';
 
 function mapRSVPStatus(status: unknown): 'going' | 'maybe' | 'not_going' | null {
   if (!status || status === '') return 'not_going'; // clean "unregistered"
@@ -33,18 +40,33 @@ export function safeParseOptionalDate(value: unknown): string | undefined {
 export function mapBackendEventToFrontend(raw: unknown): Event {
   const d = raw as Record<string, any>;
 
-  const normalizedTags = parseTags(d.tags).map((tag) => tag.trim().toLowerCase());
+  const normalizedTags = parseTags(d.tags ?? d.event_tags ?? d.eventTags ?? d.tag).map((tag) =>
+    tag.trim().toLowerCase(),
+  );
+  const rawDescription = String(d.description ?? d.content ?? '');
+  const hasDescriptionAnnouncementMarker = hasEventAnnouncementMarker(rawDescription);
+  const cleanDescription = stripEventAnnouncementMarker(rawDescription);
   const hasRegistrationQuestions =
     readRegistrationQuestionFlag(d, normalizedTags) ??
     (normalizedTags.includes(EVENT_SURVEY_TAG) ? true : null);
+  const showInAnnouncements =
+    !isEventPast({
+      startDate: String(d.start_date ?? d.event_date ?? ''),
+      endDate: d.end_date ? String(d.end_date) : undefined,
+      startTime: d.start_time ? String(d.start_time) : undefined,
+      endTime: d.end_time ? String(d.end_time) : undefined,
+    }) &&
+    (hasDescriptionAnnouncementMarker ||
+      normalizedTags.includes(EVENT_ANNOUNCEMENT_TAG) ||
+      stringToBoolean(d.show_in_announcements ?? d.showInAnnouncements) === true);
 
   return {
     id: String(d.id ?? ''),
     slug: generateSlug(d.title ?? 'event', d.id ?? '', 'event'),
 
     title: d.title ?? 'Untitled Event',
-    description: d.description ?? '',
-    content: d.description ?? '',
+    description: cleanDescription,
+    content: cleanDescription,
 
     image: d.event_banner || '',
 
@@ -60,7 +82,10 @@ export function mapBackendEventToFrontend(raw: unknown): Event {
     virtualLink: d.virtual_link || undefined,
     attire: d.attire || undefined,
     category: d.category || undefined,
-    tags: normalizedTags.filter((tag) => tag !== EVENT_SURVEY_TAG),
+    tags: normalizedTags.filter(
+      (tag) => tag !== EVENT_SURVEY_TAG && tag !== EVENT_ANNOUNCEMENT_TAG,
+    ),
+    showInAnnouncements,
 
     featured: stringToBoolean(d.is_featured) ?? false,
 
@@ -117,6 +142,7 @@ export function mapEventToCreatePayload(
     max_attendees?: number;
     event_banner?: File | null;
     tags?: string[];
+    show_in_announcements?: boolean;
   },
   userId: string,
   chapterId?: string,
@@ -125,7 +151,16 @@ export function mapEventToCreatePayload(
     user_id: userId,
     chapter_id: chapterId,
     title: formData.title,
-    description: formData.description,
+    description: serializeEventDescription(
+      formData.description,
+      formData.show_in_announcements &&
+        !isEventPast({
+          startDate: formData.start_date,
+          endDate: formData.end_date,
+          startTime: formData.start_time,
+          endTime: formData.end_time,
+        }),
+    ),
     location: formData.location,
     start_date: formData.start_date,
     end_date: formData.end_date,
@@ -139,7 +174,8 @@ export function mapEventToCreatePayload(
   if (formData.end_time) base.end_time = formData.end_time;
   if (formData.color) base.color = formData.color;
   // if (formData.max_attendees) base.max_attendees = String(formData.max_attendees);
-  if (formData.tags?.length) base.tags = JSON.stringify(formData.tags);
+  const tags = [...(formData.tags ?? [])].filter((tag) => tag !== EVENT_ANNOUNCEMENT_TAG);
+  if (tags.length) base.tags = JSON.stringify(tags);
 
   if (formData.event_banner) {
     const fd = new FormData();
@@ -175,13 +211,23 @@ export function mapEventToUpdatePayload(
     max_attendees?: number;
     status?: string;
     tags?: string[];
+    show_in_announcements?: boolean;
   },
 ): FormData | Record<string, unknown> {
   const base: Record<string, unknown> = {
     id: eventId,
     function_type: 'update',
     title: formData.title,
-    description: formData.description,
+    description: serializeEventDescription(
+      formData.description,
+      formData.show_in_announcements &&
+        !isEventPast({
+          startDate: formData.start_date,
+          endDate: formData.end_date,
+          startTime: formData.start_time,
+          endTime: formData.end_time,
+        }),
+    ),
     location: formData.location,
     end_date: formData.end_date,
     end_time: formData.end_time,
@@ -197,7 +243,10 @@ export function mapEventToUpdatePayload(
   if (formData.visibility) base.visibility = formData.visibility;
   if (formData.max_attendees) base.max_attendees = String(formData.max_attendees);
   if (formData.status) base.status = formData.status;
-  if (formData.tags?.length) base.tags = JSON.stringify(formData.tags);
+  if (formData.tags !== undefined || formData.show_in_announcements !== undefined) {
+    const tags = [...(formData.tags ?? [])].filter((tag) => tag !== EVENT_ANNOUNCEMENT_TAG);
+    base.tags = JSON.stringify(tags);
+  }
 
   if (formData.event_banner) {
     const fd = new FormData();

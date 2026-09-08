@@ -18,6 +18,9 @@ export interface Announcement {
   startsAt?: string;
   endsAt?: string;
   featured?: boolean;
+  source?: 'announcement' | 'event' | 'project';
+  sourceId?: string;
+  href?: string;
 }
 
 export type NewsItem = Announcement;
@@ -26,7 +29,6 @@ export interface GetAnnouncementsParams {
   id?: string | number;
   createdBy?: string | number;
   type?: AnnouncementType;
-  chapterId?: string | number;
   year?: string | number;
 }
 
@@ -42,16 +44,16 @@ export interface AnnouncementMutationInput {
 }
 
 export interface BirthdayResponse {
-  user_id:string;
-  fullname:string;
-  name_in_school:string;
-  avatar:string;
-  class_label:string;
+  user_id: string;
+  fullname: string;
+  name_in_school: string;
+  avatar: string;
+  class_label: string;
 }
 export interface Birthday {
-  userId:string;
-  fullName:string;
-  nameInSchool:string;
-  avatar:string;
-  classLabel:string;
+  userId: string;
+  fullName: string;
+  nameInSchool: string;
+  avatar: string;
+  classLabel: string;
 }

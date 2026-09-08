@@ -14,6 +14,7 @@ import {
   Phone,
   Plus,
   Search,
+  SlidersHorizontal,
   Store,
 } from 'lucide-react';
 
@@ -30,10 +31,12 @@ import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { PostBusinessModal } from '../components/PostYourBusinessModal';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { EmailInstructionModal } from '@/shared/components/ui/EmailInstructionModal';
 import {
   useMarketplace,
   useMarketplaceCategories,
@@ -45,6 +48,7 @@ import { useAlumni } from '@/features/alumni/hooks/useAlumni';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
 import { MARKETPLACE_ROUTES } from '../routes';
 import { resolveProfilePhoto } from '@/features/user/utils/profileUtils';
+import { matchesLocationPart } from '@/shared/utils/location';
 
 const ITEMS_PER_PAGE = 9;
 const DEMO_PRIORITY_BUSINESS_OWNERS = ['lolu jumat', 'fcd fcd', 'felix ohemu'];
@@ -154,7 +158,6 @@ function sortBusinessesForDemo(a: Business, b: Business) {
   return aPriority - bPriority;
 }
 
-
 // ─── Business Card ────────────────────────────────────────────────────────────
 function BusinessCard({
   business,
@@ -173,6 +176,7 @@ function BusinessCard({
 }) {
   const [imgIndex, setImgIndex] = useState(0);
   const [ownerPhotoFailed, setOwnerPhotoFailed] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const navigate = useNavigate();
   const isOwnBusiness = business.ownerId === currentUserMemberId;
   const ownerInitials = getOwnerInitials(business.owner);
@@ -182,13 +186,11 @@ function BusinessCard({
   const hasWebsite = Boolean(business.website?.trim());
   const hasWhatsapp = Boolean(business.whatsapp?.trim());
 
-
   const instagramHref = business.socials?.instagram?.trim();
   // const hashtags = parseHashtags(business.socials?.instagramHashtag);
-    const hashtags = parseHashtags(normalizeLegacyHashtags(business.socials?.instagramHashtag));
+  const hashtags = parseHashtags(normalizeLegacyHashtags(business.socials?.instagramHashtag));
 
   const hasHashtagRow = hashtags.length > 0;
-
 
   const socialLinks: SocialLinkEntry[] = (
     [
@@ -199,7 +201,7 @@ function BusinessCard({
       //   Icon: IconBrandInstagram,
       // },
 
-          !hasHashtagRow &&
+      !hasHashtagRow &&
         instagramHref && {
           key: 'instagram',
           href: instagramHref,
@@ -361,17 +363,20 @@ function BusinessCard({
           )}
 
           {hasEmail && (
-            <a
-              href={`mailto:${business.email}`}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsEmailModalOpen(true);
+              }}
               className="flex items-start gap-2.5 no-underline transition-colors hover:text-primary-600"
-              onClick={(event) => event.stopPropagation()}
             >
               <Mail
                 strokeWidth={2.6}
                 className="mt-0.5 h-[1.05rem] w-[1.05rem] shrink-0 text-[#5f6873]"
               />
               <span className="min-w-0 break-all">{business.email}</span>
-            </a>
+            </button>
           )}
 
           <div className="flex items-start gap-2.5">
@@ -379,7 +384,9 @@ function BusinessCard({
               strokeWidth={2.6}
               className="mt-0.5 h-[1.05rem] w-[1.05rem] shrink-0 text-[#5f6873]"
             />
-            <span className="min-w-0 break-words">{business.location}</span>
+            <span className="min-w-0 break-words">
+              {[business.address, business.city, business.state].filter(Boolean).join(', ')}
+            </span>
           </div>
 
           {hasWebsite && (
@@ -397,7 +404,6 @@ function BusinessCard({
               <span className="min-w-0 break-all">{business.website}</span>
             </a>
           )}
-
         </div>
 
         {/* {(socialLinks.length > 0 || business.socials?.instagramHashtag) && (
@@ -435,14 +441,13 @@ function BusinessCard({
           </div>
         )} */}
 
-
-                {(hasHashtagRow || socialLinks.length > 0) && (
+        {(hasHashtagRow || socialLinks.length > 0) && (
           <div className="mt-3 flex flex-col gap-2">
             {hasHashtagRow && (
               <div className="flex flex-wrap items-center gap-2">
                 {instagramHref && (
-                  
-                    <a href={getWebsiteHref(instagramHref)}
+                  <a
+                    href={getWebsiteHref(instagramHref)}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={`${business.name} on Instagram`}
@@ -453,8 +458,8 @@ function BusinessCard({
                   </a>
                 )}
                 {hashtags.map((tag) => (
-                  
-                    <a key={tag}
+                  <a
+                    key={tag}
                     href={`https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -471,8 +476,8 @@ function BusinessCard({
             {socialLinks.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 {socialLinks.map(({ key, href, label, Icon }) => (
-                  
-                    <a key={key}
+                  <a
+                    key={key}
                     href={getWebsiteHref(href)}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -487,8 +492,6 @@ function BusinessCard({
             )}
           </div>
         )}
-
-
 
         <div
           className="mt-auto flex items-center gap-3 pt-3 max-sm:flex-wrap"
@@ -508,10 +511,9 @@ function BusinessCard({
             <span>{isMessagePending ? 'Opening...' : 'Send Message'}</span>
           </Button>
 
-
           {hasWhatsapp && (
-
-            <a href={`https://wa.me/${business.whatsapp!.replace(/\D/g, '')}`}
+            <a
+              href={`https://wa.me/${business.whatsapp!.replace(/\D/g, '')}`}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`Message ${business.name} on WhatsApp`}
@@ -523,6 +525,14 @@ function BusinessCard({
           )}
         </div>
       </div>
+
+      <EmailInstructionModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        email={business.email ?? ''}
+        title={`Contact ${business.name}`}
+        description="Send an email to this business:"
+      />
     </article>
   );
 }
@@ -531,6 +541,12 @@ function BusinessCard({
 export default function MarketPlacePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [category, setCategory] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [chapterId, setChapterId] = useState('');
+  const [year, setYear] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [showPostModal, setShowPostModal] = useState(false);
   const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
@@ -539,7 +555,17 @@ export default function MarketPlacePage() {
   const { startDirectConversation, isPending: isStartingConversation } =
     useStartDirectConversation();
 
-  const { data: businesses = [], isLoading, error } = useMarketplace();
+  const marketplaceParams = useMemo(
+    () => ({
+      // Keep search local so description matches continue to work. The backend
+      // currently applies `search` to listing titles only.
+      category: category || undefined,
+      chapterId: chapterId || undefined,
+      year: year || undefined,
+    }),
+    [category, chapterId, year],
+  );
+  const { data: businesses = [], isLoading, error } = useMarketplace(marketplaceParams);
   const { data: categoriesList = [] } = useMarketplaceCategories();
   const { data: alumni = [] } = useAlumni({ action_type: 'approved' });
   const isSignedIn = Boolean(currentUser?.memberId);
@@ -581,10 +607,16 @@ export default function MarketPlacePage() {
         const matchesSearch =
           !q || b.name.toLowerCase().includes(q) || b.description.toLowerCase().includes(q);
         const matchesCategory = !category || b.category === category;
-        return matchesSearch && matchesCategory;
+        return (
+          matchesSearch &&
+          matchesCategory &&
+          matchesLocationPart(b.address, address) &&
+          matchesLocationPart(b.city, city) &&
+          matchesLocationPart(b.state, state)
+        );
       })
       .sort(sortBusinessesForDemo);
-  }, [businesses, searchTerm, category]);
+  }, [address, businesses, category, city, searchTerm, state]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const visible = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -592,6 +624,52 @@ export default function MarketPlacePage() {
     () => categoriesList.map((cat) => ({ label: formatCategoryLabel(cat), value: cat })),
     [categoriesList],
   );
+
+  const locationOptions = useMemo(() => {
+    const toOptions = (values: Array<string | undefined>) =>
+      Array.from(new Set(values.filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value }));
+
+    return {
+      addresses: toOptions(businesses.map((business) => business.address)),
+      cities: toOptions(businesses.map((business) => business.city)),
+      states: toOptions(businesses.map((business) => business.state)),
+    };
+  }, [businesses]);
+
+  const chapterOptions = useMemo(() => {
+    const chapterLabels = new Map<string, string>();
+
+    businesses.forEach((business) => {
+      if (business.chapterId) {
+        chapterLabels.set(
+          business.chapterId,
+          business.chapterName || `Chapter ${business.chapterId}`,
+        );
+      }
+    });
+
+    if (chapterId && !chapterLabels.has(chapterId)) {
+      chapterLabels.set(chapterId, `Chapter ${chapterId}`);
+    }
+
+    return Array.from(chapterLabels, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [businesses, chapterId]);
+
+  const yearOptions = useMemo(() => {
+    const values = new Set(businesses.map((business) => business.year).filter(Boolean) as string[]);
+    if (year) values.add(year);
+
+    return Array.from(values)
+      .sort((a, b) => Number(b) - Number(a))
+      .map((value) => ({ label: value, value }));
+  }, [businesses, year]);
+
+  const activeAdvancedFilterCount = [address, city, state, chapterId, year].filter(Boolean).length;
+  const hasActiveFilters = Boolean(searchTerm.trim() || category || activeAdvancedFilterCount > 0);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -615,6 +693,29 @@ export default function MarketPlacePage() {
     setCurrentPage(1);
   };
 
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    const setters: Record<string, (nextValue: string) => void> = {
+      address: setAddress,
+      city: setCity,
+      state: setState,
+      chapterId: setChapterId,
+      year: setYear,
+    };
+    setters[key]?.(value);
+    setCurrentPage(1);
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setCategory('');
+    setAddress('');
+    setCity('');
+    setState('');
+    setChapterId('');
+    setYear('');
+    setCurrentPage(1);
+  };
+
   async function handleStartBusinessConversation(business: Business) {
     setPendingBusinessId(business.businessId);
     const ownerEntry = alumniByMemberId.get(String(business.ownerId));
@@ -630,7 +731,7 @@ export default function MarketPlacePage() {
         avatar: ownerPhotoById.get(String(business.ownerId)) ?? undefined,
         photoVisibility: ownerEntry?.privacy?.photo,
         headline: `Owner of ${business.name}`,
-        location: business.location,
+        location: [business.address, business.city, business.state].filter(Boolean).join(', '),
         profileHref: `/alumni/profiles/${business.ownerId}`,
       },
     });
@@ -708,18 +809,112 @@ export default function MarketPlacePage() {
               />
             </div>
 
-            <FilterDropdown
-              value={category}
-              onChange={handleFilterChange(setCategory)}
-              options={categoryOptions}
-              placeholder="Filter by Category"
-              className="h-[3.1rem] w-full sm:!w-full lg:h-12 lg:!w-[12.5rem] lg:!min-w-[12.5rem]"
-              selectClassName={marketplaceFilterSelectClassName}
-              clearIcon={CircleX}
-              chevronDownIcon={ChevronDown}
-              chevronUpIcon={ChevronUp}
-            />
+            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+              <FilterDropdown
+                value={category}
+                onChange={handleFilterChange(setCategory)}
+                options={categoryOptions}
+                placeholder="Filter by Category"
+                className="h-[3.1rem] w-full sm:!w-full lg:h-12 lg:!w-[12.5rem] lg:!min-w-[12.5rem]"
+                selectClassName={marketplaceFilterSelectClassName}
+                clearIcon={CircleX}
+                chevronDownIcon={ChevronDown}
+                chevronUpIcon={ChevronUp}
+              />
+              <Button
+                type="button"
+                variant="white"
+                size="sm"
+                onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                leftIcon={SlidersHorizontal}
+                aria-expanded={showAdvancedFilters}
+                className="h-[3.1rem] w-full whitespace-nowrap border border-[#e1e6ec] text-[#58606b] shadow-sm hover:bg-[#f5f8fa] lg:h-12 lg:w-auto"
+              >
+                Advanced filters
+                {activeAdvancedFilterCount > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                    {activeAdvancedFilterCount}
+                  </span>
+                )}
+              </Button>
+            </div>
           </div>
+
+          {showAdvancedFilters && (
+            <AdvancedFiltersPanel
+              title="Refine marketplace results"
+              description="Narrow businesses by where they operate, chapter, or listing year."
+              gridClassName="grid-cols-1 gap-4 md:grid-cols-3"
+              fields={[
+                {
+                  key: 'address',
+                  kind: 'select',
+                  label: 'Address',
+                  value: address,
+                  placeholder: 'All addresses',
+                  options: locationOptions.addresses,
+                },
+                {
+                  key: 'city',
+                  kind: 'select',
+                  label: 'City',
+                  value: city,
+                  placeholder: 'All cities',
+                  options: locationOptions.cities,
+                },
+                {
+                  key: 'state',
+                  kind: 'select',
+                  label: 'State',
+                  value: state,
+                  placeholder: 'All states',
+                  options: locationOptions.states,
+                },
+                {
+                  key: 'chapterId',
+                  kind: 'select',
+                  label: 'Chapter',
+                  value: chapterId,
+                  placeholder: 'All chapters',
+                  options: chapterOptions,
+                },
+                {
+                  key: 'year',
+                  kind: 'select',
+                  label: 'Listed in',
+                  value: year,
+                  placeholder: 'Any year',
+                  options: yearOptions,
+                },
+              ]}
+              onFieldChange={handleAdvancedFilterChange}
+              onReset={() => {
+                setAddress('');
+                setCity('');
+                setState('');
+                setChapterId('');
+                setYear('');
+                setCurrentPage(1);
+              }}
+              hasActiveFilters={Boolean(address || city || state || chapterId || year)}
+            />
+          )}
+
+          {hasActiveFilters && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+              <span>
+                Showing {filtered.length} {filtered.length === 1 ? 'business' : 'businesses'}{' '}
+                matching your filters
+              </span>
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
 
           {/* Error State */}
           {error && (

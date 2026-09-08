@@ -4,6 +4,20 @@ import { renderIcon, type AppIcon } from '@/shared/utils/renderIcon';
 interface SelectOption {
   label: string;
   value: string;
+  count?: number;
+  disabled?: boolean;
+}
+
+function findEnabledOptionIndex(options: SelectOption[], startIndex: number, direction: 1 | -1) {
+  if (options.length === 0) return 0;
+
+  const normalizedStart = Math.min(Math.max(startIndex, 0), options.length - 1);
+  for (let offset = 0; offset < options.length; offset += 1) {
+    const index = (normalizedStart + direction * offset + options.length * 2) % options.length;
+    if (!options[index].disabled) return index;
+  }
+
+  return 0;
 }
 
 interface SelectInputProps extends Omit<
@@ -119,8 +133,12 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
     }, [options, placeholder, sortOptionsAlphabetically]);
 
     // Filter options based on search
-    const filteredOptions = normalizedOptions.filter((option) =>
-      option.label.toLowerCase().includes(searchQuery.toLowerCase()),
+    const filteredOptions = useMemo(
+      () =>
+        normalizedOptions.filter((option) =>
+          option.label.toLowerCase().includes(searchQuery.toLowerCase()),
+        ),
+      [normalizedOptions, searchQuery],
     );
 
     // Show search only if there are more than 5 options total
@@ -170,12 +188,15 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
 
     // Reset highlighted index when search changes
     useEffect(() => {
-      setHighlightedIndex(0);
-    }, [searchQuery]);
+      setHighlightedIndex(findEnabledOptionIndex(filteredOptions, 0, 1));
+    }, [filteredOptions, searchQuery]);
 
     const handleToggle = () => {
       if (!disabled) {
         setIsOpen(!isOpen);
+        if (!isOpen) {
+          setHighlightedIndex(findEnabledOptionIndex(filteredOptions, 0, 1));
+        }
         if (isOpen) {
           setSearchQuery('');
         }
@@ -183,6 +204,7 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
     };
 
     const handleSelect = useCallback((option: SelectOption) => {
+      if (option.disabled) return;
       if (!hiddenSelectRef.current) return;
 
       // Update the hidden select's value first
@@ -231,6 +253,7 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
               handleSelect(filteredOptions[highlightedIndex]);
             } else if (!isOpen) {
               setIsOpen(true);
+              setHighlightedIndex(findEnabledOptionIndex(filteredOptions, 0, 1));
             }
             break;
           case 'Escape':
@@ -242,14 +265,15 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
             event.preventDefault();
             if (!isOpen) {
               setIsOpen(true);
+              setHighlightedIndex(findEnabledOptionIndex(filteredOptions, 0, 1));
             } else {
-              setHighlightedIndex((prev) => (prev < filteredOptions.length - 1 ? prev + 1 : prev));
+              setHighlightedIndex((prev) => findEnabledOptionIndex(filteredOptions, prev + 1, 1));
             }
             break;
           case 'ArrowUp':
             event.preventDefault();
             if (isOpen) {
-              setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+              setHighlightedIndex((prev) => findEnabledOptionIndex(filteredOptions, prev - 1, -1));
             }
             break;
           case 'Tab':
@@ -327,7 +351,7 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
               {placeholder}
             </option>
             {normalizedOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
+              <option key={opt.value} value={opt.value} disabled={opt.disabled}>
                 {opt.label}
               </option>
             ))}
@@ -395,14 +419,27 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
                       type="button"
                       onClick={() => handleSelect(option)}
                       onMouseEnter={() => setHighlightedIndex(index)}
+                      disabled={option.disabled}
                       className={`w-full text-left px-4 py-2.5 text-sm transition-colors
                         ${value === option.value ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700'}
                         ${highlightedIndex === index && value !== option.value ? 'bg-gray-50' : ''}
+                        ${option.disabled ? 'cursor-not-allowed text-gray-300' : ''}
                         hover:bg-gray-50
                       `}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate">{option.label}</span>
+                        {typeof option.count === 'number' && (
+                          <span
+                            className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold ${
+                              option.disabled
+                                ? 'bg-gray-100 text-gray-300'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            {option.count}
+                          </span>
+                        )}
                         {value === option.value &&
                           renderIcon(selectedIcon, 'h-4 w-4 flex-shrink-0 text-primary-600')}
                       </div>

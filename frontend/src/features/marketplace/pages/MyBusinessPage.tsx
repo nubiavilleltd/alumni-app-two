@@ -1,6 +1,6 @@
 // features/marketplace/pages/MyBusinessPage.tsx
 
-import { ComponentType, useEffect, useState } from 'react';
+import { ComponentType, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   ChevronLeft,
@@ -10,6 +10,8 @@ import {
   MapPin,
   Phone,
   Plus,
+  SearchX,
+  SlidersHorizontal,
   Store,
 } from 'lucide-react';
 
@@ -26,6 +28,8 @@ import { SEO } from '@/shared/common/SEO';
 import { Breadcrumbs } from '@/shared/components/ui/Breadcrumbs';
 import EmptyState from '@/shared/components/ui/EmptyState';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { PostBusinessModal } from '../components/PostYourBusinessModal';
 import { useMyBusinesses, useDeleteListing } from '../hooks/useMarketplace';
 import type { Business } from '../types/marketplace.types';
@@ -34,7 +38,38 @@ import { ROUTES } from '@/shared/constants/routes';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { toTitleCase } from '@/shared/utils/textHelpers';
 import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
+import { matchesLocationPart } from '@/shared/utils/location';
 const MY_BUSINESSES_PER_PAGE = 6;
+
+type MyBusinessFilterState = {
+  search: string;
+  category: string;
+  address: string;
+  city: string;
+  state: string;
+};
+
+function matchesMyBusinessFilters(business: Business, filters: MyBusinessFilterState) {
+  const query = filters.search.trim().toLowerCase();
+  const searchableFields = [
+    business.name,
+    business.owner,
+    business.category,
+    business.description,
+    business.location,
+    business.address,
+    business.city,
+    business.state,
+  ];
+
+  return (
+    (!query || searchableFields.some((field) => field.toLowerCase().includes(query))) &&
+    (!filters.category || business.category === filters.category) &&
+    matchesLocationPart(business.address, filters.address) &&
+    matchesLocationPart(business.city, filters.city) &&
+    matchesLocationPart(business.state, filters.state)
+  );
+}
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 function MyBusinessCardSkeleton() {
@@ -279,7 +314,9 @@ function MyBusinessCard({
 
           <div className="flex items-start gap-3">
             <MapPin strokeWidth={2.6} className="mt-0.5 h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 break-words">{business.location}</span>
+            <span className="min-w-0 break-words">
+              {[business.address, business.city, business.state].filter(Boolean).join(', ')}
+            </span>
           </div>
 
           {hasWebsite && (
@@ -433,6 +470,12 @@ export default function MyBusinessPage() {
   const [editBusiness, setEditBusiness] = useState<Business | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [addressFilter, setAddressFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const currentUser = useIdentityStore((state) => state.user);
 
   const { data: myBusinesses = [], isLoading, refetch } = useMyBusinesses();
@@ -458,8 +501,44 @@ export default function MyBusinessPage() {
     setEditBusiness(null);
     refetch();
   };
-  const totalPages = Math.max(1, Math.ceil(myBusinesses.length / MY_BUSINESSES_PER_PAGE));
-  const visibleBusinesses = myBusinesses.slice(
+  const filterState = useMemo<MyBusinessFilterState>(
+    () => ({
+      search,
+      category: categoryFilter,
+      address: addressFilter,
+      city: cityFilter,
+      state: stateFilter,
+    }),
+    [addressFilter, categoryFilter, cityFilter, search, stateFilter],
+  );
+  const filteredBusinesses = useMemo(
+    () => myBusinesses.filter((business) => matchesMyBusinessFilters(business, filterState)),
+    [filterState, myBusinesses],
+  );
+  const facetOptions = useMemo(() => {
+    const categories = Array.from(
+      new Set(myBusinesses.map((business) => business.category.trim()).filter(Boolean)),
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
+    const toOptions = (values: Array<string | undefined>) =>
+      Array.from(new Set(values.filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value }));
+
+    return {
+      categories,
+      addresses: toOptions(myBusinesses.map((business) => business.address)),
+      cities: toOptions(myBusinesses.map((business) => business.city)),
+      states: toOptions(myBusinesses.map((business) => business.state)),
+    };
+  }, [myBusinesses]);
+  const activeAdvancedFilterCount = [categoryFilter, addressFilter, cityFilter, stateFilter].filter(
+    Boolean,
+  ).length;
+  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
+  const totalPages = Math.max(1, Math.ceil(filteredBusinesses.length / MY_BUSINESSES_PER_PAGE));
+  const visibleBusinesses = filteredBusinesses.slice(
     (currentPage - 1) * MY_BUSINESSES_PER_PAGE,
     currentPage * MY_BUSINESSES_PER_PAGE,
   );
@@ -470,9 +549,29 @@ export default function MyBusinessPage() {
     }
   }, [currentPage, totalPages]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [addressFilter, categoryFilter, cityFilter, search, stateFilter]);
+
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setCategoryFilter('');
+    setAddressFilter('');
+    setCityFilter('');
+    setStateFilter('');
+    setCurrentPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    if (key === 'category') setCategoryFilter(value);
+    if (key === 'address') setAddressFilter(value);
+    if (key === 'city') setCityFilter(value);
+    if (key === 'state') setStateFilter(value);
   };
 
   const breadcrumbItems = [
@@ -511,6 +610,94 @@ export default function MyBusinessPage() {
             )}
           </div>
 
+          {!isLoading && myBusinesses.length > 0 && (
+            <>
+              <div className="mb-5 flex w-full items-center gap-3">
+                <div className="min-w-0 flex-1 sm:max-w-xl">
+                  <SearchInput
+                    value={search}
+                    onValueChange={setSearch}
+                    placeholder="Search your businesses"
+                    inputClassName="!h-10 !py-0"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                  aria-expanded={showAdvancedFilters}
+                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:px-4 sm:text-sm"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">Advanced filters</span>
+                  {activeAdvancedFilterCount > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                      {activeAdvancedFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {showAdvancedFilters && (
+                <AdvancedFiltersPanel
+                  title="Refine your businesses"
+                  description="Find your listings by business category or location."
+                  fields={[
+                    {
+                      key: 'category',
+                      kind: 'select',
+                      label: 'Category',
+                      value: categoryFilter,
+                      placeholder: 'All categories',
+                      options: facetOptions.categories,
+                    },
+                    {
+                      key: 'address',
+                      kind: 'select',
+                      label: 'Address',
+                      value: addressFilter,
+                      placeholder: 'All addresses',
+                      options: facetOptions.addresses,
+                    },
+                    {
+                      key: 'city',
+                      kind: 'select',
+                      label: 'City',
+                      value: cityFilter,
+                      placeholder: 'All cities',
+                      options: facetOptions.cities,
+                    },
+                    {
+                      key: 'state',
+                      kind: 'select',
+                      label: 'State',
+                      value: stateFilter,
+                      placeholder: 'All states',
+                      options: facetOptions.states,
+                    },
+                  ]}
+                  onFieldChange={handleAdvancedFilterChange}
+                  onReset={clearAllFilters}
+                  hasActiveFilters={activeAdvancedFilterCount > 0}
+                />
+              )}
+
+              {hasActiveFilters && (
+                <div className="mb-6 mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                  <span>
+                    Showing {filteredBusinesses.length} of {myBusinesses.length} businesses
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
           {/* Grid */}
           {isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -519,27 +706,37 @@ export default function MyBusinessPage() {
               ))}
             </div>
           ) : myBusinesses.length > 0 ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {visibleBusinesses.map((business) => (
-                  <MyBusinessCard
-                    key={business.businessId}
-                    business={business}
-                    ownerPhoto={business.ownerPhoto ?? currentUser?.photo}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                    isDeleting={deletingId === business.businessId}
-                  />
-                ))}
-              </div>
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                prevIcon={ChevronLeft}
-                nextIcon={ChevronRight}
-                onPageChange={handlePageChange}
+            filteredBusinesses.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleBusinesses.map((business) => (
+                    <MyBusinessCard
+                      key={business.businessId}
+                      business={business}
+                      ownerPhoto={business.ownerPhoto ?? currentUser?.photo}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      isDeleting={deletingId === business.businessId}
+                    />
+                  ))}
+                </div>
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  prevIcon={ChevronLeft}
+                  nextIcon={ChevronRight}
+                  onPageChange={handlePageChange}
+                />
+              </>
+            ) : (
+              <EmptyState
+                icon={SearchX}
+                title="No matching businesses"
+                description="Try changing your search or filters."
+                actionLabel="Clear filters"
+                onAction={clearAllFilters}
               />
-            </>
+            )
           ) : (
             <EmptyState
               icon={Store}

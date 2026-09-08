@@ -60,7 +60,9 @@ const postBusinessSchema = z
       .min(20, 'Please provide at least 20 characters')
       .max(5000, 'Description is too long'),
 
-    location: z.string().min(1, 'Location is required').min(2, 'Please provide a valid location'),
+    address: z.string().min(1, 'Address is required').min(2, 'Please provide a valid address'),
+    city: z.string().min(1, 'City is required').min(2, 'Please provide a valid city'),
+    state: z.string().min(1, 'State is required').min(2, 'Please provide a valid state'),
 
     phone: z.string().trim().min(1, 'Phone number is required'),
     website: z.string().optional(),
@@ -95,9 +97,13 @@ const postBusinessSchema = z
         ctx.addIssue({ code: 'custom', path: ['whatsapp'], message: whatsappError });
       }
     }
-      const hashtagError = validateHashtags(data.socials?.instagramHashtag);
+    const hashtagError = validateHashtags(data.socials?.instagramHashtag);
     if (hashtagError) {
-      ctx.addIssue({ code: 'custom', path: ['socials', 'instagramHashtag'], message: hashtagError });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['socials', 'instagramHashtag'],
+        message: hashtagError,
+      });
     }
   });
 
@@ -113,7 +119,6 @@ interface PostBusinessModalProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-
 // function normalizeHashtag(value?: string): string | undefined {
 //   if (!value) return undefined;
 //   const cleaned = value.trim().replace(/^#+/, '').replace(/\s+/g, '');
@@ -126,11 +131,20 @@ function toFormState(data: Business | null | undefined): PostBusinessFormValues 
       name: '',
       category: '',
       description: '',
-      location: '',
+      address: '',
+      city: '',
+      state: '',
       phone: '',
       website: '',
       whatsapp: '',
-      socials: { instagram: '', instagramHashtag: '', facebook: '', linkedin: '', x: '', tiktok: '' },
+      socials: {
+        instagram: '',
+        instagramHashtag: '',
+        facebook: '',
+        linkedin: '',
+        x: '',
+        tiktok: '',
+      },
       messagePrompt: '',
     };
   }
@@ -139,7 +153,9 @@ function toFormState(data: Business | null | undefined): PostBusinessFormValues 
     name: data.name,
     category: data.category,
     description: data.description,
-    location: data.location,
+    address: data.address,
+    city: data.city,
+    state: data.state,
     phone: parseStoredNigerianPhoneNumber(data.phone),
     website: data.website ?? '',
     whatsapp: data.whatsapp ? parseStoredNigerianPhoneNumber(data.whatsapp) : '',
@@ -164,23 +180,24 @@ function toCreateListingFormData(
     name: form.name,
     category: form.category,
     description: form.description,
-    location: form.location,
+    address: form.address,
+    city: form.city,
+    state: form.state,
     phone: formatOptionalNigerianPhoneNumber(form.phone),
     website: form.website || undefined,
     whatsapp: form.whatsapp ? formatOptionalNigerianPhoneNumber(form.whatsapp) : undefined,
     socials:
-      form.socials &&
-        Object.values(form.socials).some((v) => v?.trim())
+      form.socials && Object.values(form.socials).some((v) => v?.trim())
         ? {
-          instagram: form.socials.instagram?.trim() || undefined,
-          // instagramHashtag: normalizeHashtag(form.socials.instagramHashtag),
-          instagramHashtag: serializeHashtags(parseHashtags(form.socials.instagramHashtag)),
-          // instagramHashtag: form.socials.instagramHashtag,
-          facebook: form.socials.facebook?.trim() || undefined,
-          linkedin: form.socials.linkedin?.trim() || undefined,
-          x: form.socials.x?.trim() || undefined,
-          tiktok: form.socials.tiktok?.trim() || undefined,
-        }
+            instagram: form.socials.instagram?.trim() || undefined,
+            // instagramHashtag: normalizeHashtag(form.socials.instagramHashtag),
+            instagramHashtag: serializeHashtags(parseHashtags(form.socials.instagramHashtag)),
+            // instagramHashtag: form.socials.instagramHashtag,
+            facebook: form.socials.facebook?.trim() || undefined,
+            linkedin: form.socials.linkedin?.trim() || undefined,
+            x: form.socials.x?.trim() || undefined,
+            tiktok: form.socials.tiktok?.trim() || undefined,
+          }
         : undefined,
     messagePrompt: form.messagePrompt?.trim() || undefined,
     images,
@@ -243,11 +260,20 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
         name: '',
         category: '',
         description: '',
-        location: '',
+        address: '',
+        city: '',
+        state: '',
         phone: '',
         website: '',
         whatsapp: '',
-        socials: { instagram: '', instagramHashtag: '', facebook: '', linkedin: '', x: '', tiktok: '' },
+        socials: {
+          instagram: '',
+          instagramHashtag: '',
+          facebook: '',
+          linkedin: '',
+          x: '',
+          tiktok: '',
+        },
         messagePrompt: '',
       });
       resetImages();
@@ -396,15 +422,39 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
                 />
 
                 <FormInput
-                  label="Location"
+                  label="Address"
                   labelClassName={fieldLabelClassName}
                   controlClassName={fieldControlClassName}
                   inputClassName={fieldInputClassName}
-                  id="location"
+                  id="address"
                   required
                   placeholder="Enter the address of your business"
-                  error={errors.location?.message}
-                  {...register('location')}
+                  error={errors.address?.message}
+                  {...register('address')}
+                />
+
+                <FormInput
+                  label="City"
+                  labelClassName={fieldLabelClassName}
+                  controlClassName={fieldControlClassName}
+                  inputClassName={fieldInputClassName}
+                  id="city"
+                  required
+                  placeholder="Enter the city"
+                  error={errors.city?.message}
+                  {...register('city')}
+                />
+
+                <FormInput
+                  label="State"
+                  labelClassName={fieldLabelClassName}
+                  controlClassName={fieldControlClassName}
+                  inputClassName={fieldInputClassName}
+                  id="state"
+                  required
+                  placeholder="Enter the state"
+                  error={errors.state?.message}
+                  {...register('state')}
                 />
 
                 <FormInput
@@ -429,7 +479,6 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
                   error={errors.whatsapp?.message}
                   {...register('whatsapp')}
                 />
-
 
                 <div className="md:col-span-2">
                   <p className="font-medium text-gray-500 mb-3">Socials</p>
@@ -457,7 +506,7 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
                       error={errors.socials?.instagramHashtag?.message}
                       {...register('socials.instagramHashtag')}
                     /> */}
-                            <FormInput
+                    <FormInput
                       label="Instagram Hashtag(s)"
                       labelClassName={fieldLabelClassName}
                       controlClassName={fieldControlClassName}

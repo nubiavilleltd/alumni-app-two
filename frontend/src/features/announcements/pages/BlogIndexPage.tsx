@@ -1,4 +1,4 @@
-import { Clock3, Megaphone, Plus } from 'lucide-react';
+import { Clock3, Megaphone, Plus, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SEO } from '@/shared/common/SEO';
 import { ButtonLink } from '@/shared/components/ui/Button';
@@ -7,7 +7,11 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { ROUTES } from '@/shared/constants/routes';
 import { EVENT_ROUTES } from '@/features/events/routes';
 import { AnnouncementEditorModal } from '@/features/announcements/components/AnnouncementEditorModal';
-import { useAnnouncements, useBirthdayAnnouncements } from '@/features/announcements/hooks/useAnnouncements';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import {
+  usePublicAnnouncements,
+  useBirthdayAnnouncements,
+} from '@/features/announcements/hooks/useAnnouncements';
 import { ANNOUNCEMENT_ROUTES } from '@/features/announcements/routes';
 import type { AnnouncementType, NewsItem } from '@/features/announcements/types/announcement.types';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
@@ -31,10 +35,13 @@ const sideListClassName = 'grid gap-3.5 min-[1181px]:grid-rows-3 [&>*]:h-full';
 const continuationGridClassName = 'mt-5 hidden gap-5 min-[1181px]:grid min-[1181px]:grid-cols-2';
 const stackedListClassName = 'grid gap-5 min-[1181px]:hidden';
 
-const typeFilters: Array<{ label: string; value: 'all' | AnnouncementType }> = [
+type AnnouncementFilter = 'all' | AnnouncementType | 'project';
+
+const typeFilters: Array<{ label: string; value: AnnouncementFilter }> = [
   { label: 'All updates', value: 'all' },
   { label: 'Info', value: 'info' },
   { label: 'Events', value: 'event' },
+  { label: 'Projects', value: 'project' },
 ];
 
 const DESKTOP_SIDE_CARD_GAP_PX = 14;
@@ -76,7 +83,7 @@ function AnnouncementCard({ item, compact = false }: { item: NewsItem; compact?:
   const metaRowClassName = compact ? `${metaClassName} mt-1.5 text-[0.76rem]` : metaClassName;
 
   return (
-    <AppLink href={ANNOUNCEMENT_ROUTES.DETAIL(item.slug)} className={rootClassName}>
+    <AppLink href={item.href ?? ANNOUNCEMENT_ROUTES.DETAIL(item.slug)} className={rootClassName}>
       <div className={imageWrapClassName}>
         <img src={item.image || FALLBACK_IMAGE} alt="" className="h-full w-full object-cover" />
       </div>
@@ -121,31 +128,81 @@ function AnnouncementCardSkeleton({ compact = false }: { compact?: boolean }) {
 
 export default function BlogIndexPage() {
   const user = useIdentityStore((state) => state.user);
-  const [selectedType, setSelectedType] = useState<'all' | AnnouncementType>('all');
+  const [selectedType, setSelectedType] = useState<AnnouncementFilter>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const featuredCardRef = useRef<HTMLElement | null>(null);
   const sideListRef = useRef<HTMLDivElement | null>(null);
   const [sideListHeight, setSideListHeight] = useState<number | null>(null);
 
-  
-  const { data: announcements = [], isLoading } = useAnnouncements(
-    selectedType === 'all' ? undefined : { type: selectedType },
-  );
+  const { data: announcements = [], isLoading } = usePublicAnnouncements();
 
-   const { data: birthdays, isLoading:isLoadingBirthdays } = useBirthdayAnnouncements();
+  const { data: birthdays, isLoading: isLoadingBirthdays } = useBirthdayAnnouncements();
 
-  
-
-
-  const sortedAnnouncements = useMemo(
+  const yearOptions = useMemo(
     () =>
-      [...announcements].sort(
-        (a, b) =>
-          new Date(b.startsAt || b.date).getTime() - new Date(a.startsAt || a.date).getTime(),
-      ),
+      Array.from(
+        new Set(
+          announcements.map((item) => {
+            const date = new Date(item.startsAt || item.date);
+            return String(item.year ?? (Number.isNaN(date.getTime()) ? '' : date.getFullYear()));
+          }),
+        ),
+      )
+        .filter(Boolean)
+        .sort((a, b) => Number(b) - Number(a))
+        .map((value) => ({ label: value, value })),
     [announcements],
   );
+
+  const sortedAnnouncements = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const rangeInDays = dateRangeFilter === '30' ? 30 : dateRangeFilter === '90' ? 90 : null;
+    const rangeStart = rangeInDays
+      ? new Date(now.getTime() - rangeInDays * 24 * 60 * 60 * 1000)
+      : null;
+
+    return announcements
+      .filter((item) => {
+        const date = new Date(item.startsAt || item.date);
+        const itemYear = String(
+          item.year ?? (Number.isNaN(date.getTime()) ? '' : date.getFullYear()),
+        );
+        const matchesSearch =
+          !q ||
+          [item.title, item.excerpt, item.content, item.tag]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        const matchesType =
+          selectedType === 'all' ||
+          (selectedType === 'project' ? item.source === 'project' : item.type === selectedType);
+        const matchesYear = !yearFilter || itemYear === yearFilter;
+        const matchesDateRange =
+          !dateRangeFilter ||
+          (!Number.isNaN(date.getTime()) &&
+            (dateRangeFilter === 'year'
+              ? date.getFullYear() === currentYear
+              : Boolean(rangeStart && date >= rangeStart)));
+
+        return matchesSearch && matchesType && matchesYear && matchesDateRange;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.startsAt || b.date).getTime() - new Date(a.startsAt || a.date).getTime(),
+      );
+  }, [announcements, dateRangeFilter, searchTerm, selectedType, yearFilter]);
+
+  const activeAdvancedFilterCount = [searchTerm.trim(), yearFilter, dateRangeFilter].filter(
+    Boolean,
+  ).length;
   const totalPages = Math.max(1, Math.ceil(sortedAnnouncements.length / ANNOUNCEMENTS_PER_PAGE));
   const pageAnnouncements = sortedAnnouncements.slice(
     (currentPage - 1) * ANNOUNCEMENTS_PER_PAGE,
@@ -204,7 +261,22 @@ export default function BlogIndexPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedType]);
+  }, [dateRangeFilter, searchTerm, selectedType, yearFilter]);
+
+  const clearAllFilters = () => {
+    setSelectedType('all');
+    setSearchTerm('');
+    setYearFilter('');
+    setDateRangeFilter('');
+    setCurrentPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    if (key === 'search') setSearchTerm(value);
+    if (key === 'year') setYearFilter(value);
+    if (key === 'dateRange') setDateRangeFilter(value);
+    setCurrentPage(1);
+  };
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -270,17 +342,89 @@ export default function BlogIndexPage() {
                 ))}
               </div>
 
-              {isAdmin && (
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => setIsEditorOpen(true)}
-                  className="flex w-full flex-shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-600 sm:w-auto"
+                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                  aria-expanded={showAdvancedFilters}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[#e1e6ec] bg-white px-4 py-2 text-sm font-semibold text-[#58606b] shadow-sm transition-colors hover:bg-[#f5f8fa] sm:w-auto"
                 >
-                  <span>Create Announcement</span>
-                  <Plus className="h-4 w-4" />
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Advanced filters
+                  {activeAdvancedFilterCount > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                      {activeAdvancedFilterCount}
+                    </span>
+                  )}
                 </button>
-              )}
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditorOpen(true)}
+                    className="flex w-full flex-shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-600 sm:w-auto"
+                  >
+                    <span>Create Announcement</span>
+                    <Plus className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
+
+            {showAdvancedFilters && (
+              <AdvancedFiltersPanel
+                title="Refine announcements"
+                description="Search updates and narrow them by publication year or recency."
+                fields={[
+                  {
+                    key: 'search',
+                    kind: 'search',
+                    value: searchTerm,
+                    placeholder: 'Search announcements',
+                  },
+                  {
+                    key: 'year',
+                    kind: 'select',
+                    label: 'Publication year',
+                    value: yearFilter,
+                    placeholder: 'Any year',
+                    options: yearOptions,
+                  },
+                  {
+                    key: 'dateRange',
+                    kind: 'select',
+                    label: 'Published',
+                    value: dateRangeFilter,
+                    placeholder: 'Any time',
+                    options: [
+                      { label: 'Last 30 days', value: '30' },
+                      { label: 'Last 90 days', value: '90' },
+                      { label: 'This year', value: 'year' },
+                    ],
+                  },
+                ]}
+                onFieldChange={handleAdvancedFilterChange}
+                onReset={clearAllFilters}
+                hasActiveFilters={activeAdvancedFilterCount > 0}
+              />
+            )}
+
+            {(selectedType !== 'all' || activeAdvancedFilterCount > 0) && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                <span>
+                  Showing {sortedAnnouncements.length}{' '}
+                  {sortedAnnouncements.length === 1 ? 'announcement' : 'announcements'} matching
+                  your filters
+                </span>
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            )}
           </header>
 
           {/* {!isLoadingBirthdays && birthdays && birthdays.length > 0 && (
@@ -344,14 +488,14 @@ export default function BlogIndexPage() {
                         Read more
                       </span>
                     </p>
-                    {/* <div className="mt-5">
+                    <div className="mt-5">
                       <ButtonLink
-                        href={ANNOUNCEMENT_ROUTES.DETAIL(featured.slug)}
+                        href={featured.href ?? ANNOUNCEMENT_ROUTES.DETAIL(featured.slug)}
                         variant="primary"
                       >
-                        Open announcement
+                        Open update
                       </ButtonLink>
-                    </div> */}
+                    </div>
                   </div>
                 </article>
 

@@ -12,10 +12,12 @@
 import type {
   Business,
   CreateListingFormData,
+  GetMarketplaceParams,
   Socials,
   UpdateListingFormData,
 } from '../../types/marketplace.types';
 import { generateSlug, parseImages, extractList } from '@/lib/utils/adapters';
+import { combineLocationParts, splitLocation } from '@/shared/utils/location';
 
 // ─── Inbound (backend → frontend) ────────────────────────────────────────────
 
@@ -56,22 +58,22 @@ function resolveOwnerPhoto(raw: Record<string, unknown>): string | undefined {
 
   return resolvePhotoUrl(
     raw.seller_avatar ??
-    raw.seller_photo ??
-    raw.owner_avatar ??
-    raw.owner_photo ??
-    raw.user_avatar ??
-    raw.user_photo ??
-    raw.profile_photo ??
-    raw.avatar ??
-    raw.photo ??
-    seller.avatar ??
-    seller.photo ??
-    owner.avatar ??
-    owner.photo ??
-    user.avatar ??
-    user.photo ??
-    profile.avatar ??
-    profile.photo,
+      raw.seller_photo ??
+      raw.owner_avatar ??
+      raw.owner_photo ??
+      raw.user_avatar ??
+      raw.user_photo ??
+      raw.profile_photo ??
+      raw.avatar ??
+      raw.photo ??
+      seller.avatar ??
+      seller.photo ??
+      owner.avatar ??
+      owner.photo ??
+      user.avatar ??
+      user.photo ??
+      profile.avatar ??
+      profile.photo,
   );
 }
 
@@ -123,8 +125,6 @@ function resolveListingMessagePrompt(raw: Record<string, unknown>): string | und
   return undefined;
 }
 
-
-
 // One place to change if the backend contract turns out different
 function socialsToPayloadFields(socials?: Socials): Record<string, string> {
   if (!socials) return {};
@@ -158,20 +158,26 @@ function payloadFieldsToSocials(raw: Record<string, unknown>): Socials | undefin
   return Object.values(socials).some(Boolean) ? socials : undefined;
 }
 
-
 export function mapBackendListingToBusiness(raw: unknown): Business {
   const d = raw as Record<string, unknown>;
+  const location = String(d.location ?? '');
+  const locationParts = splitLocation(location);
 
   return {
     businessId: String(d.id ?? ''),
     ownerId: String(d.user_id ?? ''),
+    chapterId:
+      d.chapter_id === undefined || d.chapter_id === null ? undefined : String(d.chapter_id),
+    chapterName: d.chapter_name ? String(d.chapter_name) : undefined,
+    year: d.year === undefined || d.year === null ? undefined : String(d.year),
     owner: String(d.seller_name ?? 'Unknown'),
     ownerPhoto: resolveOwnerPhoto(d),
     slug: generateSlug(String(d.title ?? ''), String(d.id ?? ''), 'business'),
     name: String(d.title ?? 'Untitled'),
     category: String(d.category ?? 'other'),
     description: String(d.description ?? ''),
-    location: String(d.location ?? ''),
+    location,
+    ...locationParts,
     phone: String(d.phone ?? ''),
     email: resolveListingEmail(d),
     website: d.website ? String(d.website) : undefined,
@@ -213,7 +219,7 @@ export function mapBusinessToCreatePayload(
     title: formData.name,
     description: formData.description,
     category: formData.category,
-    location: formData.location,
+    location: combineLocationParts(formData),
     phone: formData.phone,
     business_name: formData.name,
     contact_info: formData.phone,
@@ -241,7 +247,6 @@ export function mapBusinessToCreatePayload(
   return base;
 }
 
-
 export function mapBusinessToUpdatePayload(
   businessId: string,
   formData: UpdateListingFormData,
@@ -252,7 +257,7 @@ export function mapBusinessToUpdatePayload(
     title: formData.name,
     description: formData.description,
     category: formData.category,
-    location: formData.location,
+    location: combineLocationParts(formData),
     phone: formData.phone,
     status: 'active',
     message_prompt: formData.messagePrompt?.trim() ?? '',
@@ -306,14 +311,12 @@ export function mapGetSingleListingPayload(listingId: string): Record<string, un
 }
 
 /** Build payload to filter listings. Only includes defined params. */
-export function mapFilterListingsPayload(params: {
-  search?: string;
-  category?: string;
-  userId?: string;
-  chapterId?: string;
-  year?: string;
-  status?: string;
-}): Record<string, unknown> {
+export function mapFilterListingsPayload(
+  params: Pick<
+    GetMarketplaceParams,
+    'search' | 'category' | 'userId' | 'chapterId' | 'year' | 'status'
+  >,
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     status: params.status ?? 'active',
   };

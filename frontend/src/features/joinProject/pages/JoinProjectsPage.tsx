@@ -1,11 +1,12 @@
 
 
 import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, SlidersHorizontal } from 'lucide-react';
 import { SEO } from '@/shared/common/SEO';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import EmptyState from '@/shared/components/ui/EmptyState';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 
@@ -42,6 +43,11 @@ export default function JoinProjectsPage() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [yearFilter, setYearFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [fundingFilter, setFundingFilter] = useState('');
+  const [featuredFilter, setFeaturedFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
 
@@ -63,6 +69,14 @@ export default function JoinProjectsPage() {
     ].sort((a, b) => b - a);
   }, [projects]);
 
+  const locationOptions = useMemo(
+    () =>
+      Array.from(new Set(projects.map((project) => project.location).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ label: value, value })),
+    [projects],
+  );
+
   // Filtered list
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -76,13 +90,42 @@ export default function JoinProjectsPage() {
       const matchesYear =
         !yearFilter ||
         (p.startDate && new Date(p.startDate).getFullYear().toString() === yearFilter);
-      return matchesSearch && matchesYear;
+      const matchesStatus = !statusFilter || p.status === statusFilter;
+      const matchesLocation = !locationFilter || p.location === locationFilter;
+      const matchesFunding =
+        !fundingFilter ||
+        (fundingFilter === 'funded'
+          ? Boolean(p.targetAmount && p.amountRaised >= p.targetAmount)
+          : Boolean(!p.targetAmount || p.amountRaised < p.targetAmount));
+      const matchesFeatured = !featuredFilter || p.isFeatured === 1;
+      return (
+        matchesSearch &&
+        matchesYear &&
+        matchesStatus &&
+        matchesLocation &&
+        matchesFunding &&
+        matchesFeatured
+      );
     });
-  }, [projects, searchTerm, yearFilter]);
+  }, [
+    featuredFilter,
+    fundingFilter,
+    locationFilter,
+    projects,
+    searchTerm,
+    statusFilter,
+    yearFilter,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const pageStart = (currentPage - 1) * ITEMS_PER_PAGE;
   const visible = filtered.slice(pageStart, pageStart + ITEMS_PER_PAGE);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const changePage = (p: number) => {
     setCurrentPage(p);
@@ -91,6 +134,32 @@ export default function JoinProjectsPage() {
 
   const resetFilters = (setter: (v: string) => void) => (v: string) => {
     setter(v);
+    setCurrentPage(1);
+  };
+
+  const activeAdvancedFilterCount = [
+    statusFilter,
+    locationFilter,
+    fundingFilter,
+    featuredFilter,
+  ].filter(Boolean).length;
+  const hasActiveFilters = Boolean(searchTerm.trim() || yearFilter || activeAdvancedFilterCount);
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setYearFilter('');
+    setStatusFilter('');
+    setLocationFilter('');
+    setFundingFilter('');
+    setFeaturedFilter('');
+    setCurrentPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    if (key === 'status') setStatusFilter(value);
+    if (key === 'location') setLocationFilter(value);
+    if (key === 'funding') setFundingFilter(value);
+    if (key === 'featured') setFeaturedFilter(value);
     setCurrentPage(1);
   };
 
@@ -114,7 +183,7 @@ export default function JoinProjectsPage() {
           </div>
 
           {/* Filter row — identical layout to AlumniDirectoryPage */}
-          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center">
               <div className="flex-1 w-full sm:max-w-xl">
                 <SearchInput
@@ -136,8 +205,87 @@ export default function JoinProjectsPage() {
                 />
               </div>
             </div>
-    
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+              aria-expanded={showAdvancedFilters}
+              className="flex h-10 w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:w-auto"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Advanced filters
+              {activeAdvancedFilterCount > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                  {activeAdvancedFilterCount}
+                </span>
+              )}
+            </button>
           </div>
+
+          {showAdvancedFilters && (
+            <AdvancedFiltersPanel
+              title="Refine project results"
+              description="Narrow projects by status, location, funding state, or featured status."
+              gridClassName="grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+              fields={[
+                {
+                  key: 'status',
+                  kind: 'select',
+                  label: 'Status',
+                  value: statusFilter,
+                  placeholder: 'All statuses',
+                  options: [
+                    { label: 'Ongoing', value: 'ongoing' },
+                    { label: 'Completed', value: 'completed' },
+                  ],
+                },
+                {
+                  key: 'location',
+                  kind: 'select',
+                  label: 'Location',
+                  value: locationFilter,
+                  placeholder: 'All locations',
+                  options: locationOptions,
+                },
+                {
+                  key: 'funding',
+                  kind: 'select',
+                  label: 'Funding',
+                  value: fundingFilter,
+                  placeholder: 'Any funding state',
+                  options: [
+                    { label: 'Needs funding', value: 'needs-funding' },
+                    { label: 'Fully funded', value: 'funded' },
+                  ],
+                },
+                {
+                  key: 'featured',
+                  kind: 'select',
+                  label: 'Visibility',
+                  value: featuredFilter,
+                  placeholder: 'All projects',
+                  options: [{ label: 'Featured only', value: 'featured' }],
+                },
+              ]}
+              onFieldChange={handleAdvancedFilterChange}
+              onReset={clearAllFilters}
+              hasActiveFilters={activeAdvancedFilterCount > 0}
+            />
+          )}
+
+          {hasActiveFilters && (
+            <div className="mb-8 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+              <span>
+                Showing {filtered.length} {filtered.length === 1 ? 'project' : 'projects'} matching your filters
+              </span>
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+              >
+                Clear all filters
+              </button>
+            </div>
+          )}
 
           {/* Grid */}
           {isLoading ? (
@@ -157,7 +305,7 @@ export default function JoinProjectsPage() {
               icon={<FolderOpen strokeWidth={2.4} />}
               title="No projects found"
               description={
-                searchTerm || yearFilter
+                hasActiveFilters
                   ? 'Try adjusting your search or filter.'
                   : isAdmin
                     ? 'No projects yet. Create the first one!'
@@ -169,6 +317,10 @@ export default function JoinProjectsPage() {
           {/* Pagination */}
           {!isLoading && totalPages > 1 && (
             <div className="sticky bottom-0 mt-6 bg-[#F8F8F7] py-4">
+              <div className="text-center text-[11px] text-gray-400">
+                Showing {pageStart + 1}-{Math.min(pageStart + ITEMS_PER_PAGE, filtered.length)} of{' '}
+                {filtered.length} projects
+              </div>
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}

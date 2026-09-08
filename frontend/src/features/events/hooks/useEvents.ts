@@ -207,6 +207,7 @@ export function useCreateEvent() {
     mutationFn: (payload: FormData | Record<string, any>) => eventsService.create(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['public-announcement-feed'] });
       toast.success('Event created successfully.');
     },
   });
@@ -220,6 +221,7 @@ export function useUpdateEvent() {
       eventsService.update(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['public-announcement-feed'] });
       toast.success('Event updated successfully.');
     },
   });
@@ -232,6 +234,7 @@ export function useDeleteEvent() {
     mutationFn: (id: string) => eventsService.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: eventKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['public-announcement-feed'] });
       toast.success('Event deleted successfully.');
     },
   });

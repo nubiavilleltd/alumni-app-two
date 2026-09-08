@@ -37,6 +37,7 @@ const projectFormSchema = z
     endDate: z.string().optional(),
     sortOrder: z.number({ error: 'Please enter a whole number' }).int().min(0).optional(),
     isFeatured: z.boolean().optional(),
+    show_in_announcements: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (data.startDate) {
@@ -109,6 +110,7 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
       amountRaised: 0,
       sortOrder: undefined,
       isFeatured: false,
+      show_in_announcements: false,
     },
   });
 
@@ -130,10 +132,18 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
         amountRaised: editData.amountRaised,
         sortOrder: editData.sortOrder,
         isFeatured: Boolean(editData.isFeatured),
+        show_in_announcements: Boolean(editData.showInAnnouncements),
       });
       resetImages(editData.images ?? []);
     } else {
-      reset({ title: '', description: '', status: 'ongoing', amountRaised: 0, isFeatured: false });
+      reset({
+        title: '',
+        description: '',
+        status: 'ongoing',
+        amountRaised: 0,
+        isFeatured: false,
+        show_in_announcements: false,
+      });
       resetImages();
     }
   }, [isOpen, editData, reset, resetImages]);
@@ -300,6 +310,23 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
             {...register('location')}
           />
         </div>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-primary-100 bg-primary-50/50 px-4 py-4">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 accent-primary-500"
+            {...register('show_in_announcements')}
+          />
+          <span>
+            <span className="block text-sm font-semibold text-gray-800">
+              Show this project in announcements
+            </span>
+            <span className="mt-1 block text-xs leading-5 text-gray-500">
+              Keep the project as the single source of truth while also displaying it in the public
+              announcements feed.
+            </span>
+          </span>
+        </label>
 
         {/* <label className="flex items-center gap-3 cursor-pointer">
           <input

@@ -16,6 +16,9 @@ export type JobVacancy = {
   workplace_type: WorkplaceType;
   level_of_expertise: LevelOfExpertise;
   location: string;
+  address?: string;
+  city?: string;
+  state?: string;
   salary: string;
   currency?: VacancyCurrency | string;
   application_deadline: string;
@@ -69,7 +72,6 @@ export type GetVacanciesFilters = Partial<{
   workplace_type: WorkplaceType;
   level_of_expertise: LevelOfExpertise;
   location: string;
-  chapter_id: number | string;
 }>;
 
 export type UpdateVacancyPayload = Partial<CreateVacancyPayload> & {

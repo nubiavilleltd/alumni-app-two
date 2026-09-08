@@ -4,20 +4,66 @@
 // Past events section below upcoming.
 
 import { Icon } from '@iconify/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLink } from '@/shared/components/ui/AppLink';
 import { SEO } from '@/shared/common/SEO';
 import { Breadcrumbs } from '@/shared/components/ui/Breadcrumbs';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { useMyEvents } from '../hooks/useEventRegistration';
 import { useCancelRegistration } from '../hooks/useEvents';
 import { toast } from '@/shared/components/ui/Toast';
 import { EVENT_ROUTES } from '../routes';
 import type { Event } from '../types/event.types';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
-import { Calendar, MapPin } from 'lucide-react';
+import { Calendar, MapPin, SlidersHorizontal } from 'lucide-react';
 const MY_EVENTS_PER_PAGE = 6;
+
+type MyEventFilterState = {
+  search: string;
+  format: string;
+  category: string;
+  location: string;
+  status: string;
+};
+
+const EVENT_FORMAT_OPTIONS = [
+  { label: 'Virtual events', value: 'virtual' },
+  { label: 'In-person events', value: 'in-person' },
+];
+
+const EVENT_STATUS_LABELS: Record<string, string> = {
+  published: 'Published',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  draft: 'Draft',
+};
+
+function getEventStatusLabel(status?: string) {
+  if (!status) return 'Published';
+  return EVENT_STATUS_LABELS[status] ?? status.replace(/_/g, ' ');
+}
+
+function matchesMyEventFilters(event: Event, filters: MyEventFilterState) {
+  const query = filters.search.trim().toLowerCase();
+  const searchableFields = [
+    event.title,
+    event.description,
+    event.location,
+    event.category,
+    ...(event.tags ?? []),
+  ];
+
+  return (
+    (!query || searchableFields.some((field) => field.toLowerCase().includes(query))) &&
+    (!filters.format || (filters.format === 'virtual' ? event.isVirtual : !event.isVirtual)) &&
+    (!filters.category || event.category === filters.category) &&
+    (!filters.location || event.location === filters.location) &&
+    (!filters.status || (event.status ?? 'published') === filters.status)
+  );
+}
 
 // ─── Unregister modal ────────────────────────────────────────────────────────
 
@@ -346,14 +392,64 @@ export function MyEventsPage() {
   const [unregisterEvent, setUnregisterEvent] = useState<Event | null>(null);
   const [upcomingPage, setUpcomingPage] = useState(1);
   const [pastPage, setPastPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [formatFilter, setFormatFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+  const filterState = useMemo<MyEventFilterState>(
+    () => ({
+      search,
+      format: formatFilter,
+      category: categoryFilter,
+      location: locationFilter,
+      status: statusFilter,
+    }),
+    [categoryFilter, formatFilter, locationFilter, search, statusFilter],
+  );
+
+  const filteredEvents = useMemo(
+    () => myEvents.filter((event: Event) => matchesMyEventFilters(event, filterState)),
+    [filterState, myEvents],
+  );
+
+  const facetOptions = useMemo(() => {
+    const categories = Array.from(
+      new Set(myEvents.map((event: Event) => event.category.trim()).filter(Boolean)),
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
+    const locations = Array.from(
+      new Set(myEvents.map((event: Event) => event.location.trim()).filter(Boolean)),
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ label: value, value }));
+    const statuses = Array.from(
+      new Set(myEvents.map((event: Event) => event.status ?? 'published')),
+    )
+      .sort((a, b) => getEventStatusLabel(a).localeCompare(getEventStatusLabel(b)))
+      .map((value) => ({ label: getEventStatusLabel(value), value }));
+
+    return { categories, locations, statuses };
+  }, [myEvents]);
+
+  const activeAdvancedFilterCount = [
+    formatFilter,
+    categoryFilter,
+    locationFilter,
+    statusFilter,
+  ].filter(Boolean).length;
+  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
 
   const now = new Date();
-  const upcomingEvents = myEvents.filter((e: Event) => {
+  const upcomingEvents = filteredEvents.filter((e: Event) => {
     const [h = 23, m = 59] = (e.endTime || '23:59').split(':').map(Number);
     const d = new Date(e.startDate);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m) >= now;
   });
-  const pastEvents = myEvents.filter((e: Event) => {
+  const pastEvents = filteredEvents.filter((e: Event) => {
     const [h = 23, m = 59] = (e.endTime || '23:59').split(':').map(Number);
     const d = new Date(e.startDate);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m) < now;
@@ -381,6 +477,11 @@ export function MyEventsPage() {
     }
   }, [pastPage, pastTotalPages]);
 
+  useEffect(() => {
+    setUpcomingPage(1);
+    setPastPage(1);
+  }, [categoryFilter, formatFilter, locationFilter, search, statusFilter]);
+
   const handleUnregister = async () => {
     if (!unregisterEvent) return;
     try {
@@ -391,6 +492,23 @@ export function MyEventsPage() {
     } finally {
       setUnregisterEvent(null);
     }
+  };
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setFormatFilter('');
+    setCategoryFilter('');
+    setLocationFilter('');
+    setStatusFilter('');
+    setUpcomingPage(1);
+    setPastPage(1);
+  };
+
+  const handleAdvancedFilterChange = (key: string, value: string) => {
+    if (key === 'format') setFormatFilter(value);
+    if (key === 'category') setCategoryFilter(value);
+    if (key === 'location') setLocationFilter(value);
+    if (key === 'status') setStatusFilter(value);
   };
 
   const breadcrumbItems = [
@@ -419,6 +537,95 @@ export function MyEventsPage() {
               Go to Events
             </AppLink>
           </div>
+
+          {!isLoading && myEvents.length > 0 && (
+            <>
+              <div className="mb-5 flex w-full items-center gap-3">
+                <div className="min-w-0 flex-1 sm:max-w-xl">
+                  <SearchInput
+                    value={search}
+                    onValueChange={setSearch}
+                    placeholder="Search your registered events"
+                    inputClassName="!h-10 !py-0"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
+                  aria-expanded={showAdvancedFilters}
+                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:px-4 sm:text-sm"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">Advanced filters</span>
+                  {activeAdvancedFilterCount > 0 && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
+                      {activeAdvancedFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {showAdvancedFilters && (
+                <AdvancedFiltersPanel
+                  title="Refine your events"
+                  description="Find registered events by format, category, location, or status."
+                  fields={[
+                    {
+                      key: 'format',
+                      kind: 'select',
+                      label: 'Format',
+                      value: formatFilter,
+                      placeholder: 'All formats',
+                      options: EVENT_FORMAT_OPTIONS,
+                    },
+                    {
+                      key: 'category',
+                      kind: 'select',
+                      label: 'Category',
+                      value: categoryFilter,
+                      placeholder: 'All categories',
+                      options: facetOptions.categories,
+                    },
+                    {
+                      key: 'location',
+                      kind: 'select',
+                      label: 'Location',
+                      value: locationFilter,
+                      placeholder: 'All locations',
+                      options: facetOptions.locations,
+                    },
+                    {
+                      key: 'status',
+                      kind: 'select',
+                      label: 'Status',
+                      value: statusFilter,
+                      placeholder: 'All statuses',
+                      options: facetOptions.statuses,
+                    },
+                  ]}
+                  onFieldChange={handleAdvancedFilterChange}
+                  onReset={clearAllFilters}
+                  hasActiveFilters={activeAdvancedFilterCount > 0}
+                />
+              )}
+
+              {hasActiveFilters && (
+                <div className="mb-6 mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                  <span>
+                    Showing {filteredEvents.length} of {myEvents.length} registered{' '}
+                    {myEvents.length === 1 ? 'event' : 'events'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Upcoming */}
           {(isLoading || upcomingEvents.length > 0) && (

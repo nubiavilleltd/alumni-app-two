@@ -12,7 +12,12 @@
 //   created_by_name → createdByName
 //   chapter_name  → chapterName
 
-import { parseImages } from '@/lib/utils/adapters';
+import { parseImages, stringToBoolean } from '@/lib/utils/adapters';
+import {
+  hasAnnouncementMarker,
+  serializeAnnouncementDescription,
+  stripAnnouncementMarker,
+} from '@/shared/utils/announcementVisibility';
 import { CreateProjectFormData, Project, UpdateProjectFormData } from '../types/project.types';
 
 // function normalizeDate(value: unknown): string | undefined {
@@ -58,11 +63,15 @@ function normalizeDate(value: unknown): string | undefined {
 
 export function mapBackendProject(raw: unknown): Project {
   const d = raw as Record<string, unknown>;
+  const rawDescription = String(d.description ?? '');
+  const showInAnnouncements =
+    hasAnnouncementMarker(rawDescription) ||
+    stringToBoolean(d.show_in_announcements ?? d.showInAnnouncements) === true;
 
   return {
     id: String(d.id ?? ''),
     title: String(d.title ?? ''),
-    description: String(d.description ?? ''),
+    description: stripAnnouncementMarker(rawDescription),
     images: parseImages(d.images),
     amountRaised: Number(d.amount_raised ?? 0),
     targetAmount: d.target_amount ? Number(d.target_amount) : undefined,
@@ -73,6 +82,7 @@ export function mapBackendProject(raw: unknown): Project {
     endDate: normalizeDate(d.end_date),
     sortOrder: d.sort_order ? Number(d.sort_order) : undefined,
     isFeatured: d.is_featured ? Number(d.is_featured) : 0,
+    showInAnnouncements,
     createdAt: d.created_at ? String(d.created_at) : undefined,
     createdByName: d.created_by_name ? String(d.created_by_name) : undefined,
     chapterName: d.chapter_name ? String(d.chapter_name) : null,
@@ -103,7 +113,11 @@ export function mapProjectToCreatePayload(
 ): FormData | Record<string, unknown> {
   const base: Record<string, unknown> = {
     title: formData.title,
-    description: formData.description,
+    description: serializeAnnouncementDescription(
+      formData.description,
+      formData.show_in_announcements,
+    ),
+    show_in_announcements: formData.show_in_announcements ? '1' : '0',
     status: formData.status,
     conducted_by: formData.conductedBy,
     location: formData.location,
@@ -142,7 +156,15 @@ export function mapProjectToUpdatePayload(
   };
 
   if (formData.title != null) base.title = formData.title;
-  if (formData.description != null) base.description = formData.description;
+  if (formData.description != null) {
+    base.description = serializeAnnouncementDescription(
+      formData.description,
+      formData.show_in_announcements,
+    );
+  }
+  if (formData.show_in_announcements != null) {
+    base.show_in_announcements = formData.show_in_announcements ? '1' : '0';
+  }
   if (formData.status != null) base.status = formData.status;
   if (formData.conductedBy != null) base.conducted_by = formData.conductedBy;
   if (formData.location != null) base.location = formData.location;

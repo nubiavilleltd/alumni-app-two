@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Clock3, FileSearch } from 'lucide-react';
+import { Clock3, FileSearch } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { SEO } from '@/shared/common/SEO';
-import { AppLink } from '@/shared/components/ui/AppLink';
 import { useBlogPostDetail } from '../hooks/useBlogs';
-import { ANNOUNCEMENT_ROUTES } from '@/features/announcements/routes';
 
 const FALLBACK_IMAGE = '/news-1.png';
 
@@ -132,13 +130,7 @@ export function BlogDetailPage() {
 
       <main className="min-h-screen bg-[#F8F8F7] text-[#071116]">
         <section className="container-custom pb-16 pt-4 sm:pb-14 sm:pt-5">
-          <AppLink
-            href={ANNOUNCEMENT_ROUTES.BLOG}
-            className="inline-flex items-center gap-2 text-sm font-semibold text-primary-600 hover:text-primary-700"
-          >
-            <ArrowLeft className="h-4 w-4" strokeWidth={2.4} />
-            Back to blog
-          </AppLink>
+          {/* Blog navigation is intentionally hidden until the public blog is ready. */}
 
           {isLoading ? (
             <div className="mt-6 animate-pulse">

@@ -6,6 +6,7 @@ import {
   UpdateVacancyPayload,
   WorkplaceType,
 } from '../types/jobVacancies.types';
+import { splitLocation } from '@/shared/utils/location';
 
 export type JobVacancyViewModel = {
   id: string;
@@ -21,6 +22,9 @@ export type JobVacancyViewModel = {
   salary: string;
   currency: string;
   location: string;
+  address: string;
+  city: string;
+  state: string;
   tags: string[];
   requirements: string;
   responsibilities: string;
@@ -40,6 +44,8 @@ function toOptionalString(value: unknown) {
 }
 
 export function vacancyToViewModel(vacancy: JobVacancy): JobVacancyViewModel {
+  const location = String(vacancy.location ?? '');
+  const locationParts = splitLocation(location);
   const directOwnerId =
     vacancy.created_by ??
     vacancy.createdBy ??
@@ -80,7 +86,8 @@ export function vacancyToViewModel(vacancy: JobVacancy): JobVacancyViewModel {
         : undefined,
     salary: vacancy.salary,
     currency: vacancy.currency ? String(vacancy.currency) : 'NGN',
-    location: vacancy.location,
+    location,
+    ...locationParts,
     tags: vacancy.keywords
       ? vacancy.keywords
           .split(',')

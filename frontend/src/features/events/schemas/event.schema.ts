@@ -24,6 +24,7 @@ export const eventBaseSchema = z
     start_time: z.string().min(1, 'Start time is required'),
     end_time: z.string().optional(),
     event_banner: z.any().optional(),
+    show_in_announcements: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     const now = new Date();

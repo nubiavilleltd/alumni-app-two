@@ -15,6 +15,7 @@ import { renderMarkdown } from '@/data/content';
 import { AUTH_ROUTES } from '@/features/authentication/routes';
 import { useEventStatus } from '../hooks/useEventStatus';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
+import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
 import {
   AlertCircle,
@@ -190,7 +191,6 @@ export function EventDetailPage() {
   const { data: event, isLoading, error } = useEvent(slug);
   const { isUpcoming, isOngoing, isPast } = useEventStatus(event);
 
-
   const currentUser = useIdentityStore((state) => state.user);
   const isLoggedIn = !!currentUser;
 
@@ -203,11 +203,12 @@ export function EventDetailPage() {
   const [showUnregisterModal, setShowUnregisterModal] = useState(false);
 
   const markdown = useMemo(() => {
-    if (!event?.content) return '';
+    const cleanContent = stripEventAnnouncementMarker(event?.content ?? '');
+    if (!cleanContent) return '';
     try {
-      return renderMarkdown(event.content);
+      return renderMarkdown(cleanContent);
     } catch {
-      return event.content ?? '';
+      return cleanContent;
     }
   }, [event?.content]);
 
@@ -247,7 +248,6 @@ export function EventDetailPage() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-
   const handleUnregister = async () => {
     try {
       await cancelMutation.mutateAsync(event.id);
@@ -284,12 +284,10 @@ export function EventDetailPage() {
 
   return (
     <>
-      <SEO title={event.title} description={event.description} />
+      <SEO title={event.title} description={stripEventAnnouncementMarker(event.description)} />
 
       <div className="min-h-screen bg-[#F8F8F7]">
         <div className="container-custom py-6">
-  
-
           {/* ════════════════════════════════════════════════════
               HERO IMAGE
               ════════════════════════════════════════════════════ */}
@@ -489,8 +487,6 @@ export function EventDetailPage() {
         event={showRegisterModal ? event : null}
         onClose={() => setShowRegisterModal(false)}
       />
-
-
 
       {showUnregisterModal && (
         <UnregisterConfirmModal

@@ -17,6 +17,7 @@ import { Pagination } from '@/shared/components/ui/Pagination';
 import { ROUTES } from '@/shared/constants/routes';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { formatDateRange, parseDateInput } from '@/shared/utils/dateHelpers';
+import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
 import {
   ArrowLeft,
   ArrowRight,
@@ -260,6 +261,7 @@ function EventListItem({
   itemRef: (el: HTMLDivElement | null) => void;
 }) {
   const color = eventColor(event.id);
+  const cleanDescription = stripEventAnnouncementMarker(event.description ?? '');
   return (
     <div
       ref={itemRef}
@@ -298,7 +300,7 @@ function EventListItem({
           />
         </div>
         <p className="text-gray-500 text-xs mt-0.5 line-clamp-2 leading-relaxed">
-          {event.description}
+          {cleanDescription}
         </p>
         {event.location && (
           <p className="text-gray-600 text-[11px] mt-1 flex items-center gap-1 truncate">
@@ -372,31 +374,37 @@ export function EventsPage() {
   // Right panel filtered events
   const filteredEvents = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    return allEvents.filter(
-      (e) => {
-        const eventDate = parseDateInput(e.startDate);
-        const eventYear = eventDate?.getFullYear().toString() ?? '';
-        const isUpcoming = isUpcomingEvent(e);
-        const normalizedLocation = e.location?.trim().toLowerCase() ?? '';
-        const normalizedCategory = e.category?.trim().toLowerCase() ?? '';
-        const matchesSearch =
-          !q ||
-          [e.title, e.description, e.location, e.category, ...(e.tags ?? [])]
-            .join(' ')
-            .toLowerCase()
-            .includes(q);
+    return allEvents.filter((e) => {
+      const eventDate = parseDateInput(e.startDate);
+      const eventYear = eventDate?.getFullYear().toString() ?? '';
+      const isUpcoming = isUpcomingEvent(e);
+      const normalizedLocation = e.location?.trim().toLowerCase() ?? '';
+      const normalizedCategory = e.category?.trim().toLowerCase() ?? '';
+      const matchesSearch =
+        !q ||
+        [e.title, e.description, e.location, e.category, ...(e.tags ?? [])]
+          .join(' ')
+          .toLowerCase()
+          .includes(q);
 
-        return (
-          matchesSearch &&
-          (!categoryFilter || normalizedCategory === categoryFilter.toLowerCase()) &&
-          (!locationFilter || normalizedLocation === locationFilter.toLowerCase()) &&
-          (!yearFilter || eventYear === yearFilter) &&
-          (!formatFilter || (formatFilter === 'virtual' ? e.isVirtual : !e.isVirtual)) &&
-          (!timingFilter || (timingFilter === 'upcoming' ? isUpcoming : !isUpcoming))
-        );
-      },
-    );
-  }, [allEvents, categoryFilter, formatFilter, locationFilter, searchTerm, timingFilter, yearFilter]);
+      return (
+        matchesSearch &&
+        (!categoryFilter || normalizedCategory === categoryFilter.toLowerCase()) &&
+        (!locationFilter || normalizedLocation === locationFilter.toLowerCase()) &&
+        (!yearFilter || eventYear === yearFilter) &&
+        (!formatFilter || (formatFilter === 'virtual' ? e.isVirtual : !e.isVirtual)) &&
+        (!timingFilter || (timingFilter === 'upcoming' ? isUpcoming : !isUpcoming))
+      );
+    });
+  }, [
+    allEvents,
+    categoryFilter,
+    formatFilter,
+    locationFilter,
+    searchTerm,
+    timingFilter,
+    yearFilter,
+  ]);
 
   // Events for the currently shown calendar month, respecting active filters.
   const calendarMonthEvents = useMemo(
@@ -688,7 +696,8 @@ export function EventsPage() {
           {hasActiveFilters && (
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
               <span>
-                Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} matching your filters
+                Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}{' '}
+                matching your filters
               </span>
               <button
                 type="button"

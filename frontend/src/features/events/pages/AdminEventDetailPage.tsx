@@ -12,6 +12,7 @@ import { toast } from '@/shared/components/ui/Toast';
 import { EVENT_ROUTES } from '../routes';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { renderMarkdown } from '@/data/content';
+import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
 import { useEventStatus } from '../hooks/useEventStatus';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
@@ -211,11 +212,12 @@ export function AdminEventDetailPage() {
   const [showUnregisterModal, setShowUnregisterModal] = useState(false);
 
   const markdown = useMemo(() => {
-    if (!event?.content) return '';
+    const cleanContent = stripEventAnnouncementMarker(event?.content ?? '');
+    if (!cleanContent) return '';
     try {
-      return renderMarkdown(event.content);
+      return renderMarkdown(cleanContent);
     } catch {
-      return event.content ?? '';
+      return cleanContent;
     }
   }, [event?.content]);
 
@@ -301,7 +303,7 @@ export function AdminEventDetailPage() {
 
   return (
     <>
-      <SEO title={event.title} description={event.description} />
+      <SEO title={event.title} description={stripEventAnnouncementMarker(event.description)} />
 
       <div className="min-h-screen bg-[#F8F8F7]">
         <div className="container-custom py-6">
@@ -310,35 +312,35 @@ export function AdminEventDetailPage() {
               Sits above the hero image, right-aligned.
               Visible only to admins, always as buttons (no menu).
               ════════════════════════════════════════════════════ */}
-         <div className="flex items-center justify-end gap-2 sm:gap-3 mb-4 flex-wrap">
-              {/* View Registrations */}
-              <AppLink
-                href={EVENT_ROUTES.ATTENDEES(event.id)}
-                className="inline-flex items-center gap-1.5 border-2 border-primary-500 bg-white hover:bg-primary-600 hover:text-white text-primary-500 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm whitespace-nowrap"
-              >
-                {/* <Icon icon="mdi:account-group-outline" className="w-4 h-4" /> */}
-                View Registrations
-              </AppLink>
+          <div className="flex items-center justify-end gap-2 sm:gap-3 mb-4 flex-wrap">
+            {/* View Registrations */}
+            <AppLink
+              href={EVENT_ROUTES.ATTENDEES(event.id)}
+              className="inline-flex items-center gap-1.5 border-2 border-primary-500 bg-white hover:bg-primary-600 hover:text-white text-primary-500 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm whitespace-nowrap"
+            >
+              {/* <Icon icon="mdi:account-group-outline" className="w-4 h-4" /> */}
+              View Registrations
+            </AppLink>
 
-              {/* Edit Event */}
-              <AppLink
-                href={EVENT_ROUTES.EDIT(event.id)}
-                className="inline-flex items-center gap-1.5 border-2 border-primary-500 bg-white hover:bg-primary-600 hover:text-white text-primary-500 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm whitespace-nowrap"
-              >
-                {/* <Icon icon="mdi:pencil-outline" className="w-4 h-4" /> */}
-                Edit Event
-              </AppLink>
+            {/* Edit Event */}
+            <AppLink
+              href={EVENT_ROUTES.EDIT(event.id)}
+              className="inline-flex items-center gap-1.5 border-2 border-primary-500 bg-white hover:bg-primary-600 hover:text-white text-primary-500 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm whitespace-nowrap"
+            >
+              {/* <Icon icon="mdi:pencil-outline" className="w-4 h-4" /> */}
+              Edit Event
+            </AppLink>
 
-              {/* Delete Event */}
-              <button
-                type="button"
-                onClick={() => setShowDeleteModal(true)}
-                className="inline-flex items-center gap-1.5 border-2 border-red-500 bg-white hover:bg-red-50 text-red-600 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm whitespace-nowrap"
-              >
-                {/* <Icon icon="mdi:trash-can-outline" className="w-4 h-4" /> */}
-                Delete Event
-              </button>
-            </div>
+            {/* Delete Event */}
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="inline-flex items-center gap-1.5 border-2 border-red-500 bg-white hover:bg-red-50 text-red-600 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-full transition-colors shadow-sm whitespace-nowrap"
+            >
+              {/* <Icon icon="mdi:trash-can-outline" className="w-4 h-4" /> */}
+              Delete Event
+            </button>
+          </div>
           {/* ════════════════════════════════════════════════════
               HERO IMAGE
               ════════════════════════════════════════════════════ */}

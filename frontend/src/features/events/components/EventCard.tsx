@@ -32,6 +32,7 @@ import { handleShare } from '@/shared/utils/share';
 import { toast } from '@/shared/components/ui/Toast';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
+import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
 
 const EVENT_CARD_ICON_STROKE = 2.35;
 
@@ -102,11 +103,12 @@ export function EventCard({
     typeof window !== 'undefined'
       ? `${window.location.origin}${EVENT_ROUTES.DETAIL(event.id)}`
       : EVENT_ROUTES.DETAIL(event.id);
+  const cleanDescription = stripEventAnnouncementMarker(event.description ?? '');
 
   const onShare = async () => {
     const result = await handleShare({
       title: event.title,
-      text: event.description?.slice(0, 100),
+      text: cleanDescription.slice(0, 100),
       url: eventUrl,
     });
 
@@ -289,7 +291,7 @@ export function EventCard({
           </div>
 
           <p className="text-gray-500 text-[11px] leading-relaxed line-clamp-3">
-            {event.description}
+            {cleanDescription}
           </p>
 
           {/* Attendee count — hidden in compact mode */}

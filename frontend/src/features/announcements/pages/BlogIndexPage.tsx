@@ -200,6 +200,8 @@ export default function BlogIndexPage() {
       );
   }, [announcements, dateRangeFilter, searchTerm, selectedType, yearFilter]);
 
+  console.log(sortedAnnouncements, 'newly sorted announcements');
+
   const activeAdvancedFilterCount = [searchTerm.trim(), yearFilter, dateRangeFilter].filter(
     Boolean,
   ).length;
@@ -458,15 +460,66 @@ export default function BlogIndexPage() {
               </div>
             </>
           ) : featured ? (
-            <>
-              <div className={boardClassName}>
-                <article
-                  ref={featuredCardRef}
-                  style={sideListHeight ? { maxHeight: `${sideListHeight}px` } : undefined}
-                  className="flex flex-col overflow-hidden rounded-2xl border border-[#eef2f5] bg-white shadow-[0_1px_2px_rgba(7,17,22,0.04)]"
-                >
-                  {/* Image fills remaining space after the text block shrinks the card */}
-                  <div className="min-h-[6rem] flex-1 overflow-hidden bg-[#e9edf1]">
+            latest.length > 0 ? (
+              <>
+                <div className={boardClassName}>
+                  <article
+                    ref={featuredCardRef}
+                    style={sideListHeight ? { maxHeight: `${sideListHeight}px` } : undefined}
+                    className="flex flex-col overflow-hidden rounded-2xl border border-[#eef2f5] bg-white shadow-[0_1px_2px_rgba(7,17,22,0.04)]"
+                  >
+                    {/* Image fills remaining space after the text block shrinks the card */}
+                    <div className="min-h-[6rem] flex-1 overflow-hidden bg-[#e9edf1]">
+                      <img
+                        src={featured.image || FALLBACK_IMAGE}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+
+                    <div className="flex flex-shrink-0 flex-col p-[1.15rem_1.25rem_1.35rem]">
+                      <p className={metaClassName}>
+                        <Clock3 className="h-4 w-4 flex-shrink-0" />
+                        {formatAnnouncementDate(featured.startsAt || featured.date)}
+                      </p>
+                      <h2 className="mt-4 text-[clamp(1.35rem,2vw,1.75rem)] font-bold leading-[1.24] text-[#071116]">
+                        {featured.title}
+                      </h2>
+                      <p className="mt-[0.65rem] text-base font-medium leading-[1.32] text-[#59626c]">
+                        {getAnnouncementSummary(featured)}{' '}
+                        <span className="whitespace-nowrap font-extrabold text-primary-500">
+                          Read more
+                        </span>
+                      </p>
+                      <div className="mt-5">
+                        <ButtonLink
+                          href={featured.href ?? ANNOUNCEMENT_ROUTES.DETAIL(featured.slug)}
+                          variant="primary"
+                        >
+                          Open update
+                        </ButtonLink>
+                      </div>
+                    </div>
+                  </article>
+
+                  {/* Side list renders at its natural height; we measure it to cap the featured card */}
+                  <div ref={sideListRef} className={sideListClassName}>
+                    {latest.slice(0, 3).map((item) => (
+                      <AnnouncementCard key={item.slug} item={item} compact />
+                    ))}
+                  </div>
+                </div>
+
+                <div className={stackedListClassName}>
+                  {pageAnnouncements.map((item) => (
+                    <AnnouncementCard key={item.slug} item={item} />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="grid justify-items-start gap-5">
+                <article className="flex max-h-[34rem] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[#eef2f5] bg-white shadow-[0_1px_2px_rgba(7,17,22,0.04)]">
+                  <div className="aspect-[16/7] overflow-hidden bg-[#e9edf1] max-sm:aspect-[16/9]">
                     <img
                       src={featured.image || FALLBACK_IMAGE}
                       alt=""
@@ -498,21 +551,8 @@ export default function BlogIndexPage() {
                     </div>
                   </div>
                 </article>
-
-                {/* Side list renders at its natural height; we measure it to cap the featured card */}
-                <div ref={sideListRef} className={sideListClassName}>
-                  {latest.slice(0, 3).map((item) => (
-                    <AnnouncementCard key={item.slug} item={item} compact />
-                  ))}
-                </div>
               </div>
-
-              <div className={stackedListClassName}>
-                {pageAnnouncements.map((item) => (
-                  <AnnouncementCard key={item.slug} item={item} />
-                ))}
-              </div>
-            </>
+            )
           ) : (
             <div className="rounded-[2rem] bg-white p-10 text-center shadow-sm ring-1 ring-accent-100">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary-50">

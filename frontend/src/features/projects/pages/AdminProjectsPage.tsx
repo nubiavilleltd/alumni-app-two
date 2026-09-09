@@ -23,6 +23,8 @@ import { ROUTES } from '@/shared/constants/routes';
 import { AdminBanner } from '@/features/admin/components/AdminBanner';
 import { canManageProjects } from '@/shared/permissions/project.permission';
 import { useCurrentUser } from '@/features/authentication/hooks/useCurrentUser';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 
 // ─── Responsive items per page (mirrors AlumniDirectoryPage) ─────────────────
 
@@ -54,9 +56,12 @@ export default function AdminProjectsPage() {
 
   const canUserManageProjects = canManageProjects(currentUser)
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [yearFilter, setYearFilter] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter } = usePersistedFilters('admin-projects-filters', {
+    searchTerm: '',
+    yearFilter: '',
+  });
+  const { searchTerm, yearFilter } = filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
   const [showFormModal, setShowFormModal] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
 
@@ -100,19 +105,18 @@ export default function AdminProjectsPage() {
   const visible = filtered.slice(pageStart, pageStart + ITEMS_PER_PAGE);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   const changePage = (p: number) => {
     setCurrentPage(p);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const resetFilters = (setter: (v: string) => void) => (v: string) => {
-    setter(v);
-    setCurrentPage(1);
+  const resetFilters = (key: keyof typeof filters) => (value: string) => {
+    setFilter(key, value);
   };
 
   const openCreate = () => {
@@ -169,7 +173,7 @@ export default function AdminProjectsPage() {
               <div className="flex-1 w-full sm:max-w-xl">
                 <SearchInput
                   value={searchTerm}
-                  onValueChange={resetFilters(setSearchTerm)}
+                  onValueChange={resetFilters('searchTerm')}
                   placeholder="Search here..."
                   // inputClassName="!h-[56px] !border-0 !shadow-none focus:!ring-0"
                   inputClassName="!h-10 !py-0"
@@ -178,7 +182,7 @@ export default function AdminProjectsPage() {
               <div className="w-full sm:w-auto">
                 <FilterDropdown
                   value={yearFilter}
-                  onChange={resetFilters(setYearFilter)}
+                  onChange={resetFilters('yearFilter')}
                   placeholder="Filter by Year"
                   options={[
                     { label: 'All', value: '' },

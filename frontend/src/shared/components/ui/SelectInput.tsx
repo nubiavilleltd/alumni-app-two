@@ -370,7 +370,12 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
               ${controlClassName}
             `}
           >
-            <span className={displayLabel ? 'text-gray-700' : 'text-[#828282]'}>
+            <span
+              className={`block min-w-0 truncate whitespace-nowrap ${
+                displayLabel ? 'text-gray-700' : 'text-[#828282]'
+              }`}
+              title={displayLabel || placeholder}
+            >
               {displayLabel || placeholder}
             </span>
           </button>

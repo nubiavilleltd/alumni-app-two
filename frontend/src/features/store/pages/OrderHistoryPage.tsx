@@ -1,6 +1,6 @@
 import { SEO } from '@/shared/common/SEO'
 import ContainerBackground from '@/shared/containers/ContainerBackground'
-import React, { useState } from 'react'
+import React from 'react'
 import useItemsPerPage from '../hooks/useItemsPerPage';
 import { useOrders } from '../hooks/useOrders';
 import { Pagination } from '@/shared/components/ui/Pagination';
@@ -11,11 +11,16 @@ import { useProductModalStore } from '../stores/useProductModalStore';
 import { FlattenedOrderItem } from '../types/order.types';
 import OrderItemListCard from '../components/OrderItemListCard';
 import { ProductDetailsModal } from '../components/ProductDetailsModal';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
 
 export default function OrderHistoryPage() {
-    const [search, setSearch] = useState('');
-    const [activeTab, setActiveTab] = useState('all');
-    const [page, setPage] = useState(1);
+    const { filters, setFilter } = usePersistedFilters('order-history-filters', {
+        search: '',
+        activeTab: 'all',
+    });
+    const { search, activeTab } = filters;
+    const [page, setPage] = useUrlPagination();
 
     const { flattenedItems, counts, isLoading, isError, error } = useOrders({
         search,
@@ -77,9 +82,9 @@ export default function OrderHistoryPage() {
                 <OrderFilters
                     variant="user"
                     search={search}
-                    onSearch={setSearch}
+                    onSearch={(value) => setFilter('search', value)}
                     activeTab={activeTab}
-                    onTabChange={setActiveTab}
+                    onTabChange={(value) => setFilter('activeTab', value)}
                     tabs={tabs}
                 />
 

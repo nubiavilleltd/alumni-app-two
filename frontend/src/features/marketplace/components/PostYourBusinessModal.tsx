@@ -1,6 +1,6 @@
 // // features/marketplace/components/PostYourBusinessModal.tsx
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,6 +21,7 @@ import { FormInput } from '@/shared/components/ui/input/FormInput';
 import { PhoneNumberInput } from '@/shared/components/ui/input/PhoneNumberInput';
 import { TextareaInput } from '@/shared/components/ui/TextAreaInput';
 import { toTitleCase } from '@/shared/utils/textHelpers';
+import { useLocations } from '@/shared/hooks/useLocations';
 import {
   useCreateListing,
   useUpdateListing,
@@ -221,12 +222,14 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
   } = useImageManager();
 
   const { data: categoriesList = [] } = useMarketplaceCategories();
+  const { data: locations = [] } = useLocations();
 
   const {
     register,
     handleSubmit,
     reset,
     watch,
+    setValue,
     formState: { errors, isSubmitting },
     setError: setFormError,
   } = useForm<PostBusinessFormValues>({
@@ -319,6 +322,38 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
   const isLoading = createMutation.isPending || updateMutation.isPending || isSubmitting;
   const categoryOptions = categoriesList.map((cat) => ({ label: toTitleCase(cat), value: cat }));
   const categoryValue = watch('category') ?? '';
+  const selectedState = watch('state') ?? '';
+  const selectedCity = watch('city') ?? '';
+  const stateOptions = useMemo(() => {
+    const options = locations.map((location) => ({
+      label: location.state,
+      value: location.state,
+    }));
+
+    if (
+      selectedState &&
+      !options.some((option) => option.value.toLowerCase() === selectedState.toLowerCase())
+    ) {
+      options.push({ label: selectedState, value: selectedState });
+    }
+
+    return options;
+  }, [locations, selectedState]);
+  const cityOptions = useMemo(() => {
+    const selectedLocation = locations.find(
+      (location) => location.state.toLowerCase() === selectedState.toLowerCase(),
+    );
+    const options = (selectedLocation?.cities ?? []).map((city) => ({ label: city, value: city }));
+
+    if (
+      selectedCity &&
+      !options.some((option) => option.value.toLowerCase() === selectedCity.toLowerCase())
+    ) {
+      options.push({ label: selectedCity, value: selectedCity });
+    }
+
+    return options;
+  }, [locations, selectedCity, selectedState]);
   const hashtagCount = parseHashtags(watch('socials.instagramHashtag')).length;
 
   if (!isOpen) return null;
@@ -433,28 +468,37 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
                   {...register('address')}
                 />
 
-                <FormInput
-                  label="City"
-                  labelClassName={fieldLabelClassName}
-                  controlClassName={fieldControlClassName}
-                  inputClassName={fieldInputClassName}
-                  id="city"
-                  required
-                  placeholder="Enter the city"
-                  error={errors.city?.message}
-                  {...register('city')}
-                />
-
-                <FormInput
+                <SelectInput
                   label="State"
                   labelClassName={fieldLabelClassName}
                   controlClassName={fieldControlClassName}
-                  inputClassName={fieldInputClassName}
                   id="state"
                   required
-                  placeholder="Enter the state"
+                  placeholder="Select a state"
+                  options={stateOptions}
+                  value={selectedState}
                   error={errors.state?.message}
                   {...register('state')}
+                  onChange={(event) => {
+                    setValue('state', event.target.value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
+                    setValue('city', '', { shouldDirty: true, shouldValidate: true });
+                  }}
+                />
+
+                <SelectInput
+                  label="City"
+                  labelClassName={fieldLabelClassName}
+                  controlClassName={fieldControlClassName}
+                  id="city"
+                  required
+                  placeholder={selectedState ? 'Select a city' : 'Select a state first'}
+                  options={cityOptions}
+                  value={selectedCity}
+                  error={errors.city?.message}
+                  {...register('city')}
                 />
 
                 <FormInput

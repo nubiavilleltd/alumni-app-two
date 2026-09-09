@@ -11,7 +11,9 @@ import { SEO } from '@/shared/common/SEO';
 import { Breadcrumbs } from '@/shared/components/ui/Breadcrumbs';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import { HierarchicalLocationFilter } from '@/shared/components/ui/HierarchicalLocationFilter';
 import { useMyEvents } from '../hooks/useEventRegistration';
 import { useCancelRegistration } from '../hooks/useEvents';
 import { toast } from '@/shared/components/ui/Toast';
@@ -20,6 +22,8 @@ import type { Event } from '../types/event.types';
 import { formatDateRange } from '@/shared/utils/dateHelpers';
 import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
 import { Calendar, MapPin, SlidersHorizontal } from 'lucide-react';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 const MY_EVENTS_PER_PAGE = 6;
 
 type MyEventFilterState = {
@@ -392,13 +396,20 @@ export function MyEventsPage() {
 
   const cancelMutation = useCancelRegistration();
   const [unregisterEvent, setUnregisterEvent] = useState<Event | null>(null);
-  const [upcomingPage, setUpcomingPage] = useState(1);
-  const [pastPage, setPastPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [formatFilter, setFormatFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [upcomingPage, setUpcomingPage] = useUrlPagination('upcomingPage');
+  const [pastPage, setPastPage] = useUrlPagination('pastPage');
+  const { filters, setFilter, clearFilters } = usePersistedFilters(
+    'my-events-filters',
+    {
+      search: '',
+      formatFilter: '',
+      categoryFilter: '',
+      locationFilter: '',
+      statusFilter: '',
+    },
+    { paginationParams: ['upcomingPage', 'pastPage'] },
+  );
+  const { search, formatFilter, categoryFilter, locationFilter, statusFilter } = filters;
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const filterState = useMemo<MyEventFilterState>(
@@ -427,7 +438,20 @@ export function MyEventsPage() {
       new Set(myEvents.map((event: Event) => event.location.trim()).filter(Boolean)),
     )
       .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ label: value, value }));
+      .map((value) => ({
+        label: value,
+        value,
+        count: myEvents.filter(
+          (event) =>
+            matchesMyEventFilters(event, {
+              search,
+              format: formatFilter,
+              category: categoryFilter,
+              location: '',
+              status: statusFilter,
+            }) && event.location === value,
+        ).length,
+      }));
     const statuses = Array.from(
       new Set(myEvents.map((event: Event) => event.status ?? 'published')),
     )
@@ -435,7 +459,7 @@ export function MyEventsPage() {
       .map((value) => ({ label: getEventStatusLabel(value), value }));
 
     return { categories, locations, statuses };
-  }, [myEvents]);
+  }, [categoryFilter, formatFilter, myEvents, search, statusFilter]);
 
   const activeAdvancedFilterCount = [
     formatFilter,
@@ -468,21 +492,16 @@ export function MyEventsPage() {
   );
 
   useEffect(() => {
-    if (upcomingPage > upcomingTotalPages) {
+    if (!isLoading && upcomingPage > upcomingTotalPages) {
       setUpcomingPage(upcomingTotalPages);
     }
-  }, [upcomingPage, upcomingTotalPages]);
+  }, [isLoading, upcomingPage, upcomingTotalPages]);
 
   useEffect(() => {
-    if (pastPage > pastTotalPages) {
+    if (!isLoading && pastPage > pastTotalPages) {
       setPastPage(pastTotalPages);
     }
-  }, [pastPage, pastTotalPages]);
-
-  useEffect(() => {
-    setUpcomingPage(1);
-    setPastPage(1);
-  }, [categoryFilter, formatFilter, locationFilter, search, statusFilter]);
+  }, [isLoading, pastPage, pastTotalPages]);
 
   const handleUnregister = async () => {
     if (!unregisterEvent) return;
@@ -497,20 +516,18 @@ export function MyEventsPage() {
   };
 
   const clearAllFilters = () => {
-    setSearch('');
-    setFormatFilter('');
-    setCategoryFilter('');
-    setLocationFilter('');
-    setStatusFilter('');
-    setUpcomingPage(1);
-    setPastPage(1);
+    clearFilters();
   };
 
   const handleAdvancedFilterChange = (key: string, value: string) => {
-    if (key === 'format') setFormatFilter(value);
-    if (key === 'category') setCategoryFilter(value);
-    if (key === 'location') setLocationFilter(value);
-    if (key === 'status') setStatusFilter(value);
+    const filterKeys: Record<string, keyof typeof filters> = {
+      format: 'formatFilter',
+      category: 'categoryFilter',
+      location: 'locationFilter',
+      status: 'statusFilter',
+    };
+    const filterKey = filterKeys[key];
+    if (filterKey) setFilter(filterKey, value);
   };
 
   const breadcrumbItems = [
@@ -546,7 +563,7 @@ export function MyEventsPage() {
                 <div className="min-w-0 flex-1 sm:max-w-xl">
                   <SearchInput
                     value={search}
-                    onValueChange={setSearch}
+                    onValueChange={(value) => setFilter('search', value)}
                     placeholder="Search your registered events"
                     inputClassName="!h-10 !py-0"
                   />
@@ -571,6 +588,18 @@ export function MyEventsPage() {
                 <AdvancedFiltersPanel
                   title="Refine your events"
                   description="Find registered events by format, category, location, or status."
+                  customContent={
+                    <HierarchicalLocationFilter
+                      label="Location"
+                      placeholder="All locations"
+                      levelOneLabel="Location"
+                      value={{ state: locationFilter, city: '' }}
+                      options={facetOptions.locations}
+                      onChange={(selection) => {
+                        setFilter('locationFilter', selection.state);
+                      }}
+                    />
+                  }
                   fields={[
                     {
                       key: 'format',
@@ -587,14 +616,6 @@ export function MyEventsPage() {
                       value: categoryFilter,
                       placeholder: 'All categories',
                       options: facetOptions.categories,
-                    },
-                    {
-                      key: 'location',
-                      kind: 'select',
-                      label: 'Location',
-                      value: locationFilter,
-                      placeholder: 'All locations',
-                      options: facetOptions.locations,
                     },
                     {
                       key: 'status',
@@ -617,13 +638,7 @@ export function MyEventsPage() {
                     Showing {filteredEvents.length} of {myEvents.length} registered{' '}
                     {myEvents.length === 1 ? 'event' : 'events'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-                  >
-                    Clear all filters
-                  </button>
+                    <ClearFiltersButton onClick={clearAllFilters} label="Clear all filters" />
                 </div>
               )}
             </>

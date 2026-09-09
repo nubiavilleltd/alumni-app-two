@@ -3,15 +3,23 @@ import { BriefcaseBusiness, Plus, SearchX, SlidersHorizontal, Trash2, UserX } fr
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import {
+  HierarchicalLocationFilter,
+  type HierarchicalLocationNode,
+  type HierarchicalLocationSelection,
+} from '@/shared/components/ui/HierarchicalLocationFilter';
 import { DeleteConfirmModal } from '@/features/events/components/DeleteConfirmModal';
 import { toast } from '@/shared/components/ui/Toast';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { useJobVacancies } from '../hooks/useJobVacancies';
 import { useDeleteVacancy } from '../hooks/useManageVacancy';
-import { matchesLocationPart } from '@/shared/utils/location';
+import { matchesLocationPart, normalizeLocationPart } from '@/shared/utils/location';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
 import type { JobVacancyViewModel } from '../api/adapters';
 import {
   getTone,
@@ -37,7 +45,6 @@ type MyJobPostFilterState = {
   status: string;
   jobType: string;
   workplace: string;
-  address: string;
   city: string;
   state: string;
 };
@@ -73,10 +80,82 @@ function matchesMyJobPostFilters(job: JobVacancyViewModel, filters: MyJobPostFil
       (filters.status === 'expired' ? isExpiredJobPost(job) : !isExpiredJobPost(job))) &&
     (!filters.jobType || job.jobType === filters.jobType) &&
     (!filters.workplace || job.workplaceType === filters.workplace) &&
-    matchesLocationPart(job.address, filters.address) &&
     matchesLocationPart(job.city, filters.city) &&
     matchesLocationPart(job.state, filters.state)
   );
+}
+
+type MutableLocationNode = {
+  label: string;
+  value: string;
+  children: Map<string, MutableLocationNode>;
+};
+
+function buildMyJobPostLocationHierarchy(
+  jobs: JobVacancyViewModel[],
+  filters: MyJobPostFilterState,
+): HierarchicalLocationNode[] {
+  const states = new Map<string, MutableLocationNode>();
+  const filtersWithoutLocation: MyJobPostFilterState = {
+    ...filters,
+    city: '',
+    state: '',
+  };
+
+  jobs.forEach((job) => {
+    const stateLabel = job.state.trim();
+    const stateValue = normalizeLocationPart(stateLabel);
+    if (!stateLabel || !stateValue) return;
+
+    let stateNode = states.get(stateValue);
+    if (!stateNode) {
+      stateNode = { label: stateLabel, value: stateValue, children: new Map() };
+      states.set(stateValue, stateNode);
+    }
+
+    const cityLabel = job.city.trim();
+    const cityValue = normalizeLocationPart(cityLabel);
+    if (!cityLabel || !cityValue || stateNode.children.has(cityValue)) return;
+
+    stateNode.children.set(cityValue, {
+      label: cityLabel,
+      value: cityValue,
+      children: new Map(),
+    });
+  });
+
+  const countForLocation = (location: HierarchicalLocationSelection) =>
+    jobs.filter((job) =>
+      matchesMyJobPostFilters(job, {
+        ...filtersWithoutLocation,
+        ...location,
+      }),
+    ).length;
+
+  const toOptions = (
+    nodes: Map<string, MutableLocationNode>,
+    parent: HierarchicalLocationSelection,
+  ): HierarchicalLocationNode[] =>
+    Array.from(nodes.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((node) => {
+        const selection =
+          nodes === states
+            ? { state: node.value, city: '' }
+            : { state: parent.state, city: node.value };
+        const children = Array.from(node.children.values()).length
+          ? toOptions(node.children, selection)
+          : undefined;
+
+        return {
+          label: node.label,
+          value: node.value,
+          count: countForLocation(selection),
+          ...(children ? { children } : {}),
+        };
+      });
+
+  return toOptions(states, { state: '', city: '' });
 }
 
 function useCurrentOwnerIds() {
@@ -100,14 +179,19 @@ export default function MyJobPostsPage() {
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<JobVacancyViewModel | null>(null);
   const [jobToDelete, setJobToDelete] = useState<JobVacancyViewModel | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [jobTypeFilter, setJobTypeFilter] = useState('');
-  const [workplaceFilter, setWorkplaceFilter] = useState('');
-  const [addressFilter, setAddressFilter] = useState('');
-  const [cityFilter, setCityFilter] = useState('');
-  const [stateFilter, setStateFilter] = useState('');
+  const [currentPage, setCurrentPage] = useUrlPagination();
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters(
+    'my-job-posts-filters',
+    {
+      search: '',
+      statusFilter: '',
+      jobTypeFilter: '',
+      workplaceFilter: '',
+      cityFilter: '',
+      stateFilter: '',
+    },
+  );
+  const { search, statusFilter, jobTypeFilter, workplaceFilter, cityFilter, stateFilter } = filters;
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const myVacancies = useMemo(
@@ -123,37 +207,24 @@ export default function MyJobPostsPage() {
       status: statusFilter,
       jobType: jobTypeFilter,
       workplace: workplaceFilter,
-      address: addressFilter,
       city: cityFilter,
       state: stateFilter,
     }),
-    [addressFilter, cityFilter, jobTypeFilter, search, stateFilter, statusFilter, workplaceFilter],
+    [cityFilter, jobTypeFilter, search, stateFilter, statusFilter, workplaceFilter],
   );
   const filteredVacancies = useMemo(
     () => myVacancies.filter((job) => matchesMyJobPostFilters(job, filterState)),
     [filterState, myVacancies],
   );
-  const facetOptions = useMemo(() => {
-    const toOptions = (values: Array<string | undefined>) =>
-      Array.from(new Set(values.filter(Boolean) as string[]))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value }));
-
-    return {
-      addresses: toOptions(myVacancies.map((job) => job.address)),
-      cities: toOptions(myVacancies.map((job) => job.city)),
-      states: toOptions(myVacancies.map((job) => job.state)),
-    };
-  }, [myVacancies]);
-  const activeAdvancedFilterCount = [
-    statusFilter,
-    jobTypeFilter,
-    workplaceFilter,
-    addressFilter,
-    cityFilter,
-    stateFilter,
-  ].filter(Boolean).length;
-  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
+  const locationHierarchy = useMemo(
+    () => buildMyJobPostLocationHierarchy(myVacancies, filterState),
+    [filterState, myVacancies],
+  );
+  const activeAdvancedFilterCount = [statusFilter, jobTypeFilter, workplaceFilter].filter(
+    Boolean,
+  ).length;
+  const hasLocationFilter = Boolean(cityFilter || stateFilter);
+  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount || hasLocationFilter);
   const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / MY_JOB_POSTS_PER_PAGE));
   const visibleVacancies = filteredVacancies.slice(
     (currentPage - 1) * MY_JOB_POSTS_PER_PAGE,
@@ -161,22 +232,10 @@ export default function MyJobPostsPage() {
   );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    addressFilter,
-    cityFilter,
-    jobTypeFilter,
-    search,
-    stateFilter,
-    statusFilter,
-    workplaceFilter,
-  ]);
+  }, [currentPage, isLoading, totalPages]);
 
   const handleDeleteVacancy = async () => {
     if (!jobToDelete) return;
@@ -200,23 +259,17 @@ export default function MyJobPostsPage() {
   };
 
   const clearAllFilters = () => {
-    setSearch('');
-    setStatusFilter('');
-    setJobTypeFilter('');
-    setWorkplaceFilter('');
-    setAddressFilter('');
-    setCityFilter('');
-    setStateFilter('');
-    setCurrentPage(1);
+    clearFilters();
   };
 
   const handleAdvancedFilterChange = (key: string, value: string) => {
-    if (key === 'status') setStatusFilter(value);
-    if (key === 'jobType') setJobTypeFilter(value);
-    if (key === 'workplace') setWorkplaceFilter(value);
-    if (key === 'address') setAddressFilter(value);
-    if (key === 'city') setCityFilter(value);
-    if (key === 'state') setStateFilter(value);
+    const filterKeys: Record<string, keyof typeof filters> = {
+      status: 'statusFilter',
+      jobType: 'jobTypeFilter',
+      workplace: 'workplaceFilter',
+    };
+    const filterKey = filterKeys[key];
+    if (filterKey) setFilter(filterKey, value);
   };
 
   const hasOwnerIdentity = ownerIds.size > 0;
@@ -257,7 +310,7 @@ export default function MyJobPostsPage() {
                 <div className="min-w-0 flex-1 sm:max-w-xl">
                   <SearchInput
                     value={search}
-                    onValueChange={setSearch}
+                    onValueChange={(value) => setFilter('search', value)}
                     placeholder="Search your job posts"
                     inputClassName="!h-10 !py-0"
                   />
@@ -282,6 +335,20 @@ export default function MyJobPostsPage() {
                 <AdvancedFiltersPanel
                   title="Refine your job posts"
                   description="Find your vacancies by status, employment type, workplace, or location."
+                  customContent={
+                    <HierarchicalLocationFilter
+                      label="Location"
+                      placeholder="All locations"
+                      value={{ state: stateFilter, city: cityFilter }}
+                      options={locationHierarchy}
+                      onChange={(selection) => {
+                        setFilters({
+                          stateFilter: selection.state,
+                          cityFilter: selection.city,
+                        });
+                      }}
+                    />
+                  }
                   fields={[
                     {
                       key: 'status',
@@ -317,34 +384,10 @@ export default function MyJobPostsPage() {
                         { label: 'On site', value: 'on_site' },
                       ],
                     },
-                    {
-                      key: 'address',
-                      kind: 'select',
-                      label: 'Address',
-                      value: addressFilter,
-                      placeholder: 'All addresses',
-                      options: facetOptions.addresses,
-                    },
-                    {
-                      key: 'city',
-                      kind: 'select',
-                      label: 'City',
-                      value: cityFilter,
-                      placeholder: 'All cities',
-                      options: facetOptions.cities,
-                    },
-                    {
-                      key: 'state',
-                      kind: 'select',
-                      label: 'State',
-                      value: stateFilter,
-                      placeholder: 'All states',
-                      options: facetOptions.states,
-                    },
                   ]}
                   onFieldChange={handleAdvancedFilterChange}
                   onReset={clearAllFilters}
-                  hasActiveFilters={activeAdvancedFilterCount > 0}
+                  hasActiveFilters={activeAdvancedFilterCount > 0 || hasLocationFilter}
                 />
               )}
 
@@ -354,13 +397,7 @@ export default function MyJobPostsPage() {
                     Showing {filteredVacancies.length} of {myVacancies.length} job{' '}
                     {myVacancies.length === 1 ? 'post' : 'posts'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-                  >
-                    Clear all filters
-                  </button>
+                  <ClearFiltersButton onClick={clearAllFilters} label="Clear all filters" />
                 </div>
               )}
             </>

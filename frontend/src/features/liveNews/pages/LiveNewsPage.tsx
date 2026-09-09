@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react';
 import { SEO } from '@/shared/common/SEO';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 
 import { FeaturedNewsCard } from '../components/FeaturedNewsCard';
 import { NewsCard } from '../components/NewsCard';
@@ -18,7 +19,7 @@ import { LiveNewsSkeleton } from '../components/LiveNewsSkeleton';
 export default function LiveNewsPage() {
     const { data: liveNewsData = [], isLoading } = useLiveNews();
 
-    const [currentPage, setCurrentPage] = useState(1);
+    const [currentPage, setCurrentPage] = useUrlPagination();
 
     const ITEMS_PER_PAGE = useItemsPerPage();
 
@@ -111,7 +112,6 @@ export default function LiveNewsPage() {
         </>
     );
 }
-
 
 
 

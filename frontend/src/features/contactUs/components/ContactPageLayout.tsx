@@ -8,6 +8,8 @@ import type { Contact } from '@/features/contactUs/types/contact.types';
 import { useCurrentUser } from '@/features/authentication/hooks/useCurrentUser';
 import { usePrefillFormFromUser } from '@/features/contactUs/hooks/usePrefillFormFromUser';
 import { toast } from '@/shared/components/ui/Toast';
+import { ProtectedContactValue } from '@/shared/components/ui/ProtectedContactValue';
+import type { ProtectedContactField } from '@/shared/api/protectedContactApi';
 
 /* ───────────────── TYPES ───────────────── */
 
@@ -16,9 +18,15 @@ type ContactMethod = {
   valueLines: string[];
   icon?: string;
   iconSrc?: string;
-  href: string;
+  href?: string;
   target?: string;
   rel?: string;
+  protectedContact?: {
+    field: Extract<ProtectedContactField, 'email' | 'phone'>;
+    value: string;
+    resourceType: string;
+    resourceId: string;
+  };
 };
 
 interface Props {
@@ -144,19 +152,30 @@ export function ContactPageLayout({
                   </span>
                   <h2 className="type-card-title m-0 text-[#071116]">{method.label}</h2>
                 </div>
-                <AppLink
-                  href={method.href}
-                  className="mt-[0.8rem] inline-block max-w-full text-[1rem] font-medium leading-[1.35] text-[#4e5d72] no-underline transition-[color,transform] duration-150 hover:text-primary-600 focus-visible:text-primary-600 focus-visible:outline-none min-[761px]:max-w-full min-[1180px]:max-w-[23rem] min-[1180px]:text-[clamp(1rem,1.18vw,1.16rem)]"
-                  target={method.target}
-                  rel={method.rel}
-                  ariaLabel={`${method.label}: ${method.valueLines.join(', ')}`}
-                >
-                  {method.valueLines.map((line) => (
-                    <span key={line} className="block">
-                      {line}
-                    </span>
-                  ))}
-                </AppLink>
+                {method.protectedContact ? (
+                  <ProtectedContactValue
+                    value={method.protectedContact.value}
+                    field={method.protectedContact.field}
+                    label={method.label}
+                    resourceType={method.protectedContact.resourceType}
+                    resourceId={method.protectedContact.resourceId}
+                    className="mt-[0.8rem] max-w-full min-[1180px]:max-w-[23rem]"
+                  />
+                ) : (
+                  <AppLink
+                    href={method.href ?? '#'}
+                    className="mt-[0.8rem] inline-block max-w-full text-[1rem] font-medium leading-[1.35] text-[#4e5d72] no-underline transition-[color,transform] duration-150 hover:text-primary-600 focus-visible:text-primary-600 focus-visible:outline-none min-[761px]:max-w-full min-[1180px]:max-w-[23rem] min-[1180px]:text-[clamp(1rem,1.18vw,1.16rem)]"
+                    target={method.target}
+                    rel={method.rel}
+                    ariaLabel={`${method.label}: ${method.valueLines.join(', ')}`}
+                  >
+                    {method.valueLines.map((line) => (
+                      <span key={line} className="block">
+                        {line}
+                      </span>
+                    ))}
+                  </AppLink>
+                )}
               </article>
             ))}
           </div>

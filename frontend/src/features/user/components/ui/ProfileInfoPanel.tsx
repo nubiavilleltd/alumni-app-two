@@ -185,6 +185,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { toast } from '@/shared/components/ui/Toast';
 import CopyButton from '@/shared/components/ui/CopyButton';
+import { ProtectedContactValue } from '@/shared/components/ui/ProtectedContactValue';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -217,6 +218,9 @@ interface ProfileInfoPanelProps {
   data: ProfileInfoData;
   copyable?: boolean;
   isOwner?: boolean;
+  protectContactInfo?: boolean;
+  contactResourceType?: string;
+  contactResourceId?: string;
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
@@ -296,6 +300,9 @@ export function ProfileInfoPanel({
   data,
   copyable = false,
   isOwner = false,
+  protectContactInfo = false,
+  contactResourceType = 'alumni-profile',
+  contactResourceId = '',
 }: ProfileInfoPanelProps) {
   const hasBioFields = hasAny(
     data.fullName,
@@ -341,9 +348,47 @@ export function ProfileInfoPanel({
           <FieldRow label="Full Name" value={data.fullName} />
           <FieldRow label="Former Name" value={data.maidenName} />
           <FieldRow label="Preferred Nickname" value={data.nicknameInSchool} />
-          {hasSocials && <FieldRow label="Email" value={data.email} copyable={true} />}
-          <FieldRow label="WhatsApp" value={data.whatsapp} copyable={true} />
-          <FieldRow label="Alt. Phone" value={data.altPhone} copyable={true} />
+          {hasSocials &&
+            (protectContactInfo && contactResourceId ? (
+              <ProtectedContactValue
+                value={data.email}
+                field="email"
+                label="Email"
+                resourceType={contactResourceType}
+                resourceId={contactResourceId}
+                variant="profile"
+                className="border-b border-gray-50"
+              />
+            ) : (
+              <FieldRow label="Email" value={data.email} copyable={copyable} />
+            ))}
+          {protectContactInfo && contactResourceId ? (
+            <>
+              <ProtectedContactValue
+                value={data.whatsapp}
+                field="whatsapp"
+                label="WhatsApp"
+                resourceType={contactResourceType}
+                resourceId={contactResourceId}
+                variant="profile"
+                className="border-b border-gray-50"
+              />
+              <ProtectedContactValue
+                value={data.altPhone}
+                field="alternativePhone"
+                label="Alt. Phone"
+                resourceType={contactResourceType}
+                resourceId={contactResourceId}
+                variant="profile"
+                className="border-b border-gray-50"
+              />
+            </>
+          ) : (
+            <>
+              <FieldRow label="WhatsApp" value={data.whatsapp} copyable={copyable} />
+              <FieldRow label="Alt. Phone" value={data.altPhone} copyable={copyable} />
+            </>
+          )}
           <FieldRow label="Date of Birth" value={data.dateOfBirth} />
         </Section>
       )}

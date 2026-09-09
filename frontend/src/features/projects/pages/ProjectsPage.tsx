@@ -9,17 +9,69 @@
 // - Cream/off-white background
 
 import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, SlidersHorizontal } from 'lucide-react';
+import { FolderOpen } from 'lucide-react';
 import { SEO } from '@/shared/common/SEO';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
+import { HierarchicalLocationFilter } from '@/shared/components/ui/HierarchicalLocationFilter';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { useProjects } from '../hooks/useProjects';
 import { ProjectCard, ProjectCardSkeleton } from '../components/ProjectCard';
+import type { Project } from '../types/project.types';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '@/shared/constants/routes';
-import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { useLocations } from '@/shared/hooks/useLocations';
+import type { LocationGroup } from '@/shared/types/location.types';
+
+function normalizeFilterValue(value?: string | null) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+interface ProjectFilterValues {
+  searchTerm?: string;
+  yearFilter?: string;
+  statusFilter?: string;
+  locationFilter?: string;
+  cityFilter?: string;
+}
+
+function projectMatchesYear(project: Project, year: string) {
+  return [project.startDate, project.endDate]
+    .filter((date): date is string => Boolean(date))
+    .some((date) => new Date(date).getFullYear().toString() === year);
+}
+
+function projectMatchesFilters(project: Project, filters: ProjectFilterValues) {
+  const query = normalizeFilterValue(filters.searchTerm);
+  const matchesSearch =
+    !query ||
+    [
+      project.title,
+      project.description,
+      project.location,
+      project.status,
+      project.conductedBy,
+      project.chapterName,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query);
+  const matchesYear = !filters.yearFilter || projectMatchesYear(project, filters.yearFilter);
+  const matchesStatus =
+    !filters.statusFilter ||
+    normalizeFilterValue(project.status) === normalizeFilterValue(filters.statusFilter);
+  const selectedLocation = filters.cityFilter || filters.locationFilter;
+  const matchesLocation =
+    !selectedLocation ||
+    normalizeFilterValue(project.location).includes(normalizeFilterValue(selectedLocation));
+
+  return matchesSearch && matchesYear && matchesStatus && matchesLocation;
+}
 
 // ─── Responsive items per page (mirrors AlumniDirectoryPage) ─────────────────
 
@@ -47,134 +99,192 @@ function useItemsPerPage() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [yearFilter, setYearFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
-  const [fundingFilter, setFundingFilter] = useState('');
-  const [featuredFilter, setFeaturedFilter] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters('projects-filters', {
+    searchTerm: '',
+    yearFilter: '',
+    statusFilter: '',
+    locationFilter: '',
+    cityFilter: '',
+  });
+  const { searchTerm, yearFilter, statusFilter, locationFilter, cityFilter } = filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
 
   const ITEMS_PER_PAGE = useItemsPerPage();
 
   const { data: projects = [], isLoading } = useProjects();
+  const { data: locations = [] } = useLocations();
 
-  console.log('ProjectsPage: projects =', projects, 'isLoading =', isLoading, projects.length)
+  console.log('ProjectsPage: projects =', projects, 'isLoading =', isLoading, projects.length);
 
   // Year options derived from projects
   const years = useMemo(() => {
     return [
       ...new Set(
         projects
-          .map((p) => {
-            if (!p.startDate) return null;
-            return new Date(p.startDate).getFullYear();
-          })
-          .filter(Boolean) as number[],
+          .flatMap((p) => [p.startDate, p.endDate])
+          .filter(Boolean)
+          .map((date) => new Date(date as string).getFullYear())
+          .filter((year) => Number.isFinite(year)),
       ),
     ].sort((a, b) => b - a);
   }, [projects]);
 
-  const locationOptions = useMemo(
+  const statusOptions = useMemo(() => {
+    const availableStatuses = new Set(
+      projects.map((project) => normalizeFilterValue(project.status)).filter(Boolean),
+    );
+
+    return [
+      { label: 'Ongoing', value: 'ongoing' },
+      { label: 'Completed', value: 'completed' },
+    ]
+      .filter((option) => availableStatuses.has(option.value))
+      .map((option) => ({
+        ...option,
+        count: projects.filter(
+          (project) =>
+            projectMatchesFilters(project, {
+              searchTerm,
+              yearFilter,
+              locationFilter,
+              cityFilter,
+            }) && normalizeFilterValue(project.status) === option.value,
+        ).length,
+      }));
+  }, [cityFilter, locationFilter, projects, searchTerm, yearFilter]);
+
+  const locationOptions = useMemo(() => {
+    type LocationOptionGroup = {
+      label: string;
+      value: string;
+      cities: Map<string, { label: string; value: string }>;
+    };
+
+    const groups = new Map<string, LocationOptionGroup>();
+    const ensureGroup = (label: string) => {
+      const value = normalizeFilterValue(label);
+      if (!value) return null;
+
+      const existing = groups.get(value);
+      if (existing) return existing;
+
+      const group = { label, value, cities: new Map() };
+      groups.set(value, group);
+      return group;
+    };
+
+    locations.forEach((location: LocationGroup) => {
+      const group = ensureGroup(location.state);
+      if (!group) return;
+
+      location.cities.forEach((city) => {
+        const value = normalizeFilterValue(city);
+        if (value && !group.cities.has(value)) {
+          group.cities.set(value, { label: city, value });
+        }
+      });
+    });
+
+    projects.forEach((project) => {
+      const label = project.location?.trim();
+      if (!label) return;
+
+      const value = normalizeFilterValue(label);
+      const isKnownLocation = locations.some(
+        (location) =>
+          normalizeFilterValue(location.state) === value ||
+          location.cities.some((city) => normalizeFilterValue(city) === value),
+      );
+
+      if (!isKnownLocation) ensureGroup(label);
+    });
+
+    const countFor = (state: string, city = '') =>
+      projects.filter((project) =>
+        projectMatchesFilters(project, {
+          searchTerm,
+          yearFilter,
+          statusFilter,
+          locationFilter: state,
+          cityFilter: city,
+        }),
+      ).length;
+
+    return Array.from(groups.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((group) => ({
+        label: group.label,
+        value: group.value,
+        count: countFor(group.value),
+        ...(group.cities.size > 0
+          ? {
+              children: Array.from(group.cities.values())
+                .sort((first, second) => first.label.localeCompare(second.label))
+                .map((city) => ({ ...city, count: countFor(group.value, city.value) })),
+            }
+          : {}),
+      }));
+  }, [locations, projects, searchTerm, statusFilter, yearFilter]);
+
+  const yearOptions = useMemo(
     () =>
-      Array.from(new Set(projects.map((project) => project.location).filter(Boolean)))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value })),
-    [projects],
+      years.map((year) => ({
+        label: String(year),
+        value: String(year),
+        count: projects.filter(
+          (project) =>
+            projectMatchesFilters(project, {
+              searchTerm,
+              statusFilter,
+              locationFilter,
+              cityFilter,
+            }) && projectMatchesYear(project, String(year)),
+        ).length,
+      })),
+    [cityFilter, locationFilter, projects, searchTerm, statusFilter, years],
   );
 
   // Filtered list
-  const filtered = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return projects.filter((p) => {
-      const matchesSearch =
-        !q ||
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.location?.toLowerCase().includes(q) ||
-        p.status?.toLowerCase().includes(q) ||
-        p.conductedBy?.toLowerCase().includes(q) ||
-        p.chapterName?.toLowerCase().includes(q);
-      const matchesYear =
-        !yearFilter ||
-        (p.startDate && new Date(p.startDate).getFullYear().toString() === yearFilter);
-      const matchesStatus = !statusFilter || p.status === statusFilter;
-      const matchesLocation = !locationFilter || p.location === locationFilter;
-      const matchesFunding =
-        !fundingFilter ||
-        (fundingFilter === 'funded'
-          ? Boolean(p.targetAmount && p.amountRaised >= p.targetAmount)
-          : Boolean(!p.targetAmount || p.amountRaised < p.targetAmount));
-      const matchesFeatured = !featuredFilter || p.isFeatured === 1;
-      return (
-        matchesSearch &&
-        matchesYear &&
-        matchesStatus &&
-        matchesLocation &&
-        matchesFunding &&
-        matchesFeatured
-      );
-    });
-  }, [
-    featuredFilter,
-    fundingFilter,
-    locationFilter,
-    projects,
-    searchTerm,
-    statusFilter,
-    yearFilter,
-  ]);
+  const filtered = useMemo(
+    () =>
+      projects.filter((project) =>
+        projectMatchesFilters(project, {
+          searchTerm,
+          yearFilter,
+          statusFilter,
+          locationFilter,
+          cityFilter,
+        }),
+      ),
+    [cityFilter, locationFilter, projects, searchTerm, statusFilter, yearFilter],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const pageStart = (currentPage - 1) * ITEMS_PER_PAGE;
   const visible = filtered.slice(pageStart, pageStart + ITEMS_PER_PAGE);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   const changePage = (p: number) => {
     setCurrentPage(p);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const resetFilters = (setter: (v: string) => void) => (v: string) => {
-    setter(v);
-    setCurrentPage(1);
+  const resetFilters = (key: keyof typeof filters) => (value: string) => {
+    setFilter(key, value);
   };
 
-  const activeAdvancedFilterCount = [
-    statusFilter,
-    locationFilter,
-    fundingFilter,
-    featuredFilter,
-  ].filter(Boolean).length;
-  const hasActiveFilters = Boolean(searchTerm.trim() || yearFilter || activeAdvancedFilterCount);
+  const hasActiveFilters = Boolean(
+    searchTerm.trim() || statusFilter || locationFilter || cityFilter || yearFilter,
+  );
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setYearFilter('');
-    setStatusFilter('');
-    setLocationFilter('');
-    setFundingFilter('');
-    setFeaturedFilter('');
-    setCurrentPage(1);
+    clearFilters();
   };
-
-  const handleAdvancedFilterChange = (key: string, value: string) => {
-    if (key === 'status') setStatusFilter(value);
-    if (key === 'location') setLocationFilter(value);
-    if (key === 'funding') setFundingFilter(value);
-    if (key === 'featured') setFeaturedFilter(value);
-    setCurrentPage(1);
-  };
-
-
-
 
   return (
     <>
@@ -211,108 +321,56 @@ export default function ProjectsPage() {
             </div>
           </div>
 
-          {/* Filter row — identical layout to AlumniDirectoryPage */}
-          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="flex-1 w-full sm:max-w-xl">
-                <SearchInput
-                  value={searchTerm}
-                  onValueChange={resetFilters(setSearchTerm)}
-                  placeholder="Search here..."
-                  inputClassName="!h-10 !py-0"
-                />
-              </div>
-              <div className="w-full sm:w-auto">
-                <FilterDropdown
-                  value={yearFilter}
-                  onChange={resetFilters(setYearFilter)}
-                  placeholder="Filter by Year"
-                  options={[
-                    { label: 'All', value: '' },
-                    ...years.map((y) => ({ label: String(y), value: String(y) })),
-                  ]}
-                />
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
-              aria-expanded={showAdvancedFilters}
-              className="flex h-10 w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:w-auto"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Advanced filters
-              {activeAdvancedFilterCount > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
-                  {activeAdvancedFilterCount}
-                </span>
-              )}
-            </button>
+          {/* Filter row */}
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+            <SearchInput
+              value={searchTerm}
+              onValueChange={resetFilters('searchTerm')}
+              placeholder="Search projects"
+              className="w-full lg:w-64 lg:flex-shrink-0"
+              inputClassName="!h-10 !py-0"
+            />
+            <FilterDropdown
+              value={statusFilter}
+              onChange={resetFilters('statusFilter')}
+              options={statusOptions}
+              placeholder="Status"
+              className="w-full lg:w-44 lg:flex-shrink-0"
+              sortOptionsAlphabetically={false}
+            />
+            <HierarchicalLocationFilter
+              label=""
+              placeholder="Location"
+              levelOneLabel="Location"
+              value={{ state: locationFilter, city: cityFilter }}
+              options={locationOptions}
+              onChange={(selection) => {
+                setFilters({
+                  locationFilter: selection.state,
+                  cityFilter: selection.city,
+                });
+              }}
+              className="w-full lg:w-44 lg:flex-shrink-0"
+            />
+            <FilterDropdown
+              value={yearFilter}
+              onChange={resetFilters('yearFilter')}
+              options={yearOptions}
+              placeholder="Year"
+              className="w-full lg:w-36 lg:flex-shrink-0"
+              sortOptionsAlphabetically={false}
+            />
+            {hasActiveFilters && (
+              <ClearFiltersButton onClick={clearAllFilters} className="w-full lg:w-auto" />
+            )}
           </div>
 
-          {showAdvancedFilters && (
-            <AdvancedFiltersPanel
-              title="Refine project results"
-              description="Narrow projects by status, location, funding state, or featured status."
-              gridClassName="grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
-              fields={[
-                {
-                  key: 'status',
-                  kind: 'select',
-                  label: 'Status',
-                  value: statusFilter,
-                  placeholder: 'All statuses',
-                  options: [
-                    { label: 'Ongoing', value: 'ongoing' },
-                    { label: 'Completed', value: 'completed' },
-                  ],
-                },
-                {
-                  key: 'location',
-                  kind: 'select',
-                  label: 'Location',
-                  value: locationFilter,
-                  placeholder: 'All locations',
-                  options: locationOptions,
-                },
-                {
-                  key: 'funding',
-                  kind: 'select',
-                  label: 'Funding',
-                  value: fundingFilter,
-                  placeholder: 'Any funding state',
-                  options: [
-                    { label: 'Needs funding', value: 'needs-funding' },
-                    { label: 'Fully funded', value: 'funded' },
-                  ],
-                },
-                {
-                  key: 'featured',
-                  kind: 'select',
-                  label: 'Visibility',
-                  value: featuredFilter,
-                  placeholder: 'All projects',
-                  options: [{ label: 'Featured only', value: 'featured' }],
-                },
-              ]}
-              onFieldChange={handleAdvancedFilterChange}
-              onReset={clearAllFilters}
-              hasActiveFilters={activeAdvancedFilterCount > 0}
-            />
-          )}
-
           {hasActiveFilters && (
-            <div className="mb-8 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+            <div className="mb-8 text-sm text-[#69727d]">
               <span>
-                Showing {filtered.length} {filtered.length === 1 ? 'project' : 'projects'} matching your filters
+                Showing {filtered.length} {filtered.length === 1 ? 'project' : 'projects'} matching
+                your filters
               </span>
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-              >
-                Clear all filters
-              </button>
             </div>
           )}
 
@@ -326,11 +384,7 @@ export default function ProjectsPage() {
           ) : visible.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
               {visible.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  showAdminActions={false}
-                />
+                <ProjectCard key={project.id} project={project} showAdminActions={false} />
               ))}
             </div>
           ) : (
@@ -361,7 +415,6 @@ export default function ProjectsPage() {
           )}
         </div>
       </section>
-
     </>
   );
 }

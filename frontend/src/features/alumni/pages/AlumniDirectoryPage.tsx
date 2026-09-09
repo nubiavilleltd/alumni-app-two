@@ -7,15 +7,24 @@ import { SEO } from '@/shared/common/SEO';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { useAlumni } from '@/features/alumni/hooks/useAlumni';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { ALUMNI_ROUTES } from '../routes';
 import { useStartDirectConversation } from '@/features/messages/hooks/useStartDirectConversation';
 import { Alumni } from '../types/alumni.types';
-import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import {
+  HierarchicalLocationFilter,
+  type HierarchicalLocationNode,
+  type HierarchicalLocationSelection,
+} from '@/shared/components/ui/HierarchicalLocationFilter';
 import { resolveProfilePhoto, resolveVisibleField } from '@/features/user/utils/profileUtils';
-import { SlidersHorizontal } from 'lucide-react';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { useLocations } from '@/shared/hooks/useLocations';
+import type { LocationGroup } from '@/shared/types/location.types';
+import { normalizeLocationPart } from '@/shared/utils/location';
 
 /* ───────────────────────────────────────────────────────────── */
 /* Responsive items per page */
@@ -27,8 +36,131 @@ function generateInitialsAvatar(name: string): string {
   )}&background=E5E7EB&color=6B7280&size=256`;
 }
 
-function toOptionLabel(value: string) {
-  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+type AlumniLocationFilterValues = {
+  searchTerm: string;
+  yearFilter: string;
+  state: string;
+  city: string;
+};
+
+type MutableLocationNode = {
+  label: string;
+  value: string;
+  children: Map<string, MutableLocationNode>;
+};
+
+function getAlumniLocationParts(entry: Alumni) {
+  const state = entry.state?.trim() ?? '';
+  const city = entry.city?.trim() || entry.location?.trim() || '';
+
+  return { state, city };
+}
+
+function matchesAlumniLocation(entry: Alumni, location: HierarchicalLocationSelection) {
+  if (!location.state && !location.city) return true;
+
+  const parts = getAlumniLocationParts(entry);
+  const entryState = normalizeLocationPart(parts.state || parts.city);
+  const entryCity = normalizeLocationPart(parts.city);
+
+  if (location.city) {
+    return (
+      normalizeLocationPart(location.state) === normalizeLocationPart(parts.state) &&
+      entryCity === normalizeLocationPart(location.city)
+    );
+  }
+
+  return entryState === normalizeLocationPart(location.state);
+}
+
+function buildAlumniLocationHierarchy(
+  alumni: Alumni[],
+  filters: AlumniLocationFilterValues,
+  locationCatalogue: readonly LocationGroup[],
+): HierarchicalLocationNode[] {
+  const states = new Map<string, MutableLocationNode>();
+  const query = filters.searchTerm.trim().toLowerCase();
+
+  const matchesWithoutLocation = (entry: Alumni) => {
+    const searchableFields = [
+      entry.name,
+      entry.position,
+      entry.company,
+      entry.location,
+      entry.city,
+      entry.state,
+      ...(entry.occupations ?? []),
+      ...(entry.industrySectors ?? []),
+    ];
+
+    return (
+      (!query || searchableFields.filter(Boolean).join(' ').toLowerCase().includes(query)) &&
+      (!filters.yearFilter || entry.graduationYear.toString() === filters.yearFilter)
+    );
+  };
+
+  const addLocation = (stateLabel: string, cityLabel?: string) => {
+    stateLabel = stateLabel.trim();
+    const stateValue = normalizeLocationPart(stateLabel);
+    if (!stateLabel || !stateValue) return;
+
+    let stateNode = states.get(stateValue);
+    if (!stateNode) {
+      stateNode = { label: stateLabel, value: stateValue, children: new Map() };
+      states.set(stateValue, stateNode);
+    }
+
+    cityLabel = cityLabel?.trim();
+    const cityValue = normalizeLocationPart(cityLabel);
+    if (!cityValue || stateNode.children.has(cityValue)) return;
+
+    stateNode.children.set(cityValue, {
+      label: cityLabel ?? '',
+      value: cityValue,
+      children: new Map(),
+    });
+  };
+
+  locationCatalogue.forEach((location) => {
+    addLocation(location.state);
+    location.cities.forEach((city) => addLocation(location.state, city));
+  });
+
+  alumni.forEach((entry) => {
+    const parts = getAlumniLocationParts(entry);
+    if (parts.state && parts.city) addLocation(parts.state, parts.city);
+    else if (parts.city) addLocation(parts.city);
+  });
+
+  const countForLocation = (location: HierarchicalLocationSelection) =>
+    alumni.filter(
+      (entry) => matchesWithoutLocation(entry) && matchesAlumniLocation(entry, location),
+    ).length;
+
+  const toOptions = (
+    nodes: Map<string, MutableLocationNode>,
+    parent: HierarchicalLocationSelection,
+  ): HierarchicalLocationNode[] =>
+    Array.from(nodes.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((node) => {
+        const selection =
+          nodes === states
+            ? { state: node.value, city: '' }
+            : { state: parent.state, city: node.value };
+        const children = Array.from(node.children.values()).length
+          ? toOptions(node.children, selection)
+          : undefined;
+
+        return {
+          label: node.label,
+          value: node.value,
+          count: countForLocation(selection),
+          ...(children ? { children } : {}),
+        };
+      });
+
+  return toOptions(states, { state: '', city: '' });
 }
 
 function useItemsPerPage() {
@@ -95,7 +227,6 @@ function AlumniCard({ entry, currentUser, onMessageClick, isMessagePending }: an
   //   : null;
 
   return (
-
     <div
       className="
     relative
@@ -181,15 +312,17 @@ function AlumniCard({ entry, currentUser, onMessageClick, isMessagePending }: an
 export function AlumniDirectoryPage() {
   const currentUser = useIdentityStore((state) => state.user);
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [yearFilter, setYearFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
-  const [employmentStatusFilter, setEmploymentStatusFilter] = useState('');
-  const [industryFilter, setIndustryFilter] = useState('');
-  const [experienceFilter, setExperienceFilter] = useState('');
-  const [involvementFilter, setInvolvementFilter] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters(
+    'alumni-directory-filters',
+    {
+      searchTerm: '',
+      yearFilter: '',
+      locationFilter: '',
+      cityFilter: '',
+    },
+  );
+  const { searchTerm, yearFilter, locationFilter, cityFilter } = filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
 
   const ITEMS_PER_PAGE = useItemsPerPage();
 
@@ -197,49 +330,26 @@ export function AlumniDirectoryPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const { data: alumni = [], isLoading } = useAlumni({ action_type: 'approved' });
+  const { data: locations = [] } = useLocations();
 
   const years = useMemo(
     () => [...new Set(alumni.map((e) => e.graduationYear))].sort((a, b) => b - a),
     [alumni],
   );
 
-  const locationOptions = useMemo(
-    () => {
-      const values = alumni
-        .flatMap((entry) => [entry.location, entry.city, entry.state])
-        .filter((value): value is string => Boolean(value));
-
-      return Array.from(new Set(values))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value }));
-    },
-    [alumni],
-  );
-
-  const employmentStatusOptions = useMemo(
-    () => {
-      const values = alumni
-        .map((entry) => entry.employmentStatus)
-        .filter((value): value is string => Boolean(value));
-
-      return Array.from(new Set(values))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: toOptionLabel(value), value }));
-    },
-    [alumni],
-  );
-
-  const industryOptions = useMemo(
-    () => {
-      const values = alumni
-        .flatMap((entry) => entry.industrySectors ?? [])
-        .filter((value): value is string => Boolean(value));
-
-      return Array.from(new Set(values))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: toOptionLabel(value), value }));
-    },
-    [alumni],
+  const locationHierarchy = useMemo(
+    () =>
+      buildAlumniLocationHierarchy(
+        alumni,
+        {
+          searchTerm,
+          yearFilter,
+          state: locationFilter,
+          city: cityFilter,
+        },
+        locations,
+      ),
+    [alumni, cityFilter, locationFilter, locations, searchTerm, yearFilter],
   );
 
   /* ═══════════════════════════════════════════════════════════════════
@@ -274,49 +384,23 @@ export function AlumniDirectoryPage() {
   const filtered = useMemo(() => {
     const q = searchTerm.toLowerCase();
 
-    let result = alumni.filter(
-      (e) => {
-        const searchableFields = [
-          e.name,
-          e.position,
-          e.company,
-          e.location,
-          e.city,
-          e.state,
-          ...(e.occupations ?? []),
-          ...(e.industrySectors ?? []),
-        ];
-        const normalizedLocation = locationFilter.toLowerCase();
-        const locations = [e.location, e.city, e.state]
-          .filter(Boolean)
-          .map((value) => value!.toLowerCase());
-        const industries = (e.industrySectors ?? []).map((value) => value.toLowerCase());
-        const experience = e.yearsOfExperience;
-        const matchesExperience =
-          !experienceFilter ||
-          (experience !== undefined &&
-            (experienceFilter === '0-2'
-              ? experience <= 2
-              : experienceFilter === '3-5'
-                ? experience >= 3 && experience <= 5
-                : experienceFilter === '6-10'
-                  ? experience >= 6 && experience <= 10
-                  : experience >= 11));
-        const matchesInvolvement =
-          !involvementFilter ||
-          (involvementFilter === 'volunteer' ? e.isVolunteer === true : e.isCoordinator === true);
-
-        return (
-          (!q || searchableFields.filter(Boolean).join(' ').toLowerCase().includes(q)) &&
-          (!yearFilter || e.graduationYear.toString() === yearFilter) &&
-          (!locationFilter || locations.includes(normalizedLocation)) &&
-          (!employmentStatusFilter || e.employmentStatus === employmentStatusFilter) &&
-          (!industryFilter || industries.includes(industryFilter.toLowerCase())) &&
-          matchesExperience &&
-          matchesInvolvement
-        );
-      },
-    );
+    let result = alumni.filter((e) => {
+      const searchableFields = [
+        e.name,
+        e.position,
+        e.company,
+        e.location,
+        e.city,
+        e.state,
+        ...(e.occupations ?? []),
+        ...(e.industrySectors ?? []),
+      ];
+      return (
+        (!q || searchableFields.filter(Boolean).join(' ').toLowerCase().includes(q)) &&
+        (!yearFilter || e.graduationYear.toString() === yearFilter) &&
+        matchesAlumniLocation(e, { state: locationFilter, city: cityFilter })
+      );
+    });
 
     /* ─────────────────────────────────────────────────────────────
      * 🚨 DEMO-ONLY SORT — REMOVE AFTER THE DEMO 🚨
@@ -354,17 +438,7 @@ export function AlumniDirectoryPage() {
      * ───────────────────────────────────────────────────────────── */
 
     return result;
-  }, [
-    alumni,
-    currentUser,
-    employmentStatusFilter,
-    experienceFilter,
-    industryFilter,
-    involvementFilter,
-    locationFilter,
-    searchTerm,
-    yearFilter,
-  ]);
+  }, [alumni, currentUser, locationFilter, cityFilter, searchTerm, yearFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const start = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -409,36 +483,10 @@ export function AlumniDirectoryPage() {
     setPendingId(null);
   }
 
-  const activeAdvancedFilterCount = [
-    locationFilter,
-    employmentStatusFilter,
-    industryFilter,
-    experienceFilter,
-    involvementFilter,
-  ].filter(Boolean).length;
-  const hasActiveFilters = Boolean(searchTerm.trim() || yearFilter || activeAdvancedFilterCount);
-
-  const handleAdvancedFilterChange = (key: string, value: string) => {
-    const setters: Record<string, (nextValue: string) => void> = {
-      location: setLocationFilter,
-      employmentStatus: setEmploymentStatusFilter,
-      industry: setIndustryFilter,
-      experience: setExperienceFilter,
-      involvement: setInvolvementFilter,
-    };
-    setters[key]?.(value);
-    setCurrentPage(1);
-  };
+  const hasActiveFilters = Boolean(searchTerm.trim() || yearFilter || locationFilter || cityFilter);
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setYearFilter('');
-    setLocationFilter('');
-    setEmploymentStatusFilter('');
-    setIndustryFilter('');
-    setExperienceFilter('');
-    setInvolvementFilter('');
-    setCurrentPage(1);
+    clearFilters();
   };
 
   return (
@@ -451,121 +499,50 @@ export function AlumniDirectoryPage() {
           <h1 className="type-section-title mb-6">Alumni Directory</h1>
 
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row items-center gap-4 mb-4">
-            <div className="flex-1 w-full sm:max-w-xl">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+            <div className="w-full lg:w-64 lg:flex-shrink-0">
               <SearchInput
                 value={searchTerm}
-                onValueChange={(v) => {
-                  setSearchTerm(v);
-                  setCurrentPage(1);
-                }}
+                onValueChange={(v) => setFilter('searchTerm', v)}
                 placeholder="Search by name, work or location"
                 inputClassName="!h-10 !py-0"
               />
-
             </div>
 
-            <div className="w-full sm:w-auto">
-              <FilterDropdown
-                value={yearFilter}
-                onChange={(v) => {
-                  setYearFilter(v);
-                  setCurrentPage(1);
-                }}
-                placeholder="Graduation Year"
-                options={years.map((y) => ({ label: String(y), value: String(y) }))}
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
-              aria-expanded={showAdvancedFilters}
-              className="flex h-10 w-full shrink-0 items-center justify-center gap-1.5 rounded-full border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:w-auto"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Advanced filters
-              {activeAdvancedFilterCount > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
-                  {activeAdvancedFilterCount}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {showAdvancedFilters && (
-            <AdvancedFiltersPanel
-              title="Refine the directory"
-              description="Find alumni by location, work, experience, or community involvement."
-              gridClassName="grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
-              fields={[
-                {
-                  key: 'location',
-                  kind: 'select',
-                  label: 'Location',
-                  value: locationFilter,
-                  placeholder: 'All locations',
-                  options: locationOptions,
-                },
-                {
-                  key: 'employmentStatus',
-                  kind: 'select',
-                  label: 'Employment status',
-                  value: employmentStatusFilter,
-                  placeholder: 'Any status',
-                  options: employmentStatusOptions,
-                },
-                {
-                  key: 'industry',
-                  kind: 'select',
-                  label: 'Industry',
-                  value: industryFilter,
-                  placeholder: 'All industries',
-                  options: industryOptions,
-                },
-                {
-                  key: 'experience',
-                  kind: 'select',
-                  label: 'Experience',
-                  value: experienceFilter,
-                  placeholder: 'Any experience',
-                  options: [
-                    { label: '0–2 years', value: '0-2' },
-                    { label: '3–5 years', value: '3-5' },
-                    { label: '6–10 years', value: '6-10' },
-                    { label: '11+ years', value: '11+' },
-                  ],
-                },
-                {
-                  key: 'involvement',
-                  kind: 'select',
-                  label: 'Involvement',
-                  value: involvementFilter,
-                  placeholder: 'All members',
-                  options: [
-                    { label: 'Volunteers', value: 'volunteer' },
-                    { label: 'Coordinators', value: 'coordinator' },
-                  ],
-                },
-              ]}
-              onFieldChange={handleAdvancedFilterChange}
-              onReset={clearAllFilters}
-              hasActiveFilters={activeAdvancedFilterCount > 0}
+            <HierarchicalLocationFilter
+              label=""
+              placeholder="Location"
+              value={{ state: locationFilter, city: cityFilter }}
+              options={locationHierarchy}
+              onChange={(selection) => {
+                setFilters({
+                  locationFilter: selection.state,
+                  cityFilter: selection.city,
+                });
+              }}
+              className="w-full lg:w-48 lg:flex-shrink-0"
             />
-          )}
+
+            <FilterDropdown
+              value={yearFilter}
+              onChange={(v) => setFilter('yearFilter', v)}
+              placeholder="Graduation year"
+              options={years.map((y) => ({ label: String(y), value: String(y) }))}
+              className="w-full lg:w-44 lg:flex-shrink-0"
+            />
+
+            {hasActiveFilters && (
+              <ClearFiltersButton onClick={clearAllFilters} className="w-full lg:w-auto" />
+            )}
+          </div>
 
           {hasActiveFilters && (
             <div className="mb-8 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
               <span>
-                Showing {filtered.length} {filtered.length === 1 ? 'alumnus' : 'alumni'} matching your filters
+                Showing {filtered.length} {filtered.length === 1 ? 'alumnus' : 'alumni'} matching
+                your filters
               </span>
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-              >
-                Clear all filters
-              </button>
+              <ClearFiltersButton onClick={clearAllFilters} label="Clear all filters" />
             </div>
           )}
 

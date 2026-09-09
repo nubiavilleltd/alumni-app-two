@@ -34,6 +34,22 @@ export function FilterDropdown({
 }: FilterDropdownProps) {
   const hasValue = value.trim().length > 0;
   const shouldShowClear = showClearButton && hasValue;
+  const hasResultCounts = options.some((option) => typeof option.count === 'number');
+  const displayOptions = hasResultCounts
+    ? options
+        .map((option) => ({
+          ...option,
+          disabled: option.count === 0 || option.disabled,
+        }))
+        .sort((first, second) => {
+          const firstHasResults = first.count !== 0;
+          const secondHasResults = second.count !== 0;
+
+          if (firstHasResults !== secondHasResults) return firstHasResults ? -1 : 1;
+          if (!sortOptionsAlphabetically) return 0;
+          return first.label.localeCompare(second.label);
+        })
+    : options;
 
   return (
     <div className={`w-full sm:w-48 ${className}`}>
@@ -42,9 +58,9 @@ export function FilterDropdown({
         <SelectInput
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          options={options}
+          options={displayOptions}
           placeholder={placeholder}
-          sortOptionsAlphabetically={sortOptionsAlphabetically}
+          sortOptionsAlphabetically={hasResultCounts ? false : sortOptionsAlphabetically}
           className={`w-full ${selectClassName}`}
           // controlClassName={shouldShowClear ? '!pr-16' : ''}
           controlClassName={`!h-10 !py-0 flex items-center ${shouldShowClear ? '!pr-16' : ''}`}

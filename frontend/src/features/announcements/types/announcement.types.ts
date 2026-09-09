@@ -13,6 +13,8 @@ export interface Announcement {
   type: AnnouncementType;
   tag?: string;
   createdBy?: string;
+  createdByName?: string;
+  createdAt?: string;
   chapterId?: string;
   year?: number;
   startsAt?: string;

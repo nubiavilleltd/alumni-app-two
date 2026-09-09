@@ -173,9 +173,10 @@ import { SEO } from '@/shared/common/SEO';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { ExportButton } from '@/shared/components/ui/ExportButton';
 import ContainerBackground from '@/shared/containers/ContainerBackground';
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdminOrders } from '../hooks/useAdminOrders';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 import { ADMIN_ORDER_ROUTES } from '../routes';
 import { downloadCsvFile } from '@/shared/utils/csvExport';
 import { buildOrderExportRows, ORDER_EXPORT_HEADERS } from '@/features/store/utils/orderExport';
@@ -183,11 +184,14 @@ import { toast } from '@/shared/components/ui/Toast';
 
 export default function AdminOrderManagementPage() {
 
-    const [search, setSearch] = useState('');
-    const [activeTab, setActiveTab] = useState('all');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
-    const [page, setPage] = useState(1);
+    const { filters, setFilter } = usePersistedFilters('admin-orders-filters', {
+        search: '',
+        activeTab: 'all',
+        dateFrom: '',
+        dateTo: '',
+    });
+    const { search, activeTab, dateFrom, dateTo } = filters;
+    const [page, setPage] = useUrlPagination();
 
     const { orders, counts, isLoading, isError, error } = useAdminOrders({
         search,
@@ -269,15 +273,15 @@ export default function AdminOrderManagementPage() {
                 <OrderFilters
                     variant="admin"
                     search={search}
-                    onSearch={setSearch}
+                    onSearch={(value) => setFilter('search', value)}
                     activeTab={activeTab}
-                    onTabChange={setActiveTab}
+                    onTabChange={(value) => setFilter('activeTab', value)}
                     tabs={tabs}
                     dateRange={{
                         from: dateFrom,
                         to: dateTo,
-                        onFromChange: setDateFrom,
-                        onToChange: setDateTo,
+                        onFromChange: (value) => setFilter('dateFrom', value),
+                        onToChange: (value) => setFilter('dateTo', value),
                     }}
                 />
 

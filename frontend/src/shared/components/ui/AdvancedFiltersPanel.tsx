@@ -1,5 +1,7 @@
 import { SlidersHorizontal } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { FilterDropdown } from './FilterDropdown';
+import { DatePicker } from './input/DatePicker';
 import { SearchInput } from './input/SearchInput';
 
 export interface AdvancedFilterOption {
@@ -23,6 +25,15 @@ export type AdvancedFilterField =
       label?: string;
       placeholder?: string;
       options: AdvancedFilterOption[];
+    }
+  | {
+      key: string;
+      kind: 'date';
+      value: string;
+      label?: string;
+      placeholder?: string;
+      min?: string;
+      max?: string;
     };
 
 interface AdvancedFiltersPanelProps {
@@ -35,6 +46,7 @@ interface AdvancedFiltersPanelProps {
   activeFilterCount?: number;
   gridClassName?: string;
   className?: string;
+  customContent?: ReactNode;
 }
 
 export function AdvancedFiltersPanel({
@@ -47,6 +59,7 @@ export function AdvancedFiltersPanel({
   activeFilterCount,
   gridClassName = 'grid-cols-1 gap-4 md:grid-cols-3',
   className = 'mt-4 mb-8',
+  customContent,
 }: AdvancedFiltersPanelProps) {
   const visibleActiveFilterCount =
     activeFilterCount ?? fields.filter((field) => field.value.trim().length > 0).length;
@@ -84,17 +97,40 @@ export function AdvancedFiltersPanel({
       </div>
 
       <div className={`grid gap-x-4 gap-y-3 rounded-b-[1.5rem] p-4 sm:p-5 ${gridClassName}`}>
-        {fields.map((field) =>
-          field.kind === 'search' ? (
-            <SearchInput
-              key={field.key}
-              value={field.value}
-              onValueChange={(value) => onFieldChange(field.key, value)}
-              placeholder={field.placeholder}
-              inputClassName="!h-10 !py-0"
-              containerClassName="h-10"
-            />
-          ) : (
+        {customContent}
+        {fields.map((field) => {
+          if (field.kind === 'search') {
+            return (
+              <SearchInput
+                key={field.key}
+                value={field.value}
+                onValueChange={(value) => onFieldChange(field.key, value)}
+                placeholder={field.placeholder}
+                inputClassName="!h-10 !py-0"
+                containerClassName="h-10"
+              />
+            );
+          }
+
+          if (field.kind === 'date') {
+            return (
+              <DatePicker
+                key={field.key}
+                id={`advanced-filter-${field.key}`}
+                label={field.label}
+                value={field.value}
+                onValueChange={(value) => onFieldChange(field.key, value)}
+                placeholder={field.placeholder}
+                min={field.min}
+                max={field.max}
+                className="w-full"
+                labelClassName="text-xs font-medium text-gray-600"
+                inputClassName="!h-10 !py-0"
+              />
+            );
+          }
+
+          return (
             <FilterDropdown
               key={field.key}
               label={field.label}
@@ -104,8 +140,8 @@ export function AdvancedFiltersPanel({
               placeholder={field.placeholder}
               className="!w-full"
             />
-          ),
-        )}
+          );
+        })}
       </div>
     </div>
   );

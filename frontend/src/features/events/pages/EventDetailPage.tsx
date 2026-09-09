@@ -296,7 +296,7 @@ export function EventDetailPage() {
               <img
                 src={event.image}
                 alt={event.title}
-                className="w-full object-cover max-h-[400px]"
+                className="w-full object-fit max-h-[400px]"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}

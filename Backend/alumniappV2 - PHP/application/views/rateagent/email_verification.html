@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Email Verification</title>
+    <style>
+      body {
+        font-family: 'Helvetica Neue', Arial, sans-serif;
+        background-color: #f6f8fa;
+        color: #333;
+        padding: 0;
+        margin: 0;
+      }
+      .email-container {
+        background: #fff;
+        width: 90%;
+        max-width: 600px;
+        margin: 40px auto;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      .header {
+        background-color: #1a73e8;
+        color: white;
+        text-align: center;
+        padding: 20px;
+        font-size: 24px;
+      }
+      .content {
+        padding: 30px;
+        line-height: 1.6;
+      }
+      .verify-button {
+        display: inline-block;
+        background-color: #1a73e8;
+        color: white !important;
+        padding: 12px 24px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-weight: bold;
+        margin-top: 20px;
+      }
+      .footer {
+        font-size: 12px;
+        color: #888;
+        text-align: center;
+        padding: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="email-container">
+      <div class="header">Verify Your Email</div>
+      <div class="content">
+        <p>Hi <strong>{{first_name}}</strong>,</p>
+        <p>Thank you for registering with <strong>Rate Agent</strong>! Please click the button below to verify your email address.</p>
+        <p style="text-align:center;">
+          <a href="{{verify_url}}" class="verify-button">Verify My Email</a>
+        </p>
+        <p>If you didn’t create this account, you can safely ignore this email.</p>
+      </div>
+      <div class="footer">
+        &copy; Rate Agent. All rights reserved.
+      </div>
+    </div>
+  </body>
+</html>

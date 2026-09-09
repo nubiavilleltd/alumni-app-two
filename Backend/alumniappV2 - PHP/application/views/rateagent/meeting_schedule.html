@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Email Verification</title>
+    <style>
+      body {
+        font-family: 'Helvetica Neue', Arial, sans-serif;
+        background-color: #f6f8fa;
+        color: #333;
+        padding: 0;
+        margin: 0;
+      }
+      .email-container {
+        background: #fff;
+        width: 90%;
+        max-width: 600px;
+        margin: 40px auto;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      .header {
+        background-color: #1a73e8;
+        color: white;
+        text-align: center;
+        padding: 20px;
+        font-size: 24px;
+      }
+      .content {
+        padding: 30px;
+        line-height: 1.6;
+      }
+      .verify-button {
+        display: inline-block;
+        background-color: #1a73e8;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-weight: bold;
+        margin-top: 20px;
+      }
+      .footer {
+        font-size: 12px;
+        color: #888;
+        text-align: center;
+        padding: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="email-container">
+      <div class="header">New Meeting Scheduled</div>
+      <div class="content">
+        <p>Hi <strong>{{ agent_name }}</strong>,</p>
+        <p>{{schedule_name}} has scheduled a meeting with you.</p>
+        <ul>
+            <li><strong>Date:</strong> {{meeting_date}}</li>
+            <li><strong>Time:</strong> {{meeting_time}}</li>
+            <li><strong>Type:</strong> {{meeting_type}}</li>
+            <li><strong>Location:</strong> {{meeting_location}}</li>
+        </ul>
+        {{property_details}}
+        <p style="text-align:center;">You can follow up with {{schedule_name}} at {{schedule_email}} or {{schedule_phone}}.</p>
+      </div>
+      <div class="footer">
+        &copy; Rate Agent. All rights reserved.
+      </div>
+    </div>
+  </body>
+</html>

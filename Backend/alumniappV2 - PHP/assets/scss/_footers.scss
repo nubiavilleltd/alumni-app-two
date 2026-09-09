@@ -1,0 +1,27 @@
+
+#footer-option {
+    background: #121214;
+    border-top: 4px solid #e1e1e1;
+    border-top: 5px solid #222;  
+    font-size: 0.9em;
+    padding: 20px;
+    position: relative;
+    clear: both;
+}
+#footer-option .footer-col h3{
+    font-size: 20px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color:#fff;
+}
+#footer-option .footer-btm{
+    color: #aaa;
+    font-size: 13px;
+}
+#footer-option .footer-btm a{
+    color:#777;
+}
+#footer-option .footer-btm a:hover{
+    color:$skincolor;
+}
+

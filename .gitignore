@@ -1,0 +1,40 @@
+# Local Codex and generated workspace state
+.local-state/
+.local-tools/
+output/
+tmp/
+
+# Python environments, caches, and local configuration
+python-backend/.venv/
+python-backend/.env
+python-backend/.coverage
+python-backend/htmlcov/
+python-backend/.pytest_cache/
+python-backend/.mypy_cache/
+python-backend/.ruff_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+
+# PHP dependencies and runtime-generated content
+Backend/**/vendor/
+Backend/**/uploads/
+Backend/**/sessions/
+Backend/**/news_cache.json
+Backend/**/application/cache/
+Backend/**/application/logs/
+Backend/**/phpqrcode/cache/
+Backend/*.sql
+Backend/**/application/config/database.php
+Backend/**/application/config/jwt.php
+Backend/**/application/config/vapid.php
+Backend/**/application/config/config.php
+
+# Local secrets, IDE settings, and OS files
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+Thumbs.db
+.DS_Store

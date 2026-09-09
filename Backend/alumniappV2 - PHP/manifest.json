@@ -1,0 +1,39 @@
+{
+  "id": "/index.php",
+  "name": "Estate Management",
+  "short_name": "Estate",
+  "start_url": "/index.php",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0A0A23",
+  "theme_color": "#0A0A23",
+  "description": "Estate management system for Nubiaville",
+  "icons": [
+    {
+      "src": "/assets/img/icons/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/img/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+ "screenshots": [
+  {
+    "src": "/assets/img/icons/screenshot-mobile.png",
+    "sizes": "720x1280",
+    "type": "image/png",
+    "form_factor": "narrow"
+  },
+  {
+    "src": "/assets/img/icons/icon-1280.png",
+    "sizes": "1280x720",
+    "type": "image/png",
+    "form_factor": "wide"
+  }
+]
+}

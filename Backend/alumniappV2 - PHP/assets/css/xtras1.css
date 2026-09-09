@@ -1,0 +1,44 @@
+.form-horizontal .form-group {
+    margin-right: -25px;
+    margin-left: -25px;
+}
+
+.form-control-sm {
+    display: block;
+    height: 34px;
+    padding: 6px 12px;
+    line-height: 1.42857143;    
+    border: 1px solid #ddd;
+    border-radius: 0;
+    font-size: 12px;
+    color: #7a7a7a;
+    box-shadow: none;
+    background: #FFF;
+    transition: all 200ms ease-in;
+}
+
+.selectval,selectize-control {
+	width: 100%;
+}
+.navbar-default {
+    background-color: rgb(255,255,255);
+}
+
+#footer-option {
+    padding: 10px;
+}
+
+.ibox-tools a i {
+    font-size: 16px;
+    color: #676a6c;
+}
+
+
+.dropdown-menu>li>a {
+    line-height: 1.22857143;
+}
+.ibox-tools a {
+    cursor: pointer;
+    margin-left: 0px;
+    margin-right: 0px;
+}

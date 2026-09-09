@@ -238,9 +238,23 @@ function getSalaryFormFields(value: string) {
 }
 
 function formatSalaryInput(value: string) {
-  const digitsOnly = value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  const sanitized = value.replace(/[^\d.]/g, '');
+  const decimalIndex = sanitized.indexOf('.');
+  const rawIntegerPart =
+    decimalIndex === -1 ? sanitized : sanitized.slice(0, decimalIndex);
+  const rawDecimalPart =
+    decimalIndex === -1 ? '' : sanitized.slice(decimalIndex + 1).replace(/\./g, '');
 
-  return digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (!rawIntegerPart && decimalIndex === -1) {
+    return '';
+  }
+
+  const integerPart = (rawIntegerPart || '0').replace(/^0+(?=\d)/, '');
+  const formattedIntegerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return decimalIndex === -1
+    ? formattedIntegerPart
+    : `${formattedIntegerPart}.${rawDecimalPart}`;
 }
 
 function matchesSalaryFilter(salary: string, filter: string) {
@@ -1176,8 +1190,7 @@ export function PostJobModal({
                       value={form.minSalary}
                       onChange={(event) => handleSalaryInputChange('minSalary', event.target.value)}
                       placeholder="Enter minimum salary"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
+                      inputMode="decimal"
                       error={fieldErrors.minSalary}
                       required
                       disabled={isSubmitting}
@@ -1191,8 +1204,7 @@ export function PostJobModal({
                       value={form.maxSalary}
                       onChange={(event) => handleSalaryInputChange('maxSalary', event.target.value)}
                       placeholder="Enter maximum salary"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
+                      inputMode="decimal"
                       error={fieldErrors.maxSalary}
                       required
                       disabled={isSubmitting}
@@ -1210,8 +1222,7 @@ export function PostJobModal({
                       handleSalaryInputChange('salaryAmount', event.target.value)
                     }
                     placeholder="Enter salary amount"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
+                    inputMode="decimal"
                     error={fieldErrors.salaryAmount}
                     required
                     disabled={isSubmitting}

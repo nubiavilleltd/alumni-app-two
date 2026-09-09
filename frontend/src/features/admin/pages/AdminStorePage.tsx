@@ -11,6 +11,8 @@ import { toast } from '@/shared/components/ui/Toast';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import useItemsPerPage from '@/features/store/hooks/useItemsPerPage';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 
 // ─── Confirmation dialog ──────────────────────────────────────────────────────
 
@@ -83,8 +85,11 @@ export function AdminStorePage() {
   const { data: response, isLoading, isError } = useAdminProducts();
   const products = response?.data ?? [];
   const meta = response?.meta;
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
+  const { filters, setFilter } = usePersistedFilters('admin-store-filters', {
+    search: '',
+    category: '',
+  });
+  const { search, category } = filters;
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category))],
@@ -93,7 +98,7 @@ export function AdminStorePage() {
 
 
 
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useUrlPagination();
 
   const ITEMS_PER_PAGE = useItemsPerPage();
 
@@ -177,8 +182,8 @@ export function AdminStorePage() {
                 search={search}
                 category={category}
                 categories={categories}
-                onSearch={setSearch}
-                onCategoryChange={setCategory}
+                onSearch={(value) => setFilter('search', value)}
+                onCategoryChange={(value) => setFilter('category', value)}
               /></div>
 
             <div className="flex items-center gap-3">

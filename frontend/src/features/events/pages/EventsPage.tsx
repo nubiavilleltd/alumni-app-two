@@ -7,7 +7,6 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEO } from '@/shared/common/SEO';
 import { RegisterEventModal } from '../components/RegisterEventModal';
-import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { useUpcomingEvents, usePastEvents } from '../hooks/useEvents';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { EVENT_ROUTES } from '../routes';
@@ -16,8 +15,15 @@ import { MonthYearPicker } from '@/shared/components/ui/MonthYearPicker';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { ROUTES } from '@/shared/constants/routes';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { formatDateRange, parseDateInput } from '@/shared/utils/dateHelpers';
 import { stripEventAnnouncementMarker } from '../lib/eventAnnouncementVisibility';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { useLocations } from '@/shared/hooks/useLocations';
+import type { LocationGroup } from '@/shared/types/location.types';
+import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
+import { HierarchicalLocationFilter } from '@/shared/components/ui/HierarchicalLocationFilter';
 import {
   ArrowLeft,
   ArrowRight,
@@ -27,7 +33,6 @@ import {
   Clock,
   MapPin,
   Plus,
-  SlidersHorizontal,
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -87,6 +92,46 @@ const MONTH_NAMES = [
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const LIST_PAGE = 20;
 const EVENTS_ICON_STROKE = 2.5;
+
+function normalizeFilterValue(value?: string | null) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+interface EventFilterValues {
+  searchTerm?: string;
+  locationFilter?: string;
+  cityFilter?: string;
+  yearFilter?: string;
+  eventTypeFilter?: string;
+  eventStatusFilter?: string;
+}
+
+function eventMatchesFilters(event: Event, filters: EventFilterValues) {
+  const query = normalizeFilterValue(filters.searchTerm);
+  const eventDate = parseDateInput(event.startDate);
+  const eventYear = eventDate?.getFullYear().toString() ?? '';
+  const isUpcoming = isUpcomingEvent(event);
+  const matchesSearch =
+    !query ||
+    [event.title, event.description, event.location, event.category, ...(event.tags ?? [])]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query);
+  const selectedLocation = filters.cityFilter || filters.locationFilter;
+  const matchesLocation =
+    !selectedLocation ||
+    normalizeFilterValue(event.location).includes(normalizeFilterValue(selectedLocation));
+  const matchesYear = !filters.yearFilter || eventYear === filters.yearFilter;
+  const matchesType =
+    !filters.eventTypeFilter ||
+    (filters.eventTypeFilter === 'virtual' ? event.isVirtual : !event.isVirtual);
+  const matchesStatus =
+    !filters.eventStatusFilter ||
+    (filters.eventStatusFilter === 'upcoming' ? isUpcoming : !isUpcoming);
+
+  return matchesSearch && matchesLocation && matchesYear && matchesType && matchesStatus;
+}
 
 // ─── Calendar event block ─────────────────────────────────────────────────────
 
@@ -347,64 +392,58 @@ export function EventsPage() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [registerEvent, setRegisterEvent] = useState<Event | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
-  const [yearFilter, setYearFilter] = useState('');
-  const [formatFilter, setFormatFilter] = useState('');
-  const [timingFilter, setTimingFilter] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters('events-filters', {
+    searchTerm: '',
+    locationFilter: '',
+    cityFilter: '',
+    yearFilter: '',
+    eventTypeFilter: '',
+    eventStatusFilter: '',
+  });
+  const { searchTerm, locationFilter, cityFilter, yearFilter, eventTypeFilter, eventStatusFilter } =
+    filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
 
   const { data: upcoming = [], isLoading: upcomingLoading } = useUpcomingEvents();
   const { data: past = [], isLoading: pastLoading } = usePastEvents();
+  const { data: locations = [] } = useLocations();
   const isLoading = upcomingLoading || pastLoading;
 
   // All events sorted by date ascending
-  const allEvents = useMemo(
-    () =>
-      [...upcoming, ...past].sort(
-        (a, b) =>
-          (parseDateInput(a.startDate)?.getTime() ?? Number.POSITIVE_INFINITY) -
-          (parseDateInput(b.startDate)?.getTime() ?? Number.POSITIVE_INFINITY),
-      ),
-    [upcoming, past],
-  );
+  const allEvents = useMemo(() => {
+    const uniqueEvents = new Map<string, Event>();
+    [...upcoming, ...past].forEach((event) => uniqueEvents.set(event.id, event));
+
+    return [...uniqueEvents.values()].sort(
+      (a, b) =>
+        (parseDateInput(a.startDate)?.getTime() ?? Number.POSITIVE_INFINITY) -
+        (parseDateInput(b.startDate)?.getTime() ?? Number.POSITIVE_INFINITY),
+    );
+  }, [upcoming, past]);
 
   // Right panel filtered events
-  const filteredEvents = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return allEvents.filter((e) => {
-      const eventDate = parseDateInput(e.startDate);
-      const eventYear = eventDate?.getFullYear().toString() ?? '';
-      const isUpcoming = isUpcomingEvent(e);
-      const normalizedLocation = e.location?.trim().toLowerCase() ?? '';
-      const normalizedCategory = e.category?.trim().toLowerCase() ?? '';
-      const matchesSearch =
-        !q ||
-        [e.title, e.description, e.location, e.category, ...(e.tags ?? [])]
-          .join(' ')
-          .toLowerCase()
-          .includes(q);
-
-      return (
-        matchesSearch &&
-        (!categoryFilter || normalizedCategory === categoryFilter.toLowerCase()) &&
-        (!locationFilter || normalizedLocation === locationFilter.toLowerCase()) &&
-        (!yearFilter || eventYear === yearFilter) &&
-        (!formatFilter || (formatFilter === 'virtual' ? e.isVirtual : !e.isVirtual)) &&
-        (!timingFilter || (timingFilter === 'upcoming' ? isUpcoming : !isUpcoming))
-      );
-    });
-  }, [
-    allEvents,
-    categoryFilter,
-    formatFilter,
-    locationFilter,
-    searchTerm,
-    timingFilter,
-    yearFilter,
-  ]);
+  const filteredEvents = useMemo(
+    () =>
+      allEvents.filter((event) =>
+        eventMatchesFilters(event, {
+          searchTerm,
+          locationFilter,
+          cityFilter,
+          yearFilter,
+          eventTypeFilter,
+          eventStatusFilter,
+        }),
+      ),
+    [
+      allEvents,
+      cityFilter,
+      eventStatusFilter,
+      eventTypeFilter,
+      locationFilter,
+      searchTerm,
+      yearFilter,
+    ],
+  );
 
   // Events for the currently shown calendar month, respecting active filters.
   const calendarMonthEvents = useMemo(
@@ -420,20 +459,79 @@ export function EventsPage() {
     [filteredEvents, calendarDate],
   );
 
-  const categoryOptions = useMemo(
-    () =>
-      Array.from(new Set(allEvents.map((event) => event.category?.trim()).filter(Boolean)))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value })),
-    [allEvents],
-  );
-  const locationOptions = useMemo(
-    () =>
-      Array.from(new Set(allEvents.map((event) => event.location?.trim()).filter(Boolean)))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value })),
-    [allEvents],
-  );
+  const locationOptions = useMemo(() => {
+    type LocationOptionGroup = {
+      label: string;
+      value: string;
+      cities: Map<string, { label: string; value: string }>;
+    };
+
+    const groups = new Map<string, LocationOptionGroup>();
+    const ensureGroup = (label: string) => {
+      const value = normalizeFilterValue(label);
+      if (!value) return null;
+
+      const existing = groups.get(value);
+      if (existing) return existing;
+
+      const group = { label, value, cities: new Map() };
+      groups.set(value, group);
+      return group;
+    };
+
+    locations.forEach((location: LocationGroup) => {
+      const group = ensureGroup(location.state);
+      if (!group) return;
+
+      location.cities.forEach((city) => {
+        const value = normalizeFilterValue(city);
+        if (value && !group.cities.has(value)) {
+          group.cities.set(value, { label: city, value });
+        }
+      });
+    });
+
+    allEvents.forEach((event) => {
+      const label = event.location?.trim();
+      if (!label) return;
+
+      const value = normalizeFilterValue(label);
+      const isKnownLocation = locations.some(
+        (location) =>
+          normalizeFilterValue(location.state) === value ||
+          location.cities.some((city) => normalizeFilterValue(city) === value),
+      );
+
+      if (!isKnownLocation) ensureGroup(label);
+    });
+
+    const countFor = (state: string, city = '') =>
+      allEvents.filter((event) =>
+        eventMatchesFilters(event, {
+          searchTerm,
+          yearFilter,
+          eventTypeFilter,
+          eventStatusFilter,
+          locationFilter: state,
+          cityFilter: city,
+        }),
+      ).length;
+
+    return Array.from(groups.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((group) => ({
+        label: group.label,
+        value: group.value,
+        count: countFor(group.value),
+        ...(group.cities.size > 0
+          ? {
+              children: Array.from(group.cities.values())
+                .sort((first, second) => first.label.localeCompare(second.label))
+                .map((city) => ({ ...city, count: countFor(group.value, city.value) })),
+            }
+          : {}),
+      }));
+  }, [allEvents, eventStatusFilter, eventTypeFilter, locations, searchTerm, yearFilter]);
   const yearOptions = useMemo(
     () =>
       Array.from(
@@ -444,17 +542,78 @@ export function EventsPage() {
         ),
       )
         .sort((a, b) => Number(b) - Number(a))
-        .map((value) => ({ label: value, value })),
-    [allEvents],
+        .map((value) => ({
+          label: value,
+          value,
+          count: allEvents.filter(
+            (event) =>
+              eventMatchesFilters(event, {
+                searchTerm,
+                locationFilter,
+                cityFilter,
+                eventTypeFilter,
+                eventStatusFilter,
+              }) && parseDateInput(event.startDate)?.getFullYear().toString() === value,
+          ).length,
+        })),
+    [allEvents, cityFilter, eventStatusFilter, eventTypeFilter, locationFilter, searchTerm],
   );
-  const activeAdvancedFilterCount = [
-    categoryFilter,
+  const activeFilterCount = [
+    eventStatusFilter,
     locationFilter,
+    cityFilter,
+    eventTypeFilter,
     yearFilter,
-    formatFilter,
-    timingFilter,
   ].filter(Boolean).length;
-  const hasActiveFilters = Boolean(searchTerm.trim() || activeAdvancedFilterCount);
+  const hasActiveFilters = Boolean(searchTerm.trim() || activeFilterCount);
+
+  const eventStatusOptions = useMemo(() => {
+    const options = [
+      { label: 'Upcoming', value: 'upcoming', matches: (event: Event) => isUpcomingEvent(event) },
+      { label: 'Past', value: 'past', matches: (event: Event) => !isUpcomingEvent(event) },
+    ];
+
+    return options
+      .filter((option) => allEvents.some(option.matches))
+      .map(({ label, value, matches }) => ({
+        label,
+        value,
+        count: allEvents.filter(
+          (event) =>
+            eventMatchesFilters(event, {
+              searchTerm,
+              locationFilter,
+              cityFilter,
+              yearFilter,
+              eventTypeFilter,
+            }) && matches(event),
+        ).length,
+      }));
+  }, [allEvents, cityFilter, eventTypeFilter, locationFilter, searchTerm, yearFilter]);
+
+  const eventTypeOptions = useMemo(() => {
+    const options = [
+      { label: 'Virtual', value: 'virtual', matches: (event: Event) => event.isVirtual },
+      { label: 'In person', value: 'in_person', matches: (event: Event) => !event.isVirtual },
+    ];
+
+    return options
+      .filter((option) => allEvents.some(option.matches))
+      .map(({ label, value, matches }) => ({
+        label,
+        value,
+        count: allEvents.filter(
+          (event) =>
+            eventMatchesFilters(event, {
+              searchTerm,
+              locationFilter,
+              cityFilter,
+              yearFilter,
+              eventStatusFilter,
+            }) && matches(event),
+        ).length,
+      }));
+  }, [allEvents, cityFilter, eventStatusFilter, locationFilter, searchTerm, yearFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredEvents.length / LIST_PAGE));
   const visibleEvents = filteredEvents.slice(
@@ -463,10 +622,10 @@ export function EventsPage() {
   );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!upcomingLoading && !pastLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, pastLoading, totalPages, upcomingLoading]);
 
   // Ref map for scrolling individual list items
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -512,33 +671,13 @@ export function EventsPage() {
     setActiveEventId(null);
   };
 
-  const handleFilterChange = (setter: (value: string) => void) => (value: string) => {
-    setter(value);
-    setCurrentPage(1);
-    setActiveEventId(null);
-  };
-
-  const handleAdvancedFilterChange = (key: string, value: string) => {
-    const setters: Record<string, (nextValue: string) => void> = {
-      category: setCategoryFilter,
-      location: setLocationFilter,
-      year: setYearFilter,
-      format: setFormatFilter,
-      timing: setTimingFilter,
-    };
-    setters[key]?.(value);
-    setCurrentPage(1);
+  const handleFilterChange = (key: keyof typeof filters) => (value: string) => {
+    setFilter(key, value);
     setActiveEventId(null);
   };
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setCategoryFilter('');
-    setLocationFilter('');
-    setYearFilter('');
-    setFormatFilter('');
-    setTimingFilter('');
-    setCurrentPage(1);
+    clearFilters();
     setActiveEventId(null);
   };
 
@@ -567,9 +706,8 @@ export function EventsPage() {
             </div>
           </div>
 
-          {/* ── Top bar ──────────────────────────────────────────────── */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-            {/* Month nav */}
+          {/* ── Calendar navigation and filters ──────────────────────── */}
+          <div className="mb-5 flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -578,7 +716,7 @@ export function EventsPage() {
                     new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1),
                   )
                 }
-                className="w-9 h-9 flex items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm hover:bg-gray-50 transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm transition-colors hover:bg-gray-50"
               >
                 <ArrowLeft
                   size={20}
@@ -593,7 +731,7 @@ export function EventsPage() {
                     new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1),
                   )
                 }
-                className="w-9 h-9 flex items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm hover:bg-gray-50 transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm transition-colors hover:bg-gray-50"
               >
                 <ArrowRight
                   size={20}
@@ -601,111 +739,70 @@ export function EventsPage() {
                   className="text-primary-500"
                 />
               </button>
-
               <MonthYearPicker value={calendarDate} onChange={handleDateChange} />
             </div>
 
-            {/* Search + create */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
               <SearchInput
-                className="flex-1 sm:w-60"
+                className="w-full lg:w-64 lg:flex-shrink-0"
                 value={searchTerm}
-                onValueChange={(v) => {
-                  setSearchTerm(v);
-                  setCurrentPage(1);
-                  setActiveEventId(null);
-                }}
+                onValueChange={handleFilterChange('searchTerm')}
                 placeholder="Search events"
               />
-              <button
-                type="button"
-                onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
-                aria-expanded={showAdvancedFilters}
-                className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50"
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                <span className="hidden sm:inline">Advanced filters</span>
-                {activeAdvancedFilterCount > 0 && (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
-                    {activeAdvancedFilterCount}
-                  </span>
-                )}
-              </button>
+              <FilterDropdown
+                value={eventStatusFilter}
+                onChange={handleFilterChange('eventStatusFilter')}
+                options={eventStatusOptions}
+                placeholder="Event status"
+                className="w-full lg:w-44 lg:flex-shrink-0"
+                sortOptionsAlphabetically={false}
+              />
+              <HierarchicalLocationFilter
+                label=""
+                placeholder="Location"
+                levelOneLabel="Location"
+                value={{ state: locationFilter, city: cityFilter }}
+                options={locationOptions}
+                onChange={(selection) => {
+                  setFilters({
+                    locationFilter: selection.state,
+                    cityFilter: selection.city,
+                  });
+                  setActiveEventId(null);
+                }}
+                className="w-full lg:w-44 lg:flex-shrink-0"
+              />
+              <FilterDropdown
+                value={eventTypeFilter}
+                onChange={handleFilterChange('eventTypeFilter')}
+                options={eventTypeOptions}
+                placeholder="Event type"
+                className="w-full lg:w-44 lg:flex-shrink-0"
+                sortOptionsAlphabetically={false}
+              />
+              <FilterDropdown
+                value={yearFilter}
+                onChange={handleFilterChange('yearFilter')}
+                options={yearOptions}
+                placeholder="Year"
+                className="w-full lg:w-36 lg:flex-shrink-0"
+                sortOptionsAlphabetically={false}
+              />
+              {hasActiveFilters && (
+                <ClearFiltersButton
+                  onClick={clearAllFilters}
+                  className="w-full bg-white lg:w-auto"
+                />
+              )}
             </div>
           </div>
 
-          {showAdvancedFilters && (
-            <AdvancedFiltersPanel
-              title="Refine event results"
-              description="Narrow events by timing, format, category, location, or year."
-              gridClassName="grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"
-              fields={[
-                {
-                  key: 'timing',
-                  kind: 'select',
-                  label: 'Timing',
-                  value: timingFilter,
-                  placeholder: 'All events',
-                  options: [
-                    { label: 'Upcoming events', value: 'upcoming' },
-                    { label: 'Past events', value: 'past' },
-                  ],
-                },
-                {
-                  key: 'format',
-                  kind: 'select',
-                  label: 'Format',
-                  value: formatFilter,
-                  placeholder: 'All formats',
-                  options: [
-                    { label: 'Virtual', value: 'virtual' },
-                    { label: 'In person', value: 'in_person' },
-                  ],
-                },
-                {
-                  key: 'category',
-                  kind: 'select',
-                  label: 'Category',
-                  value: categoryFilter,
-                  placeholder: 'All categories',
-                  options: categoryOptions,
-                },
-                {
-                  key: 'location',
-                  kind: 'select',
-                  label: 'Location',
-                  value: locationFilter,
-                  placeholder: 'All locations',
-                  options: locationOptions,
-                },
-                {
-                  key: 'year',
-                  kind: 'select',
-                  label: 'Event year',
-                  value: yearFilter,
-                  placeholder: 'Any year',
-                  options: yearOptions,
-                },
-              ]}
-              onFieldChange={handleAdvancedFilterChange}
-              onReset={clearAllFilters}
-              hasActiveFilters={activeAdvancedFilterCount > 0}
-            />
-          )}
-
           {hasActiveFilters && (
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+            <div className="mb-5 text-sm text-[#69727d]">
               <span>
                 Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}{' '}
                 matching your filters
               </span>
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-              >
-                Clear all filters
-              </button>
             </div>
           )}
 

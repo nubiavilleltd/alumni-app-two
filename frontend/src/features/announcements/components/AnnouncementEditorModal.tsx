@@ -34,6 +34,7 @@ const legacyAnnouncementTypeOptions = [
 
 const ANNOUNCEMENT_FALLBACK_IMAGE = '/news-1.png';
 const ANNOUNCEMENT_DATE_RANGE_ERROR = 'End date cannot be before start date.';
+const ANNOUNCEMENT_PAST_DATE_ERROR = 'New announcements must use a current or future date.';
 
 function canReuseAnnouncementImage(preview?: string) {
   if (!preview) return false;
@@ -80,6 +81,14 @@ function toInputDate(value?: string) {
 function toBackendDate(value: string) {
   if (!value.trim()) return undefined;
   return value.trim();
+}
+
+function getTodayInputDate() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function getInitialEditorState(item?: NewsItem) {
@@ -157,6 +166,16 @@ export function AnnouncementEditorModal({
     if (form.startsAt && form.endsAt && form.endsAt < form.startsAt) {
       setFormError(ANNOUNCEMENT_DATE_RANGE_ERROR);
       return;
+    }
+
+    // New announcements cannot be scheduled in the past. Edits deliberately skip
+    // this check so historical announcements remain editable.
+    if (!isEditMode) {
+      const today = getTodayInputDate();
+      if ((form.startsAt && form.startsAt < today) || (form.endsAt && form.endsAt < today)) {
+        setFormError(ANNOUNCEMENT_PAST_DATE_ERROR);
+        return;
+      }
     }
 
     let submitImage = imageFile;
@@ -257,6 +276,7 @@ export function AnnouncementEditorModal({
           <DatePicker
             label="Starts At"
             value={form.startsAt}
+            min={isEditMode ? undefined : getTodayInputDate()}
             max={form.endsAt || undefined}
             onValueChange={(value) => handleFieldChange('startsAt', value)}
           />
@@ -264,7 +284,7 @@ export function AnnouncementEditorModal({
           <DatePicker
             label="Ends At"
             value={form.endsAt}
-            min={form.startsAt || undefined}
+            min={form.startsAt || (isEditMode ? undefined : getTodayInputDate())}
             onValueChange={(value) => handleFieldChange('endsAt', value)}
           />
         </div>

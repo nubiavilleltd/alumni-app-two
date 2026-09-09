@@ -27,24 +27,33 @@ import {
 import { SEO } from '@/shared/common/SEO';
 import { Breadcrumbs } from '@/shared/components/ui/Breadcrumbs';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
+import {
+  HierarchicalLocationFilter,
+  type HierarchicalLocationNode,
+  type HierarchicalLocationSelection,
+} from '@/shared/components/ui/HierarchicalLocationFilter';
 import { PostBusinessModal } from '../components/PostYourBusinessModal';
 import { useMyBusinesses, useDeleteListing } from '../hooks/useMarketplace';
 import type { Business } from '../types/marketplace.types';
 import { MARKETPLACE_ROUTES } from '../routes';
 import { ROUTES } from '@/shared/constants/routes';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { useLocations } from '@/shared/hooks/useLocations';
+import type { LocationGroup } from '@/shared/types/location.types';
 import { toTitleCase } from '@/shared/utils/textHelpers';
 import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
-import { matchesLocationPart } from '@/shared/utils/location';
+import { matchesLocationPart, normalizeLocationPart } from '@/shared/utils/location';
 const MY_BUSINESSES_PER_PAGE = 6;
 
 type MyBusinessFilterState = {
   search: string;
   category: string;
-  address: string;
   city: string;
   state: string;
 };
@@ -65,10 +74,92 @@ function matchesMyBusinessFilters(business: Business, filters: MyBusinessFilterS
   return (
     (!query || searchableFields.some((field) => field.toLowerCase().includes(query))) &&
     (!filters.category || business.category === filters.category) &&
-    matchesLocationPart(business.address, filters.address) &&
     matchesLocationPart(business.city, filters.city) &&
     matchesLocationPart(business.state, filters.state)
   );
+}
+
+type MutableLocationNode = {
+  label: string;
+  value: string;
+  children: Map<string, MutableLocationNode>;
+};
+
+function buildMyBusinessLocationHierarchy(
+  businesses: Business[],
+  filters: MyBusinessFilterState,
+  locationCatalogue: readonly LocationGroup[],
+): HierarchicalLocationNode[] {
+  const states = new Map<string, MutableLocationNode>();
+  const filtersWithoutLocation: MyBusinessFilterState = {
+    ...filters,
+    city: '',
+    state: '',
+  };
+
+  const addLocation = (stateLabel: string, cityLabel?: string) => {
+    stateLabel = stateLabel.trim();
+    const stateValue = normalizeLocationPart(stateLabel);
+    if (!stateLabel || !stateValue) return;
+
+    let stateNode = states.get(stateValue);
+    if (!stateNode) {
+      stateNode = { label: stateLabel, value: stateValue, children: new Map() };
+      states.set(stateValue, stateNode);
+    }
+
+    cityLabel = cityLabel?.trim();
+    const cityValue = normalizeLocationPart(cityLabel);
+    if (!cityLabel || !cityValue || stateNode.children.has(cityValue)) return;
+
+    stateNode.children.set(cityValue, {
+      label: cityLabel,
+      value: cityValue,
+      children: new Map(),
+    });
+  };
+
+  locationCatalogue.forEach((location) => {
+    addLocation(location.state);
+    location.cities.forEach((city) => addLocation(location.state, city));
+  });
+
+  businesses.forEach((business) => {
+    addLocation(business.state, business.city);
+  });
+
+  const countForLocation = (location: HierarchicalLocationSelection) =>
+    businesses.filter((business) =>
+      matchesMyBusinessFilters(business, {
+        ...filtersWithoutLocation,
+        ...location,
+      }),
+    ).length;
+
+  const toOptions = (
+    nodes: Map<string, MutableLocationNode>,
+    parent: HierarchicalLocationSelection,
+  ): HierarchicalLocationNode[] =>
+    Array.from(nodes.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((node) => {
+        const selection =
+          nodes === states
+            ? { state: node.value, city: '' }
+            : { state: parent.state, city: node.value };
+        const children = Array.from(node.children.values()).length
+          ? toOptions(node.children, selection)
+          : undefined;
+
+        return {
+          label: node.label,
+          value: node.value,
+          count: countForLocation(selection),
+          ...(children ? { children } : {}),
+        };
+      });
+
+  return toOptions(states, { state: '', city: '' });
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -469,16 +560,22 @@ export default function MyBusinessPage() {
   const [showPostModal, setShowPostModal] = useState(false);
   const [editBusiness, setEditBusiness] = useState<Business | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [addressFilter, setAddressFilter] = useState('');
-  const [cityFilter, setCityFilter] = useState('');
-  const [stateFilter, setStateFilter] = useState('');
+  const [currentPage, setCurrentPage] = useUrlPagination();
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters(
+    'my-business-filters',
+    {
+      search: '',
+      categoryFilter: '',
+      cityFilter: '',
+      stateFilter: '',
+    },
+  );
+  const { search, categoryFilter, cityFilter, stateFilter } = filters;
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const currentUser = useIdentityStore((state) => state.user);
 
   const { data: myBusinesses = [], isLoading, refetch } = useMyBusinesses();
+  const { data: locations = [] } = useLocations();
   const deleteMutation = useDeleteListing();
 
   const handleEdit = (business: Business) => {
@@ -505,11 +602,10 @@ export default function MyBusinessPage() {
     () => ({
       search,
       category: categoryFilter,
-      address: addressFilter,
       city: cityFilter,
       state: stateFilter,
     }),
-    [addressFilter, categoryFilter, cityFilter, search, stateFilter],
+    [categoryFilter, cityFilter, search, stateFilter],
   );
   const filteredBusinesses = useMemo(
     () => myBusinesses.filter((business) => matchesMyBusinessFilters(business, filterState)),
@@ -521,21 +617,18 @@ export default function MyBusinessPage() {
     )
       .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ label: value, value }));
-    const toOptions = (values: Array<string | undefined>) =>
-      Array.from(new Set(values.filter(Boolean) as string[]))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value }));
-
     return {
       categories,
-      addresses: toOptions(myBusinesses.map((business) => business.address)),
-      cities: toOptions(myBusinesses.map((business) => business.city)),
-      states: toOptions(myBusinesses.map((business) => business.state)),
     };
   }, [myBusinesses]);
-  const activeAdvancedFilterCount = [categoryFilter, addressFilter, cityFilter, stateFilter].filter(
+  const locationHierarchy = useMemo(
+    () => buildMyBusinessLocationHierarchy(myBusinesses, filterState, locations),
+    [filterState, locations, myBusinesses],
+  );
+  const activeAdvancedFilterCount = [categoryFilter, cityFilter, stateFilter].filter(
     Boolean,
   ).length;
+  const hasLocationFilter = Boolean(cityFilter || stateFilter);
   const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
   const totalPages = Math.max(1, Math.ceil(filteredBusinesses.length / MY_BUSINESSES_PER_PAGE));
   const visibleBusinesses = filteredBusinesses.slice(
@@ -544,14 +637,10 @@ export default function MyBusinessPage() {
   );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [addressFilter, categoryFilter, cityFilter, search, stateFilter]);
+  }, [currentPage, isLoading, totalPages]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -559,19 +648,11 @@ export default function MyBusinessPage() {
   };
 
   const clearAllFilters = () => {
-    setSearch('');
-    setCategoryFilter('');
-    setAddressFilter('');
-    setCityFilter('');
-    setStateFilter('');
-    setCurrentPage(1);
+    clearFilters();
   };
 
   const handleAdvancedFilterChange = (key: string, value: string) => {
-    if (key === 'category') setCategoryFilter(value);
-    if (key === 'address') setAddressFilter(value);
-    if (key === 'city') setCityFilter(value);
-    if (key === 'state') setStateFilter(value);
+    if (key === 'category') setFilter('categoryFilter', value);
   };
 
   const breadcrumbItems = [
@@ -616,7 +697,7 @@ export default function MyBusinessPage() {
                 <div className="min-w-0 flex-1 sm:max-w-xl">
                   <SearchInput
                     value={search}
-                    onValueChange={setSearch}
+                    onValueChange={(value) => setFilter('search', value)}
                     placeholder="Search your businesses"
                     inputClassName="!h-10 !py-0"
                   />
@@ -641,6 +722,20 @@ export default function MyBusinessPage() {
                 <AdvancedFiltersPanel
                   title="Refine your businesses"
                   description="Find your listings by business category or location."
+                  customContent={
+                    <HierarchicalLocationFilter
+                      label="Location"
+                      placeholder="All locations"
+                      value={{ state: stateFilter, city: cityFilter }}
+                      options={locationHierarchy}
+                      onChange={(selection) => {
+                        setFilters({
+                          stateFilter: selection.state,
+                          cityFilter: selection.city,
+                        });
+                      }}
+                    />
+                  }
                   fields={[
                     {
                       key: 'category',
@@ -650,34 +745,10 @@ export default function MyBusinessPage() {
                       placeholder: 'All categories',
                       options: facetOptions.categories,
                     },
-                    {
-                      key: 'address',
-                      kind: 'select',
-                      label: 'Address',
-                      value: addressFilter,
-                      placeholder: 'All addresses',
-                      options: facetOptions.addresses,
-                    },
-                    {
-                      key: 'city',
-                      kind: 'select',
-                      label: 'City',
-                      value: cityFilter,
-                      placeholder: 'All cities',
-                      options: facetOptions.cities,
-                    },
-                    {
-                      key: 'state',
-                      kind: 'select',
-                      label: 'State',
-                      value: stateFilter,
-                      placeholder: 'All states',
-                      options: facetOptions.states,
-                    },
                   ]}
                   onFieldChange={handleAdvancedFilterChange}
                   onReset={clearAllFilters}
-                  hasActiveFilters={activeAdvancedFilterCount > 0}
+                  hasActiveFilters={activeAdvancedFilterCount > 0 || hasLocationFilter}
                 />
               )}
 
@@ -686,13 +757,7 @@ export default function MyBusinessPage() {
                   <span>
                     Showing {filteredBusinesses.length} of {myBusinesses.length} businesses
                   </span>
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-                  >
-                    Clear all filters
-                  </button>
+                  <ClearFiltersButton onClick={clearAllFilters} label="Clear all filters" />
                 </div>
               )}
             </>

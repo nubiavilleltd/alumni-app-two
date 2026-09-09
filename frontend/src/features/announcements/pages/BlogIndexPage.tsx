@@ -1,13 +1,15 @@
-import { Clock3, Megaphone, Plus, SlidersHorizontal } from 'lucide-react';
+import { Clock3, Megaphone, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SEO } from '@/shared/common/SEO';
 import { ButtonLink } from '@/shared/components/ui/Button';
 import { AppLink } from '@/shared/components/ui/AppLink';
 import { Pagination } from '@/shared/components/ui/Pagination';
+import { SearchInput } from '@/shared/components/ui/input/SearchInput';
+import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { ROUTES } from '@/shared/constants/routes';
 import { EVENT_ROUTES } from '@/features/events/routes';
 import { AnnouncementEditorModal } from '@/features/announcements/components/AnnouncementEditorModal';
-import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import {
   usePublicAnnouncements,
   useBirthdayAnnouncements,
@@ -16,6 +18,8 @@ import { ANNOUNCEMENT_ROUTES } from '@/features/announcements/routes';
 import type { AnnouncementType, NewsItem } from '@/features/announcements/types/announcement.types';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { BirthdaySection } from '../components/BirthdaySection';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 
 const FALLBACK_IMAGE = '/news-1.png';
 const pageShellClassName = 'container-custom pb-16 pt-4 sm:pb-14 sm:pt-5';
@@ -128,13 +132,14 @@ function AnnouncementCardSkeleton({ compact = false }: { compact?: boolean }) {
 
 export default function BlogIndexPage() {
   const user = useIdentityStore((state) => state.user);
-  const [selectedType, setSelectedType] = useState<AnnouncementFilter>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [yearFilter, setYearFilter] = useState('');
-  const [dateRangeFilter, setDateRangeFilter] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const { filters, setFilter, clearFilters } = usePersistedFilters('announcements-filters', {
+    selectedType: 'all' as AnnouncementFilter,
+    searchTerm: '',
+    yearFilter: '',
+  });
+  const { selectedType, searchTerm, yearFilter } = filters;
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useUrlPagination();
   const featuredCardRef = useRef<HTMLElement | null>(null);
   const sideListRef = useRef<HTMLDivElement | null>(null);
   const [sideListHeight, setSideListHeight] = useState<number | null>(null);
@@ -148,8 +153,8 @@ export default function BlogIndexPage() {
       Array.from(
         new Set(
           announcements.map((item) => {
-            const date = new Date(item.startsAt || item.date);
-            return String(item.year ?? (Number.isNaN(date.getTime()) ? '' : date.getFullYear()));
+            const date = new Date(item.createdAt || item.date);
+            return Number.isNaN(date.getTime()) ? '' : String(date.getFullYear());
           }),
         ),
       )
@@ -161,22 +166,16 @@ export default function BlogIndexPage() {
 
   const sortedAnnouncements = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const rangeInDays = dateRangeFilter === '30' ? 30 : dateRangeFilter === '90' ? 90 : null;
-    const rangeStart = rangeInDays
-      ? new Date(now.getTime() - rangeInDays * 24 * 60 * 60 * 1000)
-      : null;
 
     return announcements
       .filter((item) => {
-        const date = new Date(item.startsAt || item.date);
-        const itemYear = String(
-          item.year ?? (Number.isNaN(date.getTime()) ? '' : date.getFullYear()),
-        );
+        const publishedDate = new Date(item.createdAt || item.date);
+        const itemYear = Number.isNaN(publishedDate.getTime())
+          ? ''
+          : String(publishedDate.getFullYear());
         const matchesSearch =
           !q ||
-          [item.title, item.excerpt, item.content, item.tag]
+          [item.title, item.content, item.createdByName, item.createdBy]
             .filter(Boolean)
             .join(' ')
             .toLowerCase()
@@ -185,26 +184,18 @@ export default function BlogIndexPage() {
           selectedType === 'all' ||
           (selectedType === 'project' ? item.source === 'project' : item.type === selectedType);
         const matchesYear = !yearFilter || itemYear === yearFilter;
-        const matchesDateRange =
-          !dateRangeFilter ||
-          (!Number.isNaN(date.getTime()) &&
-            (dateRangeFilter === 'year'
-              ? date.getFullYear() === currentYear
-              : Boolean(rangeStart && date >= rangeStart)));
 
-        return matchesSearch && matchesType && matchesYear && matchesDateRange;
+        return matchesSearch && matchesType && matchesYear;
       })
       .sort(
         (a, b) =>
           new Date(b.startsAt || b.date).getTime() - new Date(a.startsAt || a.date).getTime(),
       );
-  }, [announcements, dateRangeFilter, searchTerm, selectedType, yearFilter]);
+  }, [announcements, searchTerm, selectedType, yearFilter]);
 
   console.log(sortedAnnouncements, 'newly sorted announcements');
 
-  const activeAdvancedFilterCount = [searchTerm.trim(), yearFilter, dateRangeFilter].filter(
-    Boolean,
-  ).length;
+  const hasActiveFilters = Boolean(searchTerm.trim() || yearFilter || selectedType !== 'all');
   const totalPages = Math.max(1, Math.ceil(sortedAnnouncements.length / ANNOUNCEMENTS_PER_PAGE));
   const pageAnnouncements = sortedAnnouncements.slice(
     (currentPage - 1) * ANNOUNCEMENTS_PER_PAGE,
@@ -261,30 +252,15 @@ export default function BlogIndexPage() {
       .join(','),
   ]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [dateRangeFilter, searchTerm, selectedType, yearFilter]);
-
   const clearAllFilters = () => {
-    setSelectedType('all');
-    setSearchTerm('');
-    setYearFilter('');
-    setDateRangeFilter('');
-    setCurrentPage(1);
-  };
-
-  const handleAdvancedFilterChange = (key: string, value: string) => {
-    if (key === 'search') setSearchTerm(value);
-    if (key === 'year') setYearFilter(value);
-    if (key === 'dateRange') setDateRangeFilter(value);
-    setCurrentPage(1);
+    clearFilters();
   };
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   return (
     <>
@@ -332,7 +308,9 @@ export default function BlogIndexPage() {
                   <button
                     key={filter.value}
                     type="button"
-                    onClick={() => setSelectedType(filter.value)}
+                    onClick={() => {
+                      setFilter('selectedType', filter.value);
+                    }}
                     className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
                       selectedType === filter.value
                         ? 'bg-primary-500 text-white'
@@ -344,22 +322,26 @@ export default function BlogIndexPage() {
                 ))}
               </div>
 
-              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
-                  aria-expanded={showAdvancedFilters}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[#e1e6ec] bg-white px-4 py-2 text-sm font-semibold text-[#58606b] shadow-sm transition-colors hover:bg-[#f5f8fa] sm:w-auto"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Advanced filters
-                  {activeAdvancedFilterCount > 0 && (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
-                      {activeAdvancedFilterCount}
-                    </span>
-                  )}
-                </button>
-
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+                <SearchInput
+                  value={searchTerm}
+                  onValueChange={(value) => {
+                    setFilter('searchTerm', value);
+                  }}
+                  placeholder="Search title, content or creator"
+                  className="w-full sm:w-72"
+                  inputClassName="!h-10"
+                />
+                <FilterDropdown
+                  value={yearFilter}
+                  onChange={(value) => {
+                    setFilter('yearFilter', value);
+                  }}
+                  options={yearOptions}
+                  placeholder="Published year"
+                  className="w-full sm:w-48"
+                  sortOptionsAlphabetically={false}
+                />
                 {isAdmin && (
                   <button
                     type="button"
@@ -373,58 +355,14 @@ export default function BlogIndexPage() {
               </div>
             </div>
 
-            {showAdvancedFilters && (
-              <AdvancedFiltersPanel
-                title="Refine announcements"
-                description="Search updates and narrow them by publication year or recency."
-                fields={[
-                  {
-                    key: 'search',
-                    kind: 'search',
-                    value: searchTerm,
-                    placeholder: 'Search announcements',
-                  },
-                  {
-                    key: 'year',
-                    kind: 'select',
-                    label: 'Publication year',
-                    value: yearFilter,
-                    placeholder: 'Any year',
-                    options: yearOptions,
-                  },
-                  {
-                    key: 'dateRange',
-                    kind: 'select',
-                    label: 'Published',
-                    value: dateRangeFilter,
-                    placeholder: 'Any time',
-                    options: [
-                      { label: 'Last 30 days', value: '30' },
-                      { label: 'Last 90 days', value: '90' },
-                      { label: 'This year', value: 'year' },
-                    ],
-                  },
-                ]}
-                onFieldChange={handleAdvancedFilterChange}
-                onReset={clearAllFilters}
-                hasActiveFilters={activeAdvancedFilterCount > 0}
-              />
-            )}
-
-            {(selectedType !== 'all' || activeAdvancedFilterCount > 0) && (
+            {hasActiveFilters && (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
                 <span>
                   Showing {sortedAnnouncements.length}{' '}
                   {sortedAnnouncements.length === 1 ? 'announcement' : 'announcements'} matching
                   your filters
                 </span>
-                <button
-                  type="button"
-                  onClick={clearAllFilters}
-                  className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-                >
-                  Clear all filters
-                </button>
+                <ClearFiltersButton onClick={clearAllFilters} label="Clear all filters" />
               </div>
             )}
           </header>

@@ -156,7 +156,7 @@ export default function BlogPostPage() {
                 <img
                   src={announcement.image || FALLBACK_IMAGE}
                   alt=""
-                  className="block max-h-[36rem] w-full object-cover"
+                  className="block max-h-[36rem] w-full object-fit"
                 />
               </div>
 

@@ -2,7 +2,7 @@ import { SEO } from '@/shared/common/SEO';
 import { useSubmitContactForm } from '@/features/contactUs/hooks/useContactUs';
 import { getSiteConfig } from '@/data/content';
 import { ContactPageLayout } from '../components/ContactPageLayout';
-import { toGoogleMapsHref, toTelephoneHref } from '../utils';
+import { toGoogleMapsHref } from '../utils';
 
 export function ContactUsPage() {
   const config = getSiteConfig();
@@ -25,15 +25,25 @@ export function ContactUsPage() {
     },
     {
       label: 'Call us',
-      valueLines: [phone],
+      valueLines: [],
       iconSrc: '/contactPhone.svg',
-      href: toTelephoneHref(phone),
+      protectedContact: {
+        field: 'phone' as const,
+        value: phone,
+        resourceType: 'organization-contact',
+        resourceId: 'site',
+      },
     },
     {
       label: 'Email us',
-      valueLines: [email],
+      valueLines: [],
       iconSrc: '/contactMessage.svg',
-      href: `mailto:${email}`,
+      protectedContact: {
+        field: 'email' as const,
+        value: email,
+        resourceType: 'organization-contact',
+        resourceId: 'site',
+      },
     },
   ];
 

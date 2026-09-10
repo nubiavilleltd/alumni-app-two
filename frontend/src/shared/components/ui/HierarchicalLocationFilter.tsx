@@ -208,7 +208,9 @@ export function HierarchicalLocationFilter({
                             : 'text-gray-700 hover:bg-gray-50'
                         }`}
                       >
-                        <span className="min-w-0 truncate">{option.label}</span>
+                        <span className="min-w-0 truncate" title={option.label}>
+                          {option.label}
+                        </span>
                         {typeof option.count === 'number' ? (
                           <span
                             className={`min-w-7 rounded-full px-2 py-1 text-center text-xs font-semibold ${

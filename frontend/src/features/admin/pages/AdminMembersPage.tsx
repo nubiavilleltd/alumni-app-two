@@ -43,6 +43,8 @@ import type { Alumni } from '@/features/alumni/types/alumni.types';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { getPhotoDisplay, resolveProfilePhoto } from '@/features/user/utils/profileUtils';
 import { Avatar } from '@/shared/components/ui/Avatar';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SelectInput } from '@/shared/components/ui/SelectInput';
@@ -434,10 +436,12 @@ export function AdminMembersPage() {
 
 
 
-  const [searchQuery, setSearchQuery] = useState('');
-  // const [statusFilter, setStatusFilter] = useState<'all' | AccountStatus>('all');
-  const [statusFilter, setStatusFilter] = useState<MemberFilterValue>('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter } = usePersistedFilters('admin-members-filters', {
+    searchQuery: '',
+    statusFilter: 'all' as MemberFilterValue,
+  });
+  const { searchQuery, statusFilter } = filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
   const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
   const [isAddExcoModalOpen, setIsAddExcoModalOpen] = useState(false);
   const [editingLeader, setEditingLeader] = useState<LeadershipMember | null>(null);
@@ -505,10 +509,10 @@ export function AdminMembersPage() {
 
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   const activeCount = users.filter((u) => u.accountStatus === 'active').length;
   const inactiveCount = users.filter((u) => u.accountStatus === 'inactive').length;
@@ -575,10 +579,7 @@ export function AdminMembersPage() {
               <SearchInput
                 placeholder="Search by name or email..."
                 value={searchQuery}
-                onValueChange={(value) => {
-                  setSearchQuery(value);
-                  setCurrentPage(1);
-                }}
+                onValueChange={(value) => setFilter('searchQuery', value)}
                 className="w-full"
                 inputClassName="!h-12 !rounded-[48px] !border-0 !pl-12 !pr-5 !text-base !shadow-[0_4px_20px_0_rgba(0,0,0,0.05)] focus:!ring-0"
                 iconClassName="!left-5 !h-5 !w-5 !text-[#828282]"
@@ -592,8 +593,7 @@ export function AdminMembersPage() {
                   key={filter.value}
                   type="button"
                   onClick={() => {
-                    setStatusFilter(filter.value);
-                    setCurrentPage(1);
+                    setFilter('statusFilter', filter.value);
                   }}
                   className={`h-12 whitespace-nowrap rounded-[40px] border px-6 text-base font-semibold transition-colors ${statusFilter === filter.value
                     ? 'border-primary-500 bg-primary-500 text-white'

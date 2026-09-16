@@ -1,11 +1,10 @@
 import { Icon } from '@iconify/react';
 import { getSiteConfig } from '@/data/content';
 import { AppLink } from '../ui/AppLink';
+import { ProtectedContactValue } from '../ui/ProtectedContactValue';
 import FooterBgImage from '/footer-bg-image.png';
 import FooterLogo from '../ui/FooterLogo';
 import AddressLocationIcon from '/addressLocation.svg';
-import LocationPhoneIcon from '/locationPhone.svg';
-import LocationMessageIcon from '/locationMessage.svg';
 import { ROUTES } from '@/shared/constants/routes';
 
 const SOCIAL_ICON_MAP: Record<string, string> = {
@@ -125,32 +124,26 @@ export function Footer() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <img
-                    src={LocationMessageIcon}
-                    alt=""
-                    aria-hidden="true"
-                    className={`${footerContactIconClassName} h-[14px] w-[17px]`}
+                  <ProtectedContactValue
+                    value={config.contact?.email || 'info@alumniportal.org'}
+                    field="email"
+                    label="Email address"
+                    resourceType="organization-contact"
+                    resourceId="site"
+                    tone="light"
+                    className="text-sm"
                   />
-                  <AppLink
-                    href={`mailto:${config.contact?.email || 'info@alumniportal.org'}`}
-                    className="text-sm text-white transition-colors hover:text-white"
-                  >
-                    {config.contact?.email || 'info@alumniportal.org'}
-                  </AppLink>
                 </div>
                 <div className="flex items-center gap-3">
-                  <img
-                    src={LocationPhoneIcon}
-                    alt=""
-                    aria-hidden="true"
-                    className={`${footerContactIconClassName} h-4 w-[17px]`}
+                  <ProtectedContactValue
+                    value={config.contact?.phone || '+234 800 000 0000'}
+                    field="phone"
+                    label="Phone number"
+                    resourceType="organization-contact"
+                    resourceId="site"
+                    tone="light"
+                    className="text-sm"
                   />
-                  <AppLink
-                    href={`tel:${config.contact?.phone || '+2348000000000'}`}
-                    className="text-sm text-white transition-colors hover:text-white"
-                  >
-                    {config.contact?.phone || '+234 800 000 0000'}
-                  </AppLink>
                 </div>
               </div>
             </div>

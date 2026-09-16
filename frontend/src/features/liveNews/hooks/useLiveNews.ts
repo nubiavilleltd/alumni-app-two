@@ -18,6 +18,10 @@ export function useLiveNews() {
     queryKey: liveNewsKeys.list(),
     queryFn: () => liveNewsService.getAll(),
     staleTime: 1000 * 60 * 5,
+    // Retries are handled by the service so empty feed responses and request
+    // failures follow the same four-retry policy without repeating the whole
+    // policy through React Query as well.
+    retry: false,
   });
 }
 
@@ -30,5 +34,3 @@ export function useLiveNews() {
 //     staleTime: 1000 * 60 * 5,
 //   });
 // }
-
-

@@ -370,7 +370,12 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
               ${controlClassName}
             `}
           >
-            <span className={displayLabel ? 'text-gray-700' : 'text-[#828282]'}>
+            <span
+              className={`block min-w-0 truncate whitespace-nowrap ${
+                displayLabel ? 'text-gray-700' : 'text-[#828282]'
+              }`}
+              title={displayLabel || placeholder}
+            >
               {displayLabel || placeholder}
             </span>
           </button>
@@ -428,7 +433,9 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectInputProps>(
                       `}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate">{option.label}</span>
+                        <span className="truncate" title={option.label}>
+                          {option.label}
+                        </span>
                         {typeof option.count === 'number' && (
                           <span
                             className={`min-w-6 rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold ${

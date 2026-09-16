@@ -12,6 +12,7 @@ import { useStartDirectConversation } from '@/features/messages/hooks/useStartDi
 import { useZones } from '../hooks/useZones';
 import { WelfareZone } from '../types/welfare.type';
 import { useCurrentUser } from '@/features/authentication/hooks/useCurrentUser';
+import { ProtectedContactAvailability } from '@/shared/components/ui/ProtectedContactValue';
 
 // ─── Zone accent colours ──────────────────────────────────────────────────────
 // Matched to the Figma side-strip colours by zone label.
@@ -142,12 +143,10 @@ function ZoneCard({
                   <span>Coordinator: {zone.coordinator!.name}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-base font-medium leading-tight text-gray-500">
-                  {zone.coordinator!.phone && (
-                    <span className="flex items-center gap-1.5">
-                      <Icon icon="mdi:phone-outline" className="h-4 w-4 text-gray-400" />
-                      {zone.coordinator!.phone}
-                    </span>
-                  )}
+                  <ProtectedContactAvailability
+                    phone={Boolean(zone.coordinator!.phone)}
+                    label={`Protected contact details for ${zone.coordinator!.name}`}
+                  />
                 </div>
               </>
             ) : (

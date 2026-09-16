@@ -13,6 +13,8 @@ import { EVENT_ROUTES } from '../routes';
 import type { Event } from '../types/event.types';
 import { MapPin } from 'lucide-react';
 import { ADMIN_ROUTES } from '@/features/admin/routes';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 
 const monthOptions = [
   { label: 'Month', value: 'all' },
@@ -160,9 +162,12 @@ function AdminEventsSkeleton() {
 }
 
 export default function AdminEventsPage() {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter } = usePersistedFilters('admin-events-filters', {
+    searchTerm: '',
+    selectedMonth: 'all',
+  });
+  const { searchTerm, selectedMonth } = filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
 
   const { data: events = [], isLoading, isError, refetch } = useAllEvents();
 
@@ -194,10 +199,10 @@ export default function AdminEventsPage() {
   );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   const changePage = (page: number) => {
     setCurrentPage(page);
@@ -240,10 +245,7 @@ export default function AdminEventsPage() {
                     <SearchInput
                       id="admin-events-search"
                       value={searchTerm}
-                      onValueChange={(value) => {
-                        setSearchTerm(value);
-                        setCurrentPage(1);
-                      }}
+                      onValueChange={(value) => setFilter('searchTerm', value)}
                       placeholder="Search events"
                       className="w-full"
                       inputClassName="!h-[56px] !border-0 !pl-11 !pr-4 text-[0.95rem] font-medium text-accent-600 placeholder:text-accent-400 !shadow-none focus:!ring-0"
@@ -255,10 +257,7 @@ export default function AdminEventsPage() {
                     <span className="sr-only">Filter events by month</span>
                     <SelectInput
                       value={selectedMonth}
-                      onChange={(event) => {
-                        setSelectedMonth(event.target.value);
-                        setCurrentPage(1);
-                      }}
+                      onChange={(event) => setFilter('selectedMonth', event.target.value)}
                       options={monthOptions}
                       sortOptionsAlphabetically={false}
                       className="w-full gap-0"

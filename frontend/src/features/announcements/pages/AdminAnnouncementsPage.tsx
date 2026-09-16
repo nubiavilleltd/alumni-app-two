@@ -14,6 +14,8 @@ import {
 import { AnnouncementEditorModal } from '@/features/announcements/components/AnnouncementEditorModal';
 import { ANNOUNCEMENT_ROUTES } from '@/features/announcements/routes';
 import type { AnnouncementType, NewsItem } from '@/features/announcements/types/announcement.types';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 
 type SortDirection = 'newest' | 'oldest';
 const ADMIN_ANNOUNCEMENTS_PER_PAGE = 6;
@@ -71,13 +73,16 @@ export function AdminAnnouncementsPage() {
   const { data: announcements = [], isLoading } = useAnnouncements();
   const deleteAnnouncement = useDeleteAnnouncement();
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState<'all' | AnnouncementType>('all');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('newest');
+  const { filters, setFilter } = usePersistedFilters('admin-announcements-filters', {
+    searchQuery: '',
+    selectedType: 'all' as 'all' | AnnouncementType,
+    sortDirection: 'newest' as SortDirection,
+  });
+  const { searchQuery, selectedType, sortDirection } = filters;
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState<NewsItem | null>(null);
   const [announcementToDelete, setAnnouncementToDelete] = useState<NewsItem | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useUrlPagination();
 
   const sortedAnnouncements = useMemo(() => {
     const getCreatedTime = (item: NewsItem) => {
@@ -117,10 +122,10 @@ export function AdminAnnouncementsPage() {
   );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   const eventCount = sortedAnnouncements.filter((item) => item.type === 'event').length;
   const scheduledCount = sortedAnnouncements.filter((item) => item.startsAt || item.endsAt).length;
@@ -184,8 +189,7 @@ export function AdminAnnouncementsPage() {
                   id="admin-announcements-search"
                   value={searchQuery}
                   onValueChange={(value) => {
-                    setSearchQuery(value);
-                    setCurrentPage(1);
+                    setFilter('searchQuery', value);
                   }}
                   placeholder="Search by title or content..."
                   className="w-full"
@@ -199,8 +203,10 @@ export function AdminAnnouncementsPage() {
                     key={filter.value}
                     type="button"
                     onClick={() => {
-                      setSelectedType(filter.value as 'all' | AnnouncementType);
-                      setCurrentPage(1);
+                      setFilter(
+                        'selectedType',
+                        filter.value as 'all' | AnnouncementType,
+                      );
                     }}
                     className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
                       selectedType === filter.value
@@ -218,8 +224,7 @@ export function AdminAnnouncementsPage() {
                     options={sortOptions}
                     value={sortDirection}
                     onChange={(event) => {
-                      setSortDirection(event.target.value as SortDirection);
-                      setCurrentPage(1);
+                      setFilter('sortDirection', event.target.value as SortDirection);
                     }}
                   />
                 </div>

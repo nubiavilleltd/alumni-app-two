@@ -6,10 +6,8 @@ import {
   ExternalLink,
   Globe,
   Hash,
-  Mail,
   MapPin,
   MessageCircle,
-  Phone,
   SearchX,
   Share2,
   Store,
@@ -20,14 +18,13 @@ import {
   IconBrandInstagram,
   IconBrandLinkedin,
   IconBrandTiktok,
-  IconBrandWhatsapp,
   IconBrandX,
 } from '@tabler/icons-react';
 import { SEO } from '@/shared/common/SEO';
 import { Breadcrumbs } from '@/shared/components/ui/Breadcrumbs';
-import { Button, ButtonLink } from '@/shared/components/ui/Button';
+import { Button } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
-import { EmailInstructionModal } from '@/shared/components/ui/EmailInstructionModal';
+import { ProtectedContactValue } from '@/shared/components/ui/ProtectedContactValue';
 import { toast } from '@/shared/components/ui/Toast';
 import { useStartDirectConversation } from '@/features/messages/hooks/useStartDirectConversation';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
@@ -128,7 +125,6 @@ export default function BusinessDetailPage() {
     useStartDirectConversation();
   const [activeImage, setActiveImage] = useState(0);
   const [isMessagePending, setIsMessagePending] = useState(false);
-  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   const images = business?.images ?? [];
   const activeImageSrc = images[activeImage];
@@ -340,26 +336,27 @@ export default function BusinessDetailPage() {
               </div>
 
               <div className="space-y-3 text-sm font-medium text-gray-600">
-                {business.phone ? (
-                  <a
-                    href={`tel:${business.phone.replace(/\s+/g, '')}`}
-                    className="flex items-start gap-2.5 transition-colors hover:text-primary-600"
-                  >
-                    <Phone className="mt-0.5 h-4 w-4 flex-none" />
-                    <span className="min-w-0 break-words">{business.phone}</span>
-                  </a>
-                ) : null}
-
-                {business.email ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsEmailModalOpen(true)}
-                    className="flex items-start gap-2.5 transition-colors hover:text-primary-600"
-                  >
-                    <Mail className="mt-0.5 h-4 w-4 flex-none" />
-                    <span className="min-w-0 break-all">{business.email}</span>
-                  </button>
-                ) : null}
+                <ProtectedContactValue
+                  value={business.phone}
+                  field="phone"
+                  label="Phone number"
+                  resourceType="marketplace-business"
+                  resourceId={business.businessId}
+                />
+                <ProtectedContactValue
+                  value={business.email}
+                  field="email"
+                  label="Email address"
+                  resourceType="marketplace-business"
+                  resourceId={business.businessId}
+                />
+                <ProtectedContactValue
+                  value={business.whatsapp}
+                  field="whatsapp"
+                  label="WhatsApp number"
+                  resourceType="marketplace-business"
+                  resourceId={business.businessId}
+                />
 
                 {business.website ? (
                   <a
@@ -389,20 +386,6 @@ export default function BusinessDetailPage() {
                 >
                   {isOwnBusiness ? 'Your business' : 'Send Message'}
                 </Button>
-
-                {business.whatsapp ? (
-                  <ButtonLink
-                    href={`https://wa.me/${business.whatsapp.replace(/\D/g, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    leftIcon={IconBrandWhatsapp}
-                    variant="outline"
-                    fullWidth
-                    className="rounded-full"
-                  >
-                    WhatsApp
-                  </ButtonLink>
-                ) : null}
 
                 <Button
                   type="button"
@@ -452,13 +435,6 @@ export default function BusinessDetailPage() {
         </section>
       </main>
 
-      <EmailInstructionModal
-        isOpen={isEmailModalOpen}
-        onClose={() => setIsEmailModalOpen(false)}
-        email={business.email ?? ''}
-        title={`Contact ${business.name}`}
-        description="Send an email to this business:"
-      />
     </>
   );
 }

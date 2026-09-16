@@ -18,52 +18,64 @@ import { DatePicker } from '@/shared/components/ui/input/DatePicker';
 
 // ─── Validation schema ────────────────────────────────────────────────────────
 
-const projectFormSchema = z
-  .object({
-    title: z.string().trim().min(2, 'Title must be at least 2 characters'),
-    description: z.string().trim().min(10, 'Description must be at least 10 characters'),
-    targetAmount: z
-      .number({ error: 'Please enter a valid amount' })
-      .min(0, 'Amount must be 0 or more')
-      .optional(),
-    amountRaised: z
-      .number({ error: 'Please enter a valid amount' })
-      .min(0, 'Amount must be 0 or more')
-      .default(0),
-    status: z.enum(['ongoing', 'completed']).default('ongoing'),
-    conductedBy: z.string().trim().min(1, 'Conducted By is required'),
-    location: z.string().trim().min(5, 'Location is required'),
-    startDate: z.string().min(1, 'Start date is required'),
-    endDate: z.string().optional(),
-    sortOrder: z.number({ error: 'Please enter a whole number' }).int().min(0).optional(),
-    isFeatured: z.boolean().optional(),
-    show_in_announcements: z.boolean().default(false),
-  })
-  .superRefine((data, ctx) => {
-    if (data.startDate) {
-      const selectedDate = new Date(data.startDate);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+const projectFieldsSchema = z.object({
+  title: z.string().trim().min(2, 'Title must be at least 2 characters'),
+  description: z.string().trim().min(10, 'Description must be at least 10 characters'),
+  targetAmount: z
+    .number({ error: 'Please enter a valid amount' })
+    .min(0, 'Amount must be 0 or more')
+    .optional(),
+  amountRaised: z
+    .number({ error: 'Please enter a valid amount' })
+    .min(0, 'Amount must be 0 or more')
+    .default(0),
+  status: z.enum(['ongoing', 'completed']).default('ongoing'),
+  conductedBy: z.string().trim().min(1, 'Conducted By is required'),
+  location: z.string().trim().min(5, 'Location is required'),
+  startDate: z.string().min(1, 'Start date is required'),
+  endDate: z.string().optional(),
+  sortOrder: z.number({ error: 'Please enter a whole number' }).int().min(0).optional(),
+  isFeatured: z.boolean().optional(),
+  show_in_announcements: z.boolean().default(false),
+});
 
-      if (selectedDate < today) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['startDate'],
-          message: 'Start date cannot be in the past',
-        });
-      }
-    }
+function validateProjectDates(
+  data: { startDate: string; endDate?: string },
+  ctx: z.RefinementCtx,
+  requireFutureStart: boolean,
+) {
+  if (data.startDate) {
+    const selectedDate = new Date(data.startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    if (data.startDate && data.endDate && data.endDate < data.startDate) {
+    if (requireFutureStart && selectedDate < today) {
       ctx.addIssue({
         code: 'custom',
-        path: ['endDate'],
-        message: 'End date cannot be before start date',
+        path: ['startDate'],
+        message: 'Start date cannot be in the past',
       });
     }
-  });
+  }
 
-type ProjectFormValues = z.infer<typeof projectFormSchema>;
+  if (data.startDate && data.endDate && data.endDate < data.startDate) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['endDate'],
+      message: 'End date cannot be before start date',
+    });
+  }
+}
+
+const projectCreateSchema = projectFieldsSchema.superRefine((data, ctx) => {
+  validateProjectDates(data, ctx, true);
+});
+
+const projectUpdateSchema = projectFieldsSchema.superRefine((data, ctx) => {
+  validateProjectDates(data, ctx, false);
+});
+
+type ProjectFormValues = z.infer<typeof projectCreateSchema>;
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -96,7 +108,7 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
     trigger,
     formState: { errors },
   } = useForm<ProjectFormValues>({
-    resolver: zodResolver(projectFormSchema) as any,
+    resolver: zodResolver(isEditing ? projectUpdateSchema : projectCreateSchema) as any,
     mode: 'onChange',
     defaultValues: {
       title: '',
@@ -116,6 +128,7 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
 
   const startDate = watch('startDate');
   const endDate = watch('endDate');
+  const todayDate = new Date().toISOString().split('T')[0];
 
   // Sync form + images when edit data changes
   useEffect(() => {
@@ -187,7 +200,12 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
   ];
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Project' : 'Create Project'}>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={isEditing ? 'Edit Project' : 'Create Project'}
+      size="wide"
+    >
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
         <FormInput
           label="Project Title"
@@ -269,7 +287,7 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
             label="Start Date"
             id="startDate"
             required
-            min={new Date().toISOString().split('T')[0]}
+            min={isEditing ? undefined : todayDate}
             max={endDate || undefined}
             error={errors.startDate?.message}
             value={startDate}
@@ -281,7 +299,7 @@ export function ProjectFormModal({ isOpen, onClose, editData }: ProjectFormModal
           <DatePicker
             label="End Date (Optional)"
             id="endDate"
-            min={startDate || new Date().toISOString().split('T')[0]}
+            min={startDate || (isEditing ? undefined : todayDate)}
             error={errors.endDate?.message}
             value={endDate}
             onValueChange={(val) =>

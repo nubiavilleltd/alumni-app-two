@@ -9,12 +9,8 @@ import {
   CircleAlert,
   CircleX,
   Globe,
-  Mail,
   MapPin,
-  Phone,
   Plus,
-  Search,
-  SlidersHorizontal,
   Store,
 } from 'lucide-react';
 
@@ -23,7 +19,6 @@ import {
   IconBrandInstagram,
   IconBrandLinkedin,
   IconBrandTiktok,
-  IconBrandWhatsapp,
   IconBrandX,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
@@ -31,12 +26,21 @@ import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
-import { AdvancedFiltersPanel } from '@/shared/components/ui/AdvancedFiltersPanel';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
 import { PostBusinessModal } from '../components/PostYourBusinessModal';
 import EmptyState from '@/shared/components/ui/EmptyState';
-import { EmailInstructionModal } from '@/shared/components/ui/EmailInstructionModal';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { useLocations } from '@/shared/hooks/useLocations';
+import type { LocationGroup } from '@/shared/types/location.types';
+import { ProtectedContactAvailability } from '@/shared/components/ui/ProtectedContactValue';
+import {
+  HierarchicalLocationFilter,
+  type HierarchicalLocationNode,
+  type HierarchicalLocationSelection,
+} from '@/shared/components/ui/HierarchicalLocationFilter';
 import {
   useMarketplace,
   useMarketplaceCategories,
@@ -48,7 +52,7 @@ import { useAlumni } from '@/features/alumni/hooks/useAlumni';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
 import { MARKETPLACE_ROUTES } from '../routes';
 import { resolveProfilePhoto } from '@/features/user/utils/profileUtils';
-import { matchesLocationPart } from '@/shared/utils/location';
+import { matchesLocationPart, normalizeLocationPart } from '@/shared/utils/location';
 
 const ITEMS_PER_PAGE = 9;
 const DEMO_PRIORITY_BUSINESS_OWNERS = ['lolu jumat', 'fcd fcd', 'felix ohemu'];
@@ -80,6 +84,98 @@ const marketplaceFilterSelectClassName = [
 
 const marketplaceGridClassName =
   'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 lg:gap-8 xl:grid-cols-[repeat(auto-fill,minmax(min(100%,19.25rem),1fr))] xl:gap-x-[1.5rem] xl:gap-y-[2.75rem]';
+
+type MarketplaceLocationFilters = {
+  search: string;
+  category: string;
+  city: string;
+  state: string;
+};
+
+type MutableLocationNode = {
+  label: string;
+  value: string;
+  children: Map<string, MutableLocationNode>;
+};
+
+function buildMarketplaceLocationHierarchy(
+  businesses: Business[],
+  filters: MarketplaceLocationFilters,
+  locationCatalogue: readonly LocationGroup[],
+): HierarchicalLocationNode[] {
+  const states = new Map<string, MutableLocationNode>();
+  const query = filters.search.trim().toLowerCase();
+
+  const matchesWithoutLocation = (business: Business) =>
+    (!query ||
+      business.name.toLowerCase().includes(query) ||
+      business.description.toLowerCase().includes(query)) &&
+    (!filters.category || business.category === filters.category);
+
+  const addLocation = (stateLabel: string, cityLabel?: string) => {
+    stateLabel = stateLabel.trim();
+    const stateValue = normalizeLocationPart(stateLabel);
+    if (!stateLabel || !stateValue) return;
+
+    let stateNode = states.get(stateValue);
+    if (!stateNode) {
+      stateNode = { label: stateLabel, value: stateValue, children: new Map() };
+      states.set(stateValue, stateNode);
+    }
+
+    cityLabel = cityLabel?.trim();
+    const cityValue = normalizeLocationPart(cityLabel);
+    if (!cityLabel || !cityValue || stateNode.children.has(cityValue)) return;
+
+    stateNode.children.set(cityValue, {
+      label: cityLabel,
+      value: cityValue,
+      children: new Map(),
+    });
+  };
+
+  locationCatalogue.forEach((location) => {
+    addLocation(location.state);
+    location.cities.forEach((city) => addLocation(location.state, city));
+  });
+
+  businesses.forEach((business) => {
+    addLocation(business.state, business.city);
+  });
+
+  const countForLocation = (location: HierarchicalLocationSelection) =>
+    businesses.filter(
+      (business) =>
+        matchesWithoutLocation(business) &&
+        matchesLocationPart(business.city, location.city) &&
+        matchesLocationPart(business.state, location.state),
+    ).length;
+
+  const toOptions = (
+    nodes: Map<string, MutableLocationNode>,
+    parent: HierarchicalLocationSelection,
+  ): HierarchicalLocationNode[] =>
+    Array.from(nodes.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((node) => {
+        const selection =
+          nodes === states
+            ? { state: node.value, city: '' }
+            : { state: parent.state, city: node.value };
+        const children = Array.from(node.children.values()).length
+          ? toOptions(node.children, selection)
+          : undefined;
+
+        return {
+          label: node.label,
+          value: node.value,
+          count: countForLocation(selection),
+          ...(children ? { children } : {}),
+        };
+      });
+
+  return toOptions(states, { state: '', city: '' });
+}
 
 type SocialLinkEntry = {
   key: string;
@@ -176,7 +272,6 @@ function BusinessCard({
 }) {
   const [imgIndex, setImgIndex] = useState(0);
   const [ownerPhotoFailed, setOwnerPhotoFailed] = useState(false);
-  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
   const navigate = useNavigate();
   const isOwnBusiness = business.ownerId === currentUserMemberId;
   const ownerInitials = getOwnerInitials(business.owner);
@@ -348,36 +443,12 @@ function BusinessCard({
         </p>
 
         <div className="mt-[0.85rem] space-y-2 text-[clamp(0.84rem,0.8vw,0.94rem)] font-medium leading-[1.25] text-[#555c68]">
-          {hasPhone && (
-            <a
-              href={`tel:${business.phone.replace(/\s+/g, '')}`}
-              className="flex items-start gap-2.5 no-underline transition-colors hover:text-primary-600"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <Phone
-                strokeWidth={2.6}
-                className="mt-0.5 h-[1.05rem] w-[1.05rem] shrink-0 text-[#5f6873]"
-              />
-              <span className="min-w-0 break-words">{business.phone}</span>
-            </a>
-          )}
-
-          {hasEmail && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsEmailModalOpen(true);
-              }}
-              className="flex items-start gap-2.5 no-underline transition-colors hover:text-primary-600"
-            >
-              <Mail
-                strokeWidth={2.6}
-                className="mt-0.5 h-[1.05rem] w-[1.05rem] shrink-0 text-[#5f6873]"
-              />
-              <span className="min-w-0 break-all">{business.email}</span>
-            </button>
-          )}
+          <ProtectedContactAvailability
+            phone={hasPhone}
+            email={hasEmail}
+            whatsapp={hasWhatsapp}
+            label={`Protected contact details for ${business.name}`}
+          />
 
           <div className="flex items-start gap-2.5">
             <MapPin
@@ -510,44 +581,25 @@ function BusinessCard({
           >
             <span>{isMessagePending ? 'Opening...' : 'Send Message'}</span>
           </Button>
-
-          {hasWhatsapp && (
-            <a
-              href={`https://wa.me/${business.whatsapp!.replace(/\D/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Message ${business.name} on WhatsApp`}
-              onClick={(event) => event.stopPropagation()}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25D366] text-white transition-transform hover:brightness-95 active:translate-y-px focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-200"
-            >
-              <IconBrandWhatsapp size={20} stroke={2} />
-            </a>
-          )}
         </div>
       </div>
-
-      <EmailInstructionModal
-        isOpen={isEmailModalOpen}
-        onClose={() => setIsEmailModalOpen(false)}
-        email={business.email ?? ''}
-        title={`Contact ${business.name}`}
-        description="Send an email to this business:"
-      />
     </article>
   );
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function MarketPlacePage() {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [category, setCategory] = useState('');
-  const [address, setAddress] = useState('');
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('');
-  const [chapterId, setChapterId] = useState('');
-  const [year, setYear] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters(
+    'marketplace-filters',
+    {
+      searchTerm: '',
+      category: '',
+      city: '',
+      state: '',
+    },
+  );
+  const { searchTerm, category, city, state } = filters;
+  const [currentPage, setCurrentPage] = useUrlPagination();
   const [showPostModal, setShowPostModal] = useState(false);
   const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
   const currentUser = useIdentityStore((state) => state.user);
@@ -560,13 +612,12 @@ export default function MarketPlacePage() {
       // Keep search local so description matches continue to work. The backend
       // currently applies `search` to listing titles only.
       category: category || undefined,
-      chapterId: chapterId || undefined,
-      year: year || undefined,
     }),
-    [category, chapterId, year],
+    [category],
   );
   const { data: businesses = [], isLoading, error } = useMarketplace(marketplaceParams);
   const { data: categoriesList = [] } = useMarketplaceCategories();
+  const { data: locations = [] } = useLocations();
   const { data: alumni = [] } = useAlumni({ action_type: 'approved' });
   const isSignedIn = Boolean(currentUser?.memberId);
 
@@ -610,13 +661,12 @@ export default function MarketPlacePage() {
         return (
           matchesSearch &&
           matchesCategory &&
-          matchesLocationPart(b.address, address) &&
           matchesLocationPart(b.city, city) &&
           matchesLocationPart(b.state, state)
         );
       })
       .sort(sortBusinessesForDemo);
-  }, [address, businesses, category, city, searchTerm, state]);
+  }, [businesses, category, city, searchTerm, state]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const visible = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -625,57 +675,28 @@ export default function MarketPlacePage() {
     [categoriesList],
   );
 
-  const locationOptions = useMemo(() => {
-    const toOptions = (values: Array<string | undefined>) =>
-      Array.from(new Set(values.filter(Boolean) as string[]))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value }));
+  const locationHierarchy = useMemo(
+    () =>
+      buildMarketplaceLocationHierarchy(
+        businesses,
+        {
+          search: searchTerm,
+          category,
+          city,
+          state,
+        },
+        locations,
+      ),
+    [businesses, category, city, locations, searchTerm, state],
+  );
 
-    return {
-      addresses: toOptions(businesses.map((business) => business.address)),
-      cities: toOptions(businesses.map((business) => business.city)),
-      states: toOptions(businesses.map((business) => business.state)),
-    };
-  }, [businesses]);
-
-  const chapterOptions = useMemo(() => {
-    const chapterLabels = new Map<string, string>();
-
-    businesses.forEach((business) => {
-      if (business.chapterId) {
-        chapterLabels.set(
-          business.chapterId,
-          business.chapterName || `Chapter ${business.chapterId}`,
-        );
-      }
-    });
-
-    if (chapterId && !chapterLabels.has(chapterId)) {
-      chapterLabels.set(chapterId, `Chapter ${chapterId}`);
-    }
-
-    return Array.from(chapterLabels, ([value, label]) => ({ value, label })).sort((a, b) =>
-      a.label.localeCompare(b.label),
-    );
-  }, [businesses, chapterId]);
-
-  const yearOptions = useMemo(() => {
-    const values = new Set(businesses.map((business) => business.year).filter(Boolean) as string[]);
-    if (year) values.add(year);
-
-    return Array.from(values)
-      .sort((a, b) => Number(b) - Number(a))
-      .map((value) => ({ label: value, value }));
-  }, [businesses, year]);
-
-  const activeAdvancedFilterCount = [address, city, state, chapterId, year].filter(Boolean).length;
-  const hasActiveFilters = Boolean(searchTerm.trim() || category || activeAdvancedFilterCount > 0);
+  const hasActiveFilters = Boolean(searchTerm.trim() || category || city || state);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, isLoading, totalPages]);
 
   const handlePostBusinessClick = () => {
     if (!currentUser) {
@@ -688,32 +709,12 @@ export default function MarketPlacePage() {
     setShowPostModal(true);
   };
 
-  const handleFilterChange = (setter: (v: string) => void) => (value: string) => {
-    setter(value);
-    setCurrentPage(1);
-  };
-
-  const handleAdvancedFilterChange = (key: string, value: string) => {
-    const setters: Record<string, (nextValue: string) => void> = {
-      address: setAddress,
-      city: setCity,
-      state: setState,
-      chapterId: setChapterId,
-      year: setYear,
-    };
-    setters[key]?.(value);
-    setCurrentPage(1);
+  const handleFilterChange = (key: keyof typeof filters) => (value: string) => {
+    setFilter(key, value);
   };
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setCategory('');
-    setAddress('');
-    setCity('');
-    setState('');
-    setChapterId('');
-    setYear('');
-    setCurrentPage(1);
+    clearFilters();
   };
 
   async function handleStartBusinessConversation(business: Business) {
@@ -777,142 +778,54 @@ export default function MarketPlacePage() {
             </Button>
           </div>
 
-          <div className="mb-10 flex flex-col gap-4 lg:mb-[2.15rem] lg:flex-row lg:items-center lg:justify-between">
-            {/* <div className="flex h-[3.1rem] w-full items-center gap-2 rounded-full bg-white px-[0.95rem] text-[#858585] lg:h-12 lg:max-w-[28rem]"> */}
-            <div className="flex h-[3.1rem] w-full items-center gap-2 rounded-full text-[#858585] lg:h-12 lg:max-w-[28rem]">
+          <div className="mb-6 flex flex-col gap-3 lg:mb-[2.15rem] lg:flex-row lg:flex-wrap lg:items-center">
+            <div className="flex h-10 w-full items-center gap-2 rounded-full text-[#858585] lg:w-64">
               <label htmlFor="marketplace-search" className="sr-only">
                 Search marketplace businesses
               </label>
-              {/* <SearchInput
-                id="marketplace-search"
-                value={searchTerm}
-                onValueChange={handleFilterChange(setSearchTerm)}
-                placeholder="Search here"
-                showClearButton={true}
-                className="w-full"
-                containerClassName="h-full"
-                inputClassName={marketplaceSearchInputClassName}
-                iconClassName="left-0 h-5 w-5 text-[#858585]"
-                searchIcon={Search}
-                clearIcon={CircleX}
-                errorIcon={CircleAlert}
-              /> */}
               <SearchInput
                 id="marketplace-search"
                 value={searchTerm}
-                onValueChange={handleFilterChange(setSearchTerm)}
-                placeholder="Search here"
+                onValueChange={handleFilterChange('searchTerm')}
+                placeholder="Search marketplace"
                 showClearButton={true}
                 className="w-full"
-                containerClassName="h-full"
                 inputClassName="!h-10 !py-0"
               />
             </div>
 
-            <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
-              <FilterDropdown
-                value={category}
-                onChange={handleFilterChange(setCategory)}
-                options={categoryOptions}
-                placeholder="Filter by Category"
-                className="h-[3.1rem] w-full sm:!w-full lg:h-12 lg:!w-[12.5rem] lg:!min-w-[12.5rem]"
-                selectClassName={marketplaceFilterSelectClassName}
-                clearIcon={CircleX}
-                chevronDownIcon={ChevronDown}
-                chevronUpIcon={ChevronUp}
-              />
-              <Button
-                type="button"
-                variant="white"
-                size="sm"
-                onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
-                leftIcon={SlidersHorizontal}
-                aria-expanded={showAdvancedFilters}
-                className="h-[3.1rem] w-full whitespace-nowrap border border-[#e1e6ec] text-[#58606b] shadow-sm hover:bg-[#f5f8fa] lg:h-12 lg:w-auto"
-              >
-                Advanced filters
-                {activeAdvancedFilterCount > 0 && (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
-                    {activeAdvancedFilterCount}
-                  </span>
-                )}
-              </Button>
-            </div>
+            <FilterDropdown
+              value={category}
+              onChange={handleFilterChange('category')}
+              options={categoryOptions}
+              placeholder="Category"
+              className="w-full lg:w-44 lg:flex-shrink-0"
+              selectClassName={marketplaceFilterSelectClassName}
+              clearIcon={CircleX}
+              chevronDownIcon={ChevronDown}
+              chevronUpIcon={ChevronUp}
+            />
+            <HierarchicalLocationFilter
+              label=""
+              placeholder="Location"
+              value={{ state, city }}
+              options={locationHierarchy}
+              onChange={(selection) => {
+                setFilters({ state: selection.state, city: selection.city });
+              }}
+              className="w-full lg:w-48 lg:flex-shrink-0"
+            />
+            {hasActiveFilters && (
+              <ClearFiltersButton onClick={clearAllFilters} className="w-full lg:w-auto" />
+            )}
           </div>
 
-          {showAdvancedFilters && (
-            <AdvancedFiltersPanel
-              title="Refine marketplace results"
-              description="Narrow businesses by where they operate, chapter, or listing year."
-              gridClassName="grid-cols-1 gap-4 md:grid-cols-3"
-              fields={[
-                {
-                  key: 'address',
-                  kind: 'select',
-                  label: 'Address',
-                  value: address,
-                  placeholder: 'All addresses',
-                  options: locationOptions.addresses,
-                },
-                {
-                  key: 'city',
-                  kind: 'select',
-                  label: 'City',
-                  value: city,
-                  placeholder: 'All cities',
-                  options: locationOptions.cities,
-                },
-                {
-                  key: 'state',
-                  kind: 'select',
-                  label: 'State',
-                  value: state,
-                  placeholder: 'All states',
-                  options: locationOptions.states,
-                },
-                {
-                  key: 'chapterId',
-                  kind: 'select',
-                  label: 'Chapter',
-                  value: chapterId,
-                  placeholder: 'All chapters',
-                  options: chapterOptions,
-                },
-                {
-                  key: 'year',
-                  kind: 'select',
-                  label: 'Listed in',
-                  value: year,
-                  placeholder: 'Any year',
-                  options: yearOptions,
-                },
-              ]}
-              onFieldChange={handleAdvancedFilterChange}
-              onReset={() => {
-                setAddress('');
-                setCity('');
-                setState('');
-                setChapterId('');
-                setYear('');
-                setCurrentPage(1);
-              }}
-              hasActiveFilters={Boolean(address || city || state || chapterId || year)}
-            />
-          )}
-
           {hasActiveFilters && (
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+            <div className="mb-6 text-sm text-[#69727d]">
               <span>
                 Showing {filtered.length} {filtered.length === 1 ? 'business' : 'businesses'}{' '}
                 matching your filters
               </span>
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-              >
-                Clear all filters
-              </button>
             </div>
           )}
 

@@ -9,27 +9,37 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BriefcaseBusiness, Plus, SearchX, SlidersHorizontal, X } from 'lucide-react';
+import { BriefcaseBusiness, Plus, SearchX, X } from 'lucide-react';
 import { SEO } from '@/shared/common/SEO';
 import { Button } from '@/shared/components/ui/Button';
 import EmptyState from '@/shared/components/ui/EmptyState';
+import { ClearFiltersButton } from '@/shared/components/ui/ClearFiltersButton';
 import { ImageUpload } from '@/shared/components/ui/ImageUpload';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import { SearchInput } from '@/shared/components/ui/input/SearchInput';
-import {
-  AdvancedFiltersPanel,
-  type AdvancedFilterOption,
-} from '@/shared/components/ui/AdvancedFiltersPanel';
 import { BaseInput } from '@/shared/components/ui/input/BaseInput';
 import { DatePicker } from '@/shared/components/ui/input/DatePicker';
+import { FilterDropdown } from '@/shared/components/ui/FilterDropdown';
+import {
+  HierarchicalLocationFilter,
+  type HierarchicalLocationNode,
+  type HierarchicalLocationSelection,
+} from '@/shared/components/ui/HierarchicalLocationFilter';
 import { SelectInput } from '@/shared/components/ui/SelectInput';
 import { TextareaInput } from '@/shared/components/ui/TextAreaInput';
 import { toast } from '@/shared/components/ui/Toast';
 import { ROUTES } from '@/shared/constants/routes';
+import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
+import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
+import { useLocations } from '@/shared/hooks/useLocations';
 import { useRequireSignIn } from '@/features/authentication/hooks/useRequireSignIn';
 import { useIdentityStore } from '@/features/authentication/stores/useIdentityStore';
 import { useTokenStore } from '@/features/authentication/stores/useTokenStore';
-import { combineLocationParts, matchesLocationPart } from '@/shared/utils/location';
+import {
+  combineLocationParts,
+  matchesLocationPart,
+  normalizeLocationPart,
+} from '@/shared/utils/location';
 import { useCreateVacancy } from '../hooks/useCreateVacancy';
 import { useJobVacancies } from '../hooks/useJobVacancies';
 import { useUpdateVacancy } from '../hooks/useManageVacancy';
@@ -65,7 +75,10 @@ type JobFormState = {
   address: string;
   city: string;
   state: string;
-  salary: string;
+  salaryType: 'range' | 'fixed';
+  salaryAmount: string;
+  minSalary: string;
+  maxSalary: string;
   currency: VacancyCurrency;
   deadline: string;
   tags: string[];
@@ -85,17 +98,11 @@ const MAX_KEYWORD_LENGTH = 30;
 const JOB_VACANCIES_PER_PAGE = 12;
 
 const SALARY_FILTER_OPTIONS = [
-  { label: 'Under 100,000', value: 'under-100000' },
+  { label: 'Below 100,000', value: 'under-100000' },
   { label: '100,000–250,000', value: '100000-250000' },
   { label: '250,000–500,000', value: '250000-500000' },
   { label: '500,000 and above', value: '500000-plus' },
   { label: 'Salary not specified', value: 'not-specified' },
-];
-
-const DEADLINE_FILTER_OPTIONS = [
-  { label: 'Open applications', value: 'open' },
-  { label: 'Closing in 30 days', value: 'closing-soon' },
-  { label: 'Expired applications', value: 'expired' },
 ];
 
 type JobFilterState = {
@@ -104,11 +111,15 @@ type JobFilterState = {
   jobType: string;
   workplace: string;
   expertise: string;
-  address: string;
   city: string;
   state: string;
-  currency: string;
-  deadline: string;
+};
+
+type JobFilterOption = {
+  label: string;
+  value: string;
+  count?: number;
+  disabled?: boolean;
 };
 
 type JobFacetField = Exclude<keyof JobFilterState, 'search'>;
@@ -159,7 +170,10 @@ const initialJobFormState: JobFormState = {
   address: '',
   city: '',
   state: '',
-  salary: '',
+  salaryType: 'range',
+  salaryAmount: '',
+  minSalary: '',
+  maxSalary: '',
   currency: 'NGN',
   deadline: '',
   tags: [],
@@ -191,16 +205,56 @@ function getDateInputValue(value: string) {
   return date.toISOString().slice(0, 10);
 }
 
-function getSalaryFormValue(value: string) {
-  const numericValue = value.replace(/[^\d.]/g, '');
-
-  return numericValue || value;
-}
-
 function getSalaryAmounts(value: string) {
   return (value.match(/[\d,]+(?:\.\d+)?/g) ?? [])
     .map((amount) => Number(amount.replace(/,/g, '')))
     .filter((amount) => Number.isFinite(amount));
+}
+
+function getSalaryFormValue(value: string) {
+  const [amount] = getSalaryAmounts(value);
+
+  return amount !== undefined ? formatSalaryInput(String(amount)) : value;
+}
+
+function getSalaryFormFields(value: string) {
+  const amounts = getSalaryAmounts(value);
+
+  if (amounts.length >= 2) {
+    return {
+      salaryType: 'range' as const,
+      salaryAmount: '',
+      minSalary: formatSalaryInput(String(amounts[0])),
+      maxSalary: formatSalaryInput(String(amounts[1])),
+    };
+  }
+
+  return {
+    salaryType: 'fixed' as const,
+    salaryAmount: getSalaryFormValue(value),
+    minSalary: '',
+    maxSalary: '',
+  };
+}
+
+function formatSalaryInput(value: string) {
+  const sanitized = value.replace(/[^\d.]/g, '');
+  const decimalIndex = sanitized.indexOf('.');
+  const rawIntegerPart =
+    decimalIndex === -1 ? sanitized : sanitized.slice(0, decimalIndex);
+  const rawDecimalPart =
+    decimalIndex === -1 ? '' : sanitized.slice(decimalIndex + 1).replace(/\./g, '');
+
+  if (!rawIntegerPart && decimalIndex === -1) {
+    return '';
+  }
+
+  const integerPart = (rawIntegerPart || '0').replace(/^0+(?=\d)/, '');
+  const formattedIntegerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return decimalIndex === -1
+    ? formattedIntegerPart
+    : `${formattedIntegerPart}.${rawDecimalPart}`;
 }
 
 function matchesSalaryFilter(salary: string, filter: string) {
@@ -224,22 +278,6 @@ function matchesSalaryFilter(salary: string, filter: string) {
   return lowest <= range.max && highest >= range.min;
 }
 
-function matchesDeadlineFilter(deadline: string, filter: string) {
-  if (!filter) return true;
-
-  const deadlineDate = new Date(deadline);
-  if (Number.isNaN(deadlineDate.getTime())) return false;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const closingSoonDate = new Date(today);
-  closingSoonDate.setDate(closingSoonDate.getDate() + 30);
-
-  if (filter === 'expired') return deadlineDate < today;
-  if (filter === 'closing-soon') return deadlineDate >= today && deadlineDate <= closingSoonDate;
-  return deadlineDate >= today;
-}
-
 function matchesJobVacancyFilters(job: JobVacancyViewModel, filters: JobFilterState): boolean {
   const query = filters.search.trim().toLowerCase();
   const searchableFields = [
@@ -261,11 +299,8 @@ function matchesJobVacancyFilters(job: JobVacancyViewModel, filters: JobFilterSt
     (!filters.jobType || job.jobType === filters.jobType) &&
     (!filters.workplace || job.workplaceType === filters.workplace) &&
     (!filters.expertise || job.levelOfExpertise === filters.expertise) &&
-    matchesLocationPart(job.address, filters.address) &&
     matchesLocationPart(job.city, filters.city) &&
-    matchesLocationPart(job.state, filters.state) &&
-    (!filters.currency || job.currency === filters.currency) &&
-    (!filters.deadline || matchesDeadlineFilter(job.postedAt, filters.deadline))
+    matchesLocationPart(job.state, filters.state)
   );
 }
 
@@ -274,7 +309,7 @@ function getFacetOptions<T extends { label: string; value: string }>(
   field: JobFacetField,
   jobs: JobVacancyViewModel[],
   filters: JobFilterState,
-): AdvancedFilterOption[] {
+): JobFilterOption[] {
   return options.map((option) => {
     const count = jobs.filter((job) =>
       matchesJobVacancyFilters(job, {
@@ -291,8 +326,84 @@ function getFacetOptions<T extends { label: string; value: string }>(
   });
 }
 
+type MutableLocationNode = {
+  label: string;
+  value: string;
+  children: Map<string, MutableLocationNode>;
+};
+
+function buildJobLocationHierarchy(
+  jobs: JobVacancyViewModel[],
+  filters: JobFilterState,
+): HierarchicalLocationNode[] {
+  const states = new Map<string, MutableLocationNode>();
+  const filtersWithoutLocation: JobFilterState = {
+    ...filters,
+    city: '',
+    state: '',
+  };
+
+  jobs.forEach((job) => {
+    const stateLabel = job.state.trim();
+    const stateValue = normalizeLocationPart(stateLabel);
+    if (!stateLabel || !stateValue) return;
+
+    let stateNode = states.get(stateValue);
+    if (!stateNode) {
+      stateNode = { label: stateLabel, value: stateValue, children: new Map() };
+      states.set(stateValue, stateNode);
+    }
+
+    const cityLabel = job.city.trim();
+    const cityValue = normalizeLocationPart(cityLabel);
+    if (!cityLabel || !cityValue) return;
+
+    let cityNode = stateNode.children.get(cityValue);
+    if (!cityNode) {
+      cityNode = { label: cityLabel, value: cityValue, children: new Map() };
+      stateNode.children.set(cityValue, cityNode);
+    }
+  });
+
+  const countForLocation = (location: HierarchicalLocationSelection) =>
+    jobs.filter((job) =>
+      matchesJobVacancyFilters(job, {
+        ...filtersWithoutLocation,
+        ...location,
+      }),
+    ).length;
+
+  const toOptions = (
+    nodes: Map<string, MutableLocationNode>,
+    parent: HierarchicalLocationSelection,
+  ): HierarchicalLocationNode[] =>
+    Array.from(nodes.values())
+      .sort((first, second) => first.label.localeCompare(second.label))
+      .map((node) => {
+        const selection =
+          nodes === states
+            ? { state: node.value, city: '' }
+            : { state: parent.state, city: node.value };
+
+        const children = Array.from(node.children.values()).length
+          ? toOptions(node.children, selection)
+          : undefined;
+
+        return {
+          label: node.label,
+          value: node.value,
+          count: countForLocation(selection),
+          ...(children ? { children } : {}),
+        };
+      });
+
+  return toOptions(states, { state: '', city: '' });
+}
+
 function jobToFormState(job?: JobVacancyViewModel | null): JobFormState {
   if (!job) return getInitialJobFormState();
+
+  const salaryFields = getSalaryFormFields(job.salary);
 
   return {
     title: job.title,
@@ -303,7 +414,7 @@ function jobToFormState(job?: JobVacancyViewModel | null): JobFormState {
     address: job.address ?? job.location,
     city: job.city ?? '',
     state: job.state ?? '',
-    salary: getSalaryFormValue(job.salary),
+    ...salaryFields,
     currency: isVacancyCurrency(job.currency) ? job.currency : 'NGN',
     deadline: getDateInputValue(job.postedAt),
     tags: [...job.tags],
@@ -357,7 +468,10 @@ function splitKeywords(value: string) {
   return value.split(/[,\n]/).map(normalizeKeyword).filter(Boolean);
 }
 
-function validateJobForm(form: JobFormState): JobFormErrors {
+function validateJobForm(
+  form: JobFormState,
+  options: { requireFutureDeadline?: boolean } = {},
+): JobFormErrors {
   const errors: JobFormErrors = {};
   const today = getTodayDateInputValue();
 
@@ -369,12 +483,29 @@ function validateJobForm(form: JobFormState): JobFormErrors {
   if (!form.address.trim()) errors.address = 'Address is required.';
   if (!form.city.trim()) errors.city = 'City is required.';
   if (!form.state.trim()) errors.state = 'State is required.';
-  if (!form.salary.trim()) errors.salary = 'Salary is required.';
-  if (form.salary.trim() && parseSalaryAmount(form.salary) === null) {
-    errors.salary = 'Enter a valid salary amount.';
+  if (form.salaryType === 'fixed') {
+    if (!form.salaryAmount.trim()) errors.salaryAmount = 'Salary is required.';
+    if (form.salaryAmount.trim() && parseSalaryAmount(form.salaryAmount) === null) {
+      errors.salaryAmount = 'Enter a valid salary amount.';
+    }
+  } else {
+    if (!form.minSalary.trim()) errors.minSalary = 'Minimum salary is required.';
+    if (form.minSalary.trim() && parseSalaryAmount(form.minSalary) === null) {
+      errors.minSalary = 'Enter a valid minimum salary.';
+    }
+    if (!form.maxSalary.trim()) errors.maxSalary = 'Maximum salary is required.';
+    if (form.maxSalary.trim() && parseSalaryAmount(form.maxSalary) === null) {
+      errors.maxSalary = 'Enter a valid maximum salary.';
+    }
+
+    const minimum = parseSalaryAmount(form.minSalary);
+    const maximum = parseSalaryAmount(form.maxSalary);
+    if (minimum !== null && maximum !== null && maximum < minimum) {
+      errors.maxSalary = 'Maximum salary must be greater than or equal to minimum salary.';
+    }
   }
   if (!form.deadline.trim()) errors.deadline = 'Application deadline is required.';
-  if (form.deadline.trim() && form.deadline < today) {
+  if (options.requireFutureDeadline !== false && form.deadline.trim() && form.deadline < today) {
     errors.deadline = 'Application deadline cannot be in the past.';
   }
   if (!form.aboutRole.trim()) errors.aboutRole = 'Tell applicants about the role.';
@@ -396,6 +527,32 @@ function validateJobForm(form: JobFormState): JobFormErrors {
   }
 
   return errors;
+}
+
+function formatSalaryForPayload(form: JobFormState) {
+  if (form.salaryType === 'range') {
+    const minimum = formatMoneyAmount(form.minSalary, form.currency, form.minSalary.trim());
+    const maximum = formatMoneyAmount(form.maxSalary, form.currency, form.maxSalary.trim());
+    return `${minimum} - ${maximum}`;
+  }
+
+  return formatMoneyAmount(form.salaryAmount, form.currency, form.salaryAmount.trim());
+}
+
+function getSalaryPreview(form: JobFormState) {
+  if (form.salaryType === 'range') {
+    if (parseSalaryAmount(form.minSalary) === null || parseSalaryAmount(form.maxSalary) === null) {
+      return undefined;
+    }
+
+    const minimum = formatMoneyAmount(form.minSalary, form.currency, form.minSalary);
+    const maximum = formatMoneyAmount(form.maxSalary, form.currency, form.maxSalary);
+    return `Job seekers will see: ${minimum} – ${maximum}`;
+  }
+
+  if (parseSalaryAmount(form.salaryAmount) === null) return undefined;
+
+  return `Job seekers will see: ${formatMoneyAmount(form.salaryAmount, form.currency, form.salaryAmount)}`;
 }
 
 export function getTone(index: number): JobCardTone {
@@ -579,11 +736,17 @@ export function JobCard({
       </div>
 
       <div className="mt-auto flex items-end justify-between gap-4 px-[1.35rem] pb-[1.0rem] pt-4 max-sm:flex-wrap">
-        <div>
-          <p className="text-[1.45rem] font-extrabold leading-none text-[#071116]">
+        <div className="min-w-0 flex-1">
+          <p
+            className="truncate text-[1.45rem] font-extrabold leading-none text-[#071116]"
+            title={getSalaryDisplay(job)}
+          >
             {getSalaryDisplay(job)}
           </p>
-          <p className="mt-[0.35rem] text-[0.9rem] font-semibold leading-[1.15] text-[#59626c]">
+          <p
+            className="mt-[0.35rem] truncate text-[0.9rem] font-semibold leading-[1.15] text-[#59626c]"
+            title={[job.address, job.city, job.state].filter(Boolean).join(', ') || job.location}
+          >
             {[job.address, job.city, job.state].filter(Boolean).join(', ') || job.location}
           </p>
         </div>
@@ -611,6 +774,7 @@ export function PostJobModal({
   const isEditing = Boolean(editData);
   const createVacancy = useCreateVacancy();
   const updateVacancy = useUpdateVacancy();
+  const { data: locations = [] } = useLocations();
   const [form, setForm] = useState<JobFormState>(() => jobToFormState(editData));
   const applicationDestinationCacheRef = useRef<Record<ApplicationType, string>>({
     email: editData?.applicationEmail ?? '',
@@ -624,6 +788,40 @@ export function PostJobModal({
   );
   const minDeadline = getTodayDateInputValue();
   const isSubmitting = createVacancy.isPending || updateVacancy.isPending;
+  const salaryPreview = getSalaryPreview(form);
+  const stateOptions = useMemo(() => {
+    const options = locations.map((location) => ({
+      label: location.state,
+      value: location.state,
+    }));
+
+    if (
+      form.state &&
+      !options.some((option) => option.value.toLowerCase() === form.state.toLowerCase())
+    ) {
+      options.push({ label: form.state, value: form.state });
+    }
+
+    return options;
+  }, [form.state, locations]);
+  const cityOptions = useMemo(() => {
+    const selectedLocation = locations.find(
+      (location) => location.state.toLowerCase() === form.state.toLowerCase(),
+    );
+    const options = (selectedLocation?.cities ?? []).map((city) => ({
+      label: city,
+      value: city,
+    }));
+
+    if (
+      form.city &&
+      !options.some((option) => option.value.toLowerCase() === form.city.toLowerCase())
+    ) {
+      options.push({ label: form.city, value: form.city });
+    }
+
+    return options;
+  }, [form.city, form.state, locations]);
 
   useEffect(() => {
     applicationDestinationCacheRef.current = {
@@ -647,6 +845,28 @@ export function PostJobModal({
     });
     setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
     setFormError('');
+  };
+
+  const handleSalaryTypeChange = (salaryType: JobFormState['salaryType']) => {
+    setForm((prev) => ({
+      ...prev,
+      salaryType,
+      ...(salaryType === 'range' ? { salaryAmount: '' } : { minSalary: '', maxSalary: '' }),
+    }));
+    setFieldErrors((prev) => ({
+      ...prev,
+      salaryAmount: undefined,
+      minSalary: undefined,
+      maxSalary: undefined,
+    }));
+    setFormError('');
+  };
+
+  const handleSalaryInputChange = (
+    field: 'salaryAmount' | 'minSalary' | 'maxSalary',
+    value: string,
+  ) => {
+    handleFieldChange(field, formatSalaryInput(value));
   };
 
   const handleApplicationModeChange = (nextMode: ApplicationType) => {
@@ -731,7 +951,7 @@ export function PostJobModal({
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const errors = validateJobForm(form);
+    const errors = validateJobForm(form, { requireFutureDeadline: !isEditing });
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return;
@@ -749,7 +969,7 @@ export function PostJobModal({
       workplace_type: form.workplaceType as WorkplaceType,
       level_of_expertise: form.level as LevelOfExpertise,
       location: combineLocationParts(form),
-      salary: formatMoneyAmount(form.salary, form.currency, form.salary.trim()),
+      salary: formatSalaryForPayload(form),
       currency: form.currency,
       application_deadline: form.deadline,
       keywords: form.tags.length > 0 ? form.tags.join(', ') : undefined,
@@ -878,6 +1098,35 @@ export function PostJobModal({
               required
               disabled={isSubmitting}
             />
+            <SelectInput
+              label="State"
+              labelClassName={jobsFormLabelClassName}
+              controlClassName={jobsFormSelectControlClassName}
+              name="state"
+              value={form.state}
+              onChange={(event) => {
+                handleFieldChange('state', event.target.value);
+                handleFieldChange('city', '');
+              }}
+              placeholder="Select a state"
+              options={stateOptions}
+              error={fieldErrors.state}
+              required
+              disabled={isSubmitting}
+            />
+            <SelectInput
+              label="City"
+              labelClassName={jobsFormLabelClassName}
+              controlClassName={jobsFormSelectControlClassName}
+              name="city"
+              value={form.city}
+              onChange={(event) => handleFieldChange('city', event.target.value)}
+              placeholder={form.state ? 'Select a city' : 'Select a state first'}
+              options={cityOptions}
+              error={fieldErrors.city}
+              required
+              disabled={!form.state || isSubmitting}
+            />
             <BaseInput
               label="Address"
               labelClassName={jobsFormLabelClassName}
@@ -891,50 +1140,100 @@ export function PostJobModal({
               required
               disabled={isSubmitting}
             />
-            <BaseInput
-              label="City"
-              labelClassName={jobsFormLabelClassName}
-              controlClassName={jobsFormControlClassName}
-              inputClassName={jobsFormInputClassName}
-              name="city"
-              value={form.city}
-              onChange={(event) => handleFieldChange('city', event.target.value)}
-              placeholder="Enter the city"
-              error={fieldErrors.city}
-              required
-              disabled={isSubmitting}
-            />
-            <BaseInput
-              label="State"
-              labelClassName={jobsFormLabelClassName}
-              controlClassName={jobsFormControlClassName}
-              inputClassName={jobsFormInputClassName}
-              name="state"
-              value={form.state}
-              onChange={(event) => handleFieldChange('state', event.target.value)}
-              placeholder="Enter the state"
-              error={fieldErrors.state}
-              required
-              disabled={isSubmitting}
-            />
-            <BaseInput
-              label="Salary"
-              labelClassName={jobsFormLabelClassName}
-              controlClassName={jobsFormControlClassName}
-              inputClassName={jobsFormInputClassName}
-              name="salary"
-              value={form.salary}
-              onChange={(event) => handleFieldChange('salary', event.target.value)}
-              placeholder="Enter the job salary amount"
-              hint={
-                parseSalaryAmount(form.salary) !== null
-                  ? `Display preview: ${formatMoneyAmount(form.salary, form.currency, form.salary)}`
-                  : undefined
-              }
-              error={fieldErrors.salary}
-              required
-              disabled={isSubmitting}
-            />
+            <fieldset className="md:col-span-2">
+              <legend className={`${jobsFormLabelClassName} block`}>
+                Salary <span className="ml-0.5 text-red-500">*</span>
+              </legend>
+
+              <div
+                className={`mt-2 flex flex-wrap gap-x-6 gap-y-2 ${
+                  isSubmitting ? 'opacity-50' : ''
+                }`}
+                role="radiogroup"
+                aria-label="Salary type"
+              >
+                {(['range', 'fixed'] as const).map((salaryType) => {
+                  const isSelected = form.salaryType === salaryType;
+                  const label = salaryType === 'range' ? 'Salary range' : 'Fixed salary';
+
+                  return (
+                    <label
+                      key={salaryType}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-[#59626c] transition-colors hover:text-primary-600 focus-within:ring-2 focus-within:ring-primary-200 focus-within:ring-offset-1"
+                    >
+                      <input
+                        type="radio"
+                        name="salaryType"
+                        value={salaryType}
+                        checked={isSelected}
+                        onChange={() => handleSalaryTypeChange(salaryType)}
+                        disabled={isSubmitting}
+                        className="h-4 w-4 accent-primary-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-200 focus-visible:ring-offset-2"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div
+                className={`mt-4 grid grid-cols-1 gap-4 ${form.salaryType === 'range' ? 'sm:grid-cols-2' : ''}`}
+              >
+                {form.salaryType === 'range' ? (
+                  <>
+                    <BaseInput
+                      label="Minimum salary"
+                      labelClassName={jobsFormLabelClassName}
+                      controlClassName={jobsFormControlClassName}
+                      inputClassName={jobsFormInputClassName}
+                      name="minSalary"
+                      value={form.minSalary}
+                      onChange={(event) => handleSalaryInputChange('minSalary', event.target.value)}
+                      placeholder="Enter minimum salary"
+                      inputMode="decimal"
+                      error={fieldErrors.minSalary}
+                      required
+                      disabled={isSubmitting}
+                    />
+                    <BaseInput
+                      label="Maximum salary"
+                      labelClassName={jobsFormLabelClassName}
+                      controlClassName={jobsFormControlClassName}
+                      inputClassName={jobsFormInputClassName}
+                      name="maxSalary"
+                      value={form.maxSalary}
+                      onChange={(event) => handleSalaryInputChange('maxSalary', event.target.value)}
+                      placeholder="Enter maximum salary"
+                      inputMode="decimal"
+                      error={fieldErrors.maxSalary}
+                      required
+                      disabled={isSubmitting}
+                    />
+                  </>
+                ) : (
+                  <BaseInput
+                    label="Salary amount"
+                    labelClassName={jobsFormLabelClassName}
+                    controlClassName={jobsFormControlClassName}
+                    inputClassName={jobsFormInputClassName}
+                    name="salaryAmount"
+                    value={form.salaryAmount}
+                    onChange={(event) =>
+                      handleSalaryInputChange('salaryAmount', event.target.value)
+                    }
+                    placeholder="Enter salary amount"
+                    inputMode="decimal"
+                    error={fieldErrors.salaryAmount}
+                    required
+                    disabled={isSubmitting}
+                  />
+                )}
+              </div>
+
+              {salaryPreview ? (
+                <p className="mt-2 text-xs font-medium text-gray-400">{salaryPreview}</p>
+              ) : null}
+            </fieldset>
             <SelectInput
               label="Currency"
               labelClassName={jobsFormLabelClassName}
@@ -954,7 +1253,7 @@ export function PostJobModal({
               name="deadline"
               value={form.deadline}
               onValueChange={(value) => handleFieldChange('deadline', value)}
-              min={minDeadline}
+              min={isEditing ? undefined : minDeadline}
               placeholder="Select the application deadline"
               error={fieldErrors.deadline}
               required
@@ -1140,18 +1439,28 @@ export default function JobVacanciesPage() {
   const { data: vacancies = [], isLoading, isError, error, refetch } = useJobVacancies();
 
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [salaryFilter, setSalaryFilter] = useState('');
-  const [jobTypeFilter, setJobTypeFilter] = useState('');
-  const [workplaceFilter, setWorkplaceFilter] = useState('');
-  const [expertiseFilter, setExpertiseFilter] = useState('');
-  const [addressFilter, setAddressFilter] = useState('');
-  const [cityFilter, setCityFilter] = useState('');
-  const [stateFilter, setStateFilter] = useState('');
-  const [currencyFilter, setCurrencyFilter] = useState('');
-  const [deadlineFilter, setDeadlineFilter] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useUrlPagination();
+  const { filters, setFilter, setFilters, clearFilters } = usePersistedFilters(
+    'job-vacancies-filters',
+    {
+      search: '',
+      salaryFilter: '',
+      jobTypeFilter: '',
+      workplaceFilter: '',
+      expertiseFilter: '',
+      cityFilter: '',
+      stateFilter: '',
+    },
+  );
+  const {
+    search,
+    salaryFilter,
+    jobTypeFilter,
+    workplaceFilter,
+    expertiseFilter,
+    cityFilter,
+    stateFilter,
+  } = filters;
 
   const canPostJob = Boolean(user?.chapterId && accessToken);
 
@@ -1170,18 +1479,12 @@ export default function JobVacanciesPage() {
       jobType: jobTypeFilter,
       workplace: workplaceFilter,
       expertise: expertiseFilter,
-      address: addressFilter,
       city: cityFilter,
       state: stateFilter,
-      currency: currencyFilter,
-      deadline: deadlineFilter,
     }),
     [
-      currencyFilter,
-      deadlineFilter,
       expertiseFilter,
       jobTypeFilter,
-      addressFilter,
       cityFilter,
       salaryFilter,
       search,
@@ -1207,42 +1510,24 @@ export default function JobVacanciesPage() {
   }, [filterState, orderedVacancies]);
 
   const facetOptions = useMemo(() => {
-    const toOptions = (values: Array<string | undefined>) =>
-      Array.from(new Set(values.filter(Boolean) as string[]))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({ label: value, value }));
-    const addressValues = toOptions(vacancies.map((job) => job.address));
-    const cityValues = toOptions(vacancies.map((job) => job.city));
-    const stateValues = toOptions(vacancies.map((job) => job.state));
-    const currencyValues = Array.from(new Set(vacancies.map((job) => job.currency).filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b))
-      .map((value) => ({ label: value, value }));
-
     return {
       salary: getFacetOptions(SALARY_FILTER_OPTIONS, 'salary', vacancies, filterState),
       jobType: getFacetOptions(JOB_TYPE_OPTIONS, 'jobType', vacancies, filterState),
       workplace: getFacetOptions(WORKPLACE_TYPE_OPTIONS, 'workplace', vacancies, filterState),
       expertise: getFacetOptions(LEVEL_OF_EXPERTISE_OPTIONS, 'expertise', vacancies, filterState),
-      address: getFacetOptions(addressValues, 'address', vacancies, filterState),
-      city: getFacetOptions(cityValues, 'city', vacancies, filterState),
-      state: getFacetOptions(stateValues, 'state', vacancies, filterState),
-      currency: getFacetOptions(currencyValues, 'currency', vacancies, filterState),
-      deadline: getFacetOptions(DEADLINE_FILTER_OPTIONS, 'deadline', vacancies, filterState),
     };
   }, [filterState, vacancies]);
 
-  const activeAdvancedFilterCount = [
-    salaryFilter,
-    jobTypeFilter,
-    workplaceFilter,
-    expertiseFilter,
-    addressFilter,
-    cityFilter,
-    stateFilter,
-    currencyFilter,
-    deadlineFilter,
-  ].filter(Boolean).length;
-  const hasActiveFilters = Boolean(search.trim() || activeAdvancedFilterCount);
+  const locationHierarchy = useMemo(
+    () => buildJobLocationHierarchy(vacancies, filterState),
+    [filterState, vacancies],
+  );
+
+  const activeFilterCount = [salaryFilter, jobTypeFilter, workplaceFilter, expertiseFilter].filter(
+    Boolean,
+  ).length;
+  const hasLocationFilter = Boolean(cityFilter || stateFilter);
+  const hasActiveFilters = Boolean(search.trim() || activeFilterCount || hasLocationFilter);
 
   const totalPages = Math.max(1, Math.ceil(filteredVacancies.length / JOB_VACANCIES_PER_PAGE));
   const visibleVacancies = filteredVacancies.slice(
@@ -1251,25 +1536,10 @@ export default function JobVacanciesPage() {
   );
 
   useEffect(() => {
-    if (currentPage > totalPages) {
+    if (!isLoading && currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    addressFilter,
-    cityFilter,
-    currencyFilter,
-    deadlineFilter,
-    expertiseFilter,
-    jobTypeFilter,
-    salaryFilter,
-    search,
-    stateFilter,
-    workplaceFilter,
-  ]);
+  }, [currentPage, isLoading, totalPages]);
 
   const handleOpenPostModal = () => {
     if (!canPostJob) {
@@ -1292,30 +1562,11 @@ export default function JobVacanciesPage() {
   };
 
   const clearAllFilters = () => {
-    setSearch('');
-    setSalaryFilter('');
-    setJobTypeFilter('');
-    setWorkplaceFilter('');
-    setExpertiseFilter('');
-    setAddressFilter('');
-    setCityFilter('');
-    setStateFilter('');
-    setCurrencyFilter('');
-    setDeadlineFilter('');
-    setCurrentPage(1);
+    clearFilters();
   };
 
-  const handleAdvancedFilterChange = (key: string, value: string) => {
-    if (key === 'salary') setSalaryFilter(value);
-    if (key === 'jobType') setJobTypeFilter(value);
-    if (key === 'workplace') setWorkplaceFilter(value);
-    if (key === 'expertise') setExpertiseFilter(value);
-    if (key === 'address') setAddressFilter(value);
-    if (key === 'city') setCityFilter(value);
-    if (key === 'state') setStateFilter(value);
-    if (key === 'currency') setCurrencyFilter(value);
-    if (key === 'deadline') setDeadlineFilter(value);
-    setCurrentPage(1);
+  const handleFilterChange = (key: keyof typeof filters) => (value: string) => {
+    setFilter(key, value);
   };
 
   return (
@@ -1359,130 +1610,74 @@ export default function JobVacanciesPage() {
 
           {!isLoading && !isError && orderedVacancies.length > 0 ? (
             <>
-              <div className="mb-4 flex w-full items-center gap-3">
-                <div className="min-w-0 flex-1 sm:max-w-xl">
-                  <SearchInput
-                    value={search}
-                    onValueChange={setSearch}
-                    placeholder="Search job vacancies"
-                    inputClassName="!h-10 !py-0"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedFilters((isVisible) => !isVisible)}
-                  aria-expanded={showAdvancedFilters}
-                  className="flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50 sm:px-4 sm:text-sm"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  <span className="hidden sm:inline">Advanced filters</span>
-                  {activeAdvancedFilterCount > 0 && (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] text-white">
-                      {activeAdvancedFilterCount}
-                    </span>
-                  )}
-                </button>
+              <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+                <SearchInput
+                  value={search}
+                  onValueChange={handleFilterChange('search')}
+                  placeholder="Search job vacancies"
+                  className="w-full lg:w-64 lg:flex-shrink-0"
+                  inputClassName="!h-10 !py-0"
+                />
+                <FilterDropdown
+                  value={salaryFilter}
+                  onChange={handleFilterChange('salaryFilter')}
+                  options={facetOptions.salary}
+                  placeholder="Salary"
+                  className="w-full lg:w-44 lg:flex-shrink-0"
+                  sortOptionsAlphabetically={false}
+                />
+                <FilterDropdown
+                  value={jobTypeFilter}
+                  onChange={handleFilterChange('jobTypeFilter')}
+                  options={facetOptions.jobType}
+                  placeholder="Job type"
+                  className="w-full lg:w-44 lg:flex-shrink-0"
+                  sortOptionsAlphabetically={false}
+                />
+                <FilterDropdown
+                  value={workplaceFilter}
+                  onChange={handleFilterChange('workplaceFilter')}
+                  options={facetOptions.workplace}
+                  placeholder="Workplace"
+                  className="w-full lg:w-44 lg:flex-shrink-0"
+                  sortOptionsAlphabetically={false}
+                />
+                <FilterDropdown
+                  value={expertiseFilter}
+                  onChange={handleFilterChange('expertiseFilter')}
+                  options={facetOptions.expertise}
+                  placeholder="Experience level"
+                  className="w-full lg:w-48 lg:flex-shrink-0"
+                  sortOptionsAlphabetically={false}
+                />
+                <HierarchicalLocationFilter
+                  label=""
+                  placeholder="Location"
+                  value={{
+                    state: stateFilter,
+                    city: cityFilter,
+                  }}
+                  options={locationHierarchy}
+                  onChange={(selection) => {
+                    setFilters({
+                      stateFilter: selection.state,
+                      cityFilter: selection.city,
+                    });
+                  }}
+                  className="w-full lg:w-48 lg:flex-shrink-0"
+                />
+                {hasActiveFilters && (
+                  <ClearFiltersButton onClick={clearAllFilters} className="w-full lg:w-auto" />
+                )}
               </div>
 
-              {showAdvancedFilters && (
-                <AdvancedFiltersPanel
-                  title="Refine job vacancies"
-                  description="Narrow opportunities by salary, role type, workplace, experience, location, or deadline."
-                  gridClassName="grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-                  fields={[
-                    {
-                      key: 'salary',
-                      kind: 'select',
-                      label: 'Salary range',
-                      value: salaryFilter,
-                      placeholder: 'Any salary',
-                      options: facetOptions.salary,
-                    },
-                    {
-                      key: 'jobType',
-                      kind: 'select',
-                      label: 'Job type',
-                      value: jobTypeFilter,
-                      placeholder: 'All job types',
-                      options: facetOptions.jobType,
-                    },
-                    {
-                      key: 'workplace',
-                      kind: 'select',
-                      label: 'Workplace',
-                      value: workplaceFilter,
-                      placeholder: 'All workplaces',
-                      options: facetOptions.workplace,
-                    },
-                    {
-                      key: 'expertise',
-                      kind: 'select',
-                      label: 'Experience level',
-                      value: expertiseFilter,
-                      placeholder: 'All experience levels',
-                      options: facetOptions.expertise,
-                    },
-                    {
-                      key: 'address',
-                      kind: 'select',
-                      label: 'Address',
-                      value: addressFilter,
-                      placeholder: 'All addresses',
-                      options: facetOptions.address,
-                    },
-                    {
-                      key: 'city',
-                      kind: 'select',
-                      label: 'City',
-                      value: cityFilter,
-                      placeholder: 'All cities',
-                      options: facetOptions.city,
-                    },
-                    {
-                      key: 'state',
-                      kind: 'select',
-                      label: 'State',
-                      value: stateFilter,
-                      placeholder: 'All states',
-                      options: facetOptions.state,
-                    },
-                    {
-                      key: 'currency',
-                      kind: 'select',
-                      label: 'Currency',
-                      value: currencyFilter,
-                      placeholder: 'All currencies',
-                      options: facetOptions.currency,
-                    },
-                    {
-                      key: 'deadline',
-                      kind: 'select',
-                      label: 'Application deadline',
-                      value: deadlineFilter,
-                      placeholder: 'Any deadline',
-                      options: facetOptions.deadline,
-                    },
-                  ]}
-                  onFieldChange={handleAdvancedFilterChange}
-                  onReset={clearAllFilters}
-                  hasActiveFilters={activeAdvancedFilterCount > 0}
-                />
-              )}
-
               {hasActiveFilters && (
-                <div className="mb-6 mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[#69727d]">
+                <div className="mb-6 text-sm text-[#69727d]">
                   <span>
                     Showing {filteredVacancies.length}{' '}
                     {filteredVacancies.length === 1 ? 'job vacancy' : 'job vacancies'} matching your
                     filters
                   </span>
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="font-semibold text-primary-600 transition-colors hover:text-primary-700"
-                  >
-                    Clear all filters
-                  </button>
                 </div>
               )}
             </>

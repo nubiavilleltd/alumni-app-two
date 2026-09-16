@@ -40,6 +40,12 @@ export const API_ENDPOINTS = {
     GET_LIVE_NEWS: '/news/feeds',
   },
 
+  // ─── Shared locations ─────────────────────────────────────────────────────
+  // Proposed backend contract: GET /api/fetch_locations
+  LOCATIONS: {
+    FETCH: '/api/fetch_locations',
+  },
+
   // ─── Events ───────────────────────────────────────────────────────────────
   EVENTS: {
     GET_EVENTS: '/api/get_events',
@@ -119,7 +125,7 @@ export const API_ENDPOINTS = {
     LIST: '/api/get_announcements',
     CREATE: '/api/create_announcement',
     MANAGE: '/api/manage_announcement',
-    BIRTHDAYS:'/api/get_birthdays'
+    BIRTHDAYS: '/api/get_birthdays',
   },
 
   // ─── Pages Content ────────────────────────────────────────────────────────
@@ -157,26 +163,26 @@ export const API_ENDPOINTS = {
     ACTION: '/api/vouch_action',
   },
 
-STORE: {
-  FETCH_ADDRESSES: '/product/fetch_addresses',
-  ADD_ADDRESS: '/product/add_address',
-  EDIT_ADDRESS: '/product/edit_address',
-  DELETE_ADDRESS: '/product/delete_address',
+  STORE: {
+    FETCH_ADDRESSES: '/product/fetch_addresses',
+    ADD_ADDRESS: '/product/add_address',
+    EDIT_ADDRESS: '/product/edit_address',
+    DELETE_ADDRESS: '/product/delete_address',
 
-  FETCH_DELIVERY_ZONES: '/product/fetch_delivery_zones',
+    FETCH_DELIVERY_ZONES: '/product/fetch_delivery_zones',
 
-  INITIATE_CHECKOUT: '/product/initiate_checkout',
-  VERIFY_PAYMENT: '/product/verify_payment',
-},
+    INITIATE_CHECKOUT: '/product/initiate_checkout',
+    VERIFY_PAYMENT: '/product/verify_payment',
+  },
 
-ORDER:{
-  FETCH_ORDERS: '/product/fetch_orders',
-  // TEMPORARY: backend has not provided this endpoint yet.
-  // Pointing at FETCH_ORDERS as a stand-in so admin UI can be built/tested.
-  // ⚠️ This means the "admin" order list currently only returns the
-  // current user's own orders, NOT all orders across the system.
-  // TODO: revert to '/product/fetch_orders_management' once backend ships it.
-  FETCH_ORDERS_MANAGEMENT: '/product/order_management',
-  UPDATE_ORDER_STATUS: '/product/update_order_status',
-}
+  ORDER: {
+    FETCH_ORDERS: '/product/fetch_orders',
+    // TEMPORARY: backend has not provided this endpoint yet.
+    // Pointing at FETCH_ORDERS as a stand-in so admin UI can be built/tested.
+    // ⚠️ This means the "admin" order list currently only returns the
+    // current user's own orders, NOT all orders across the system.
+    // TODO: revert to '/product/fetch_orders_management' once backend ships it.
+    FETCH_ORDERS_MANAGEMENT: '/product/order_management',
+    UPDATE_ORDER_STATUS: '/product/update_order_status',
+  },
 } as const;

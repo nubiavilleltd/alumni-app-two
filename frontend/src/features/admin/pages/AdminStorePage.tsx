@@ -5,8 +5,8 @@ import { SEO } from '@/shared/common/SEO';
 import { useAdminProducts, useDeleteProduct, usePinProduct } from '../hooks/useAdminStore';
 import { ADMIN_ORDER_ROUTES, ADMIN_STORE_ROUTES } from '../routes';
 import { AdminStoreProductCard } from '../components/AdminStoreProductCard';
+import { AdminStoreFilters } from '../components/AdminStoreFilters';
 import { AdminBanner } from '../components/AdminBanner';
-import { StoreFilters } from '@/features/store/components/StoreFilters';
 import { toast } from '@/shared/components/ui/Toast';
 import { Pagination } from '@/shared/components/ui/Pagination';
 import useItemsPerPage from '@/features/store/hooks/useItemsPerPage';
@@ -62,7 +62,10 @@ function StoreSkeleton() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="bg-white rounded-[20px] overflow-hidden animate-pulse border border-gray-100">
+        <div
+          key={i}
+          className="bg-white rounded-[20px] overflow-hidden animate-pulse border border-gray-100"
+        >
           <div className="h-[200px] bg-gray-100" />
           <div className="p-4 flex justify-between gap-4">
             <div className="flex-1 space-y-2">
@@ -85,6 +88,7 @@ export function AdminStorePage() {
   const { data: response, isLoading, isError } = useAdminProducts();
   const products = response?.data ?? [];
   const meta = response?.meta;
+
   const { filters, setFilter } = usePersistedFilters('admin-store-filters', {
     search: '',
     category: '',
@@ -96,21 +100,15 @@ export function AdminStorePage() {
     [products],
   );
 
-
-
   const [page, setPage] = useUrlPagination();
-
   const ITEMS_PER_PAGE = useItemsPerPage();
 
   const filtered = useMemo(() => {
     return products.filter((product) => {
-
-
-      const searchMatch = product.product_name
-        .toLowerCase()
-        .includes(search.toLowerCase()) || product.category.toLowerCase()
-          .includes(search.toLowerCase()) || product.price?.toString().toLowerCase()
-            .includes(search.toLowerCase());
+      const searchMatch =
+        product.product_name.toLowerCase().includes(search.toLowerCase()) ||
+        product.category.toLowerCase().includes(search.toLowerCase()) ||
+        product.price?.toString().toLowerCase().includes(search.toLowerCase());
 
       const categoryMatch = !category || product.category === category;
 
@@ -129,20 +127,15 @@ export function AdminStorePage() {
   const pinProduct = usePinProduct();
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  // const [pendingPinId, setPendingPinId] = useState<string | null>(null);
 
   const pendingProduct = products.find((p) => p.id === pendingDeleteId);
-  // const productToPin = products.find((p) => p.id === pendingPinId);
 
-  const totalPages = Math.ceil(
-    sorted.length / ITEMS_PER_PAGE,
-  );
+  const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
 
   const visible = sorted.slice(
     (page - 1) * ITEMS_PER_PAGE,
     page * ITEMS_PER_PAGE,
   );
-
 
   const handleConfirmDelete = () => {
     if (!pendingDeleteId) return;
@@ -150,6 +143,7 @@ export function AdminStorePage() {
       onSettled: () => setPendingDeleteId(null),
     });
   };
+
   const handlePinProduct = async (productId: string, currentPinStatus: boolean) => {
     if (!productId) return;
     try {
@@ -159,11 +153,10 @@ export function AdminStorePage() {
         return;
       }
       await pinProduct.mutateAsync({ productId, pinItem: !currentPinStatus });
-      toast.success(`Product ${currentPinStatus ? "unpinned" : "pinned"}`);
-    } catch (error) {
-      toast.error("Failed to pin item")
+      toast.success(`Product ${currentPinStatus ? 'unpinned' : 'pinned'}`);
+    } catch {
+      toast.error('Failed to pin item');
     }
-
   };
 
   return (
@@ -173,18 +166,17 @@ export function AdminStorePage() {
 
       <div className="min-h-screen bg-[#F8F8F7]">
         <div className="container-custom py-8 sm:py-10">
-
           {/* Header */}
           <div className="flex flex-col sm:flex-row items-center justify-between mb-8">
-
-            <div className='flex-1'>
-              <StoreFilters
+            <div className="flex-1">
+              <AdminStoreFilters
                 search={search}
                 category={category}
                 categories={categories}
                 onSearch={(value) => setFilter('search', value)}
                 onCategoryChange={(value) => setFilter('category', value)}
-              /></div>
+              />
+            </div>
 
             <div className="flex items-center gap-3">
               {meta && (
@@ -206,21 +198,16 @@ export function AdminStorePage() {
                 <Plus size={16} strokeWidth={2.5} />
               </button>
             </div>
-
           </div>
 
-          {/* Loading */}
-          {isLoading && <StoreSkeleton />}
-
-          {/* Error */}
-          {isError && (
+          {/* Content */}
+          {isLoading ? (
+            <StoreSkeleton />
+          ) : isError ? (
             <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
               Failed to load products. Please refresh and try again.
             </div>
-          )}
-
-          {/* Empty */}
-          {!isLoading && !isError && products.length === 0 && (
+          ) : products.length === 0 ? (
             <div className="text-center py-20">
               <p className="text-gray-400 font-medium mb-4">No products in the store yet.</p>
               <button
@@ -231,30 +218,12 @@ export function AdminStorePage() {
                 Add your first product
               </button>
             </div>
-          )}
-
-          {/* Grid */}
-          {/* {!isLoading && !isError && filtered.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
-              {filtered.map((product) => (
-                <AdminStoreProductCard
-                  key={product.id}
-                  product={product}
-                  onEdit={() => navigate(ADMIN_STORE_ROUTES.PRODUCT_EDIT(product.id))}
-                  onDelete={() => setPendingDeleteId(product.id)}
-                  onPin={() => handlePinProduct(product.id, product.pin_item)}
-                  isDeleting={deleteProduct.isPending && pendingDeleteId === product.id}
-                />
-              ))}
-            </div>
-          )} */}
-
-
-
-
-          {isLoading ? (
-            <StoreSkeleton />
-          ) : visible.length > 0 ? (
+          ) : visible.length === 0 ? (
+            <EmptyState
+              title="No products found"
+              description="Try adjusting your search or category filter."
+            />
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
               {visible.map((product) => (
                 <AdminStoreProductCard
@@ -264,15 +233,12 @@ export function AdminStorePage() {
                   onDelete={() => setPendingDeleteId(product.id)}
                   onPin={() => handlePinProduct(product.id, product.pin_item)}
                   isDeleting={deleteProduct.isPending && pendingDeleteId === product.id}
-                  pinDisabled={!product.pin_item && !!meta && meta.total_pinned >= meta.max_pinned}
+                  pinDisabled={
+                    !product.pin_item && !!meta && meta.total_pinned >= meta.max_pinned
+                  }
                 />
               ))}
             </div>
-          ) : (
-            <EmptyState
-              title="No products found"
-              description="Try adjusting your search or category filter."
-            />
           )}
 
           {totalPages > 1 && (

@@ -6,7 +6,7 @@ import { formatOptionalNigerianPhoneNumber } from '@/shared/utils/nigerianPhoneN
 // Registration → Backend
 // ─────────────────────────────────────────────────────────────
 
-export function mapRegistrationPayload(values: RegisterDetailsFormValues) {
+export function mapRegistrationPayload(values: RegisterDetailsFormValues, chapterId: number) {
   const payload = {
     // Basic
     first_name: values.otherNames,
@@ -25,7 +25,7 @@ export function mapRegistrationPayload(values: RegisterDetailsFormValues) {
 
     // System
     user_role: 'alumni',
-    chapter_id: '1',
+    chapter_id: String(chapterId),
     year: new Date().getFullYear().toString(),
     department: '',
 

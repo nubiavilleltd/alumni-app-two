@@ -2,10 +2,141 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Literal
+import re
+from datetime import UTC, date, datetime
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+
+class RegistrationRequest(BaseModel):
+    """Bounded public member-registration fields accepted from JSON or form bodies."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    email: EmailStr = Field(max_length=150)
+    password: str = Field(min_length=8, max_length=4096)
+    first_name: str = Field(min_length=2, max_length=50)
+    last_name: str = Field(min_length=2, max_length=50)
+    phone: str = Field(pattern=r"^0[789][0-9]{9}$")
+    chapter_id: int = Field(gt=0)
+    graduation_year: int = Field(ge=1966, le=datetime.now(UTC).year)
+    city: str = Field(min_length=1, max_length=100)
+    voucher_id: int | None = Field(default=None, gt=0)
+    department: str = Field(default="", max_length=200)
+    name_in_school: str = Field(default="", max_length=200)
+    alternative_phone: str = Field(default="", max_length=20)
+    birth_date: date | None = None
+    house_color: str = Field(default="", max_length=50)
+    residential_address: str = Field(default="", max_length=5000)
+    area: str = Field(default="", max_length=100)
+    state: str = Field(default="", max_length=255)
+    employment_status: str = Field(default="", max_length=100)
+    occupation: str = Field(default="", max_length=5000)
+    industry_sector: str = Field(default="", max_length=5000)
+    years_of_experience: str = Field(default="", max_length=50)
+    is_volunteer: bool = False
+    nick_name: str = Field(default="", max_length=255)
+
+    @field_validator(
+        "first_name",
+        "last_name",
+        "phone",
+        "city",
+        "department",
+        "name_in_school",
+        "alternative_phone",
+        "house_color",
+        "residential_address",
+        "area",
+        "state",
+        "employment_status",
+        "occupation",
+        "industry_sector",
+        "years_of_experience",
+        "nick_name",
+        mode="before",
+    )
+    @classmethod
+    def trim_profile_text(cls, value: object) -> object:
+        """Apply legacy trimming to identity/profile text without altering passwords."""
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("birth_date", "voucher_id", mode="before")
+    @classmethod
+    def empty_optional_values_are_none(cls, value: object) -> object:
+        """Treat empty HTML form controls as omitted optional values."""
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("alternative_phone")
+    @classmethod
+    def validate_optional_phone(cls, value: str) -> str:
+        """Apply the current Nigerian-phone contract when a secondary number is supplied."""
+        if value and re.fullmatch(r"0[789][0-9]{9}", value) is None:
+            raise ValueError("alternative_phone must be a valid Nigerian phone number")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def require_strong_password(cls, value: str) -> str:
+        """Match the current registration form's minimum password policy."""
+        categories = (
+            any(character.islower() for character in value),
+            any(character.isupper() for character in value),
+            any(character.isdigit() for character in value),
+            any(not character.isalnum() for character in value),
+        )
+        if not all(categories):
+            raise ValueError(
+                "password must include lowercase, uppercase, numeric, and special characters"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_combined_name(self) -> Self:
+        """Keep the derived legacy fullname within its database column."""
+        if len(f"{self.first_name} {self.last_name}") > 100:
+            raise ValueError("combined first_name and last_name must not exceed 100 characters")
+        if self.birth_date is not None and self.birth_date > datetime.now(UTC).date():
+            raise ValueError("birth_date cannot be in the future")
+        return self
+
+
+class RegistrationResponse(BaseModel):
+    """Successful registration projection consumed by the current frontend flow."""
+
+    status: Literal[200] = 200
+    message: str
+    expires_in_minutes: Literal[1440] = 1440
+    user_id: int
+    user_code: str
+    email: str
+    fullname: str
+    first_name: str
+    last_name: str
+    user_role: Literal["alumni"] = "alumni"
+    phone: str
+    chapter_id: int
+    year: str
+    graduation_year: int
+    department: str
+    email_verified: Literal[0] = 0
+    avatar: str | None = None
+    name_in_school: str
+    alternative_phone: str
+    birth_date: date | None = None
+    house_color: str
+    is_coordinator: Literal[False] = False
+    residential_address: str
+    area: str
+    city: str
+    employment_status: str
+    occupation: str
+    industry_sector: str
+    years_of_experience: str
+    is_volunteer: bool
+    nick_name: str
+    state: str
 
 
 class LoginRequest(BaseModel):

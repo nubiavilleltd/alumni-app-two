@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
 import structlog
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -22,10 +24,36 @@ from app.core.errors import (
 )
 from app.core.security import IssuedTokens, PasswordService, TokenService
 from app.integrations.mail import Mailer
+from app.integrations.uploads import AvatarStorage, PreparedAvatar
 from app.repositories.auth import AuthRepository
-from app.schemas.auth import LoginResponse, ProfileResponse, RefreshResponse
+from app.schemas.auth import (
+    LoginResponse,
+    ProfileResponse,
+    RefreshResponse,
+    RegistrationRequest,
+    RegistrationResponse,
+)
 
 logger = structlog.get_logger(__name__)
+
+_REGISTRATION_PROFILE_VISIBILITY = json.dumps(
+    {
+        "avatar": False,
+        "phone": False,
+        "alternative_phone": False,
+        "birth_date": False,
+        "residential_address": False,
+        "area": False,
+        "city": False,
+        "employment_status": False,
+        "occupation": False,
+        "industry_sector": False,
+        "years_of_experience": False,
+        "is_volunteer": False,
+    },
+    separators=(",", ":"),
+)
+_MEMBER_GROUP_ID = 2
 
 
 class AccountStateError(Exception):
@@ -39,6 +67,16 @@ class AccountStateError(Exception):
         self.user_id = user_id
 
 
+class RegistrationError(Exception):
+    """A public registration request cannot safely be completed."""
+
+    def __init__(self, code: str, message: str, http_status: int) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.http_status = http_status
+
+
 class AuthService:
     """Coordinate password verification, account policy, and token persistence."""
 
@@ -49,6 +87,239 @@ class AuthService:
         self._passwords = PasswordService()
         self._tokens = TokenService(settings)
         self._mailer = mailer
+
+    def register(
+        self,
+        request: RegistrationRequest,
+        ip_address: str,
+        avatar: PreparedAvatar | None = None,
+        storage: AvatarStorage | None = None,
+    ) -> RegistrationResponse:
+        """Create all required registration rows atomically, then deliver verification mail."""
+        normalized_email = str(request.email).strip().lower()
+        fullname = f"{request.first_name} {request.last_name}"
+        now = datetime.now(UTC).replace(tzinfo=None)
+        registration_year = str(now.year)
+        verification_code = str(secrets.randbelow(900_000) + 100_000)
+        password_hash = self._passwords.hash(request.password)
+        legacy_presence_flag = 1
+        stored_avatar = None
+        user_id: int | None = None
+        user_code = ""
+
+        try:
+            with self._session.begin():
+                if self._repository.user_by_email(normalized_email) is not None:
+                    raise RegistrationError(
+                        "registration_email_exists",
+                        "Email already exists, kindly use another email",
+                        409,
+                    )
+                if not self._repository.enabled_chapter_exists(request.chapter_id):
+                    raise RegistrationError(
+                        "registration_chapter_invalid",
+                        "Selected chapter is unavailable",
+                        400,
+                    )
+                if not self._repository.city_belongs_to_chapter(request.city, request.chapter_id):
+                    raise RegistrationError(
+                        "registration_city_invalid",
+                        "Selected city does not belong to the selected chapter",
+                        400,
+                    )
+                if not self._repository.member_group_exists(_MEMBER_GROUP_ID):
+                    raise RegistrationError(
+                        "registration_configuration_unavailable",
+                        "Registration service is temporarily unavailable",
+                        503,
+                    )
+                if request.voucher_id is not None and not self._repository.eligible_voucher_exists(
+                    request.voucher_id
+                ):
+                    raise RegistrationError(
+                        "registration_voucher_invalid",
+                        "Selected voucher is unavailable",
+                        400,
+                    )
+
+                user_code = self._generate_user_code(request.graduation_year, normalized_email)
+                user_id = self._repository.insert_registration_user(
+                    {
+                        "chapter_id": request.chapter_id,
+                        "ip_address": ip_address,
+                        "username": normalized_email,
+                        "email": normalized_email,
+                        "password": password_hash,
+                        "has_password": legacy_presence_flag,
+                        "onboarding_completion": 1,
+                        "nick_name": request.nick_name,
+                        "state": request.state,
+                        "country": "Nigeria",
+                        "created_on": int(now.replace(tzinfo=UTC).timestamp()),
+                        "userAccessCode": "",
+                        "profile_status": "No",
+                        "voucher": "",
+                        "resetKey": "",
+                        "user_code": user_code,
+                        "first_name": request.first_name,
+                        "last_name": request.last_name,
+                        "fullname": fullname,
+                        "phone": request.phone,
+                        "user_role": "alumni",
+                        "graduation_year": request.graduation_year,
+                        "department": request.department,
+                        "email_verified": 0,
+                        "verify_token": verification_code,
+                        "is_approved": 0,
+                        "active": 0,
+                        "name_in_school": request.name_in_school,
+                        "alternative_phone": request.alternative_phone,
+                        "birth_date": request.birth_date,
+                        "house_color": request.house_color,
+                        "is_coordinator": 0,
+                        "residential_address": request.residential_address,
+                        "area": request.area,
+                        "city": request.city,
+                        "employment_status": request.employment_status,
+                        "occupation": request.occupation,
+                        "industry_sector": request.industry_sector,
+                        "years_of_experience": request.years_of_experience,
+                        "is_volunteer": int(request.is_volunteer),
+                    }
+                )
+                self._repository.add_user_to_group(user_id, _MEMBER_GROUP_ID)
+                self._repository.insert_alumni_category(
+                    user_id,
+                    request.chapter_id,
+                    registration_year,
+                    request.city,
+                    now,
+                )
+                self._repository.insert_registration_profile(
+                    user_id,
+                    request.chapter_id,
+                    registration_year,
+                    request.city,
+                    _REGISTRATION_PROFILE_VISIBILITY,
+                    now,
+                )
+                if request.voucher_id is not None:
+                    self._repository.insert_pending_vouch(user_id, request.voucher_id, now)
+                self._repository.replace_verification_code(
+                    user_id,
+                    normalized_email,
+                    int(verification_code),
+                )
+                if avatar is not None:
+                    if storage is None:
+                        raise RuntimeError("Avatar storage is not configured")
+                    stored_avatar = storage.save(user_id, avatar)
+                    self._repository.update_registration_avatar(
+                        user_id,
+                        stored_avatar.relative_path,
+                    )
+                    self._repository.insert_registration_avatar_attachment(
+                        user_id,
+                        stored_avatar.original_filename,
+                        stored_avatar.relative_path,
+                        now,
+                    )
+        except IntegrityError as exc:
+            if stored_avatar is not None and storage is not None:
+                storage.delete(stored_avatar)
+            self._session.rollback()
+            with self._session.begin():
+                duplicate = self._repository.user_by_email(normalized_email)
+            if duplicate is not None:
+                raise RegistrationError(
+                    "registration_email_exists",
+                    "Email already exists, kindly use another email",
+                    409,
+                ) from exc
+            raise RegistrationError(
+                "registration_unavailable",
+                "Registration service is temporarily unavailable",
+                503,
+            ) from exc
+        except SQLAlchemyError as exc:
+            if stored_avatar is not None and storage is not None:
+                storage.delete(stored_avatar)
+            raise RegistrationError(
+                "registration_unavailable",
+                "Registration service is temporarily unavailable",
+                503,
+            ) from exc
+        except Exception:
+            if stored_avatar is not None and storage is not None:
+                storage.delete(stored_avatar)
+            raise
+
+        if user_id is None:
+            raise RuntimeError("Registration did not return a user identity")
+        delivered = True
+        if self._mailer is None:
+            delivered = False
+        else:
+            try:
+                self._mailer.send_verification_code(
+                    normalized_email,
+                    fullname,
+                    verification_code,
+                )
+            except MailDeliveryError:
+                delivered = False
+                logger.error("registration_verification_delivery_failed", user_id=user_id)
+
+        message = (
+            "Registration successful. Please check your email for your verification code."
+            if delivered
+            else "Registration saved. Please request a new verification code to continue."
+        )
+        avatar_url = None
+        if stored_avatar is not None:
+            base_url = str(self._settings.public_base_url or "")
+            avatar_url = (
+                urljoin(base_url, stored_avatar.relative_path)
+                if base_url
+                else stored_avatar.relative_path
+            )
+        logger.info(
+            "member_registered",
+            user_id=user_id,
+            chapter_id=request.chapter_id,
+            voucher_assigned=request.voucher_id is not None,
+            avatar_uploaded=stored_avatar is not None,
+            verification_mail_delivered=delivered,
+        )
+        return RegistrationResponse(
+            message=message,
+            user_id=user_id,
+            user_code=user_code,
+            email=normalized_email,
+            fullname=fullname,
+            first_name=request.first_name,
+            last_name=request.last_name,
+            phone=request.phone,
+            chapter_id=request.chapter_id,
+            year=registration_year,
+            graduation_year=request.graduation_year,
+            department=request.department,
+            avatar=avatar_url,
+            name_in_school=request.name_in_school,
+            alternative_phone=request.alternative_phone,
+            birth_date=request.birth_date,
+            house_color=request.house_color,
+            residential_address=request.residential_address,
+            area=request.area,
+            city=request.city,
+            employment_status=request.employment_status,
+            occupation=request.occupation,
+            industry_sector=request.industry_sector,
+            years_of_experience=request.years_of_experience,
+            is_volunteer=request.is_volunteer,
+            nick_name=request.nick_name,
+            state=request.state,
+        )
 
     def login(self, identity: str, password: str) -> LoginResponse:
         """Authenticate a user and return a legacy-compatible projection."""
@@ -343,6 +614,23 @@ class AuthService:
                 )
             except MailDeliveryError:
                 logger.error("verification_voucher_notification_failed")
+
+    def _generate_user_code(self, graduation_year: int, normalized_email: str) -> str:
+        """Preserve the legacy MBR-year-hex shape with deterministic collision retries."""
+        for counter in range(1001):
+            seed = normalized_email if counter == 0 else f"{normalized_email}|{counter}"
+            legacy_hash = 0
+            for character in seed.encode():
+                legacy_hash = ((legacy_hash << 5) - legacy_hash + character) & 0xFFFFFFFF
+            suffix = f"{legacy_hash:x}".rjust(6, "0")[:6]
+            candidate = f"MBR-{graduation_year}-{suffix}"
+            if not self._repository.user_code_exists(candidate):
+                return candidate
+        raise RegistrationError(
+            "registration_code_unavailable",
+            "Registration service is temporarily unavailable",
+            503,
+        )
 
     def _issue_and_store(
         self,

@@ -38,6 +38,33 @@ class Mailer(Protocol):
     ) -> None:
         """Tell an assigned voucher that a verified member awaits review."""
 
+    def send_voucher_approval_notification(
+        self,
+        recipient: str,
+        recipient_name: str,
+        voucher_name: str,
+        member_name: str,
+    ) -> None:
+        """Tell an account manager that a voucher approved a member."""
+
+    def send_account_status(
+        self,
+        recipient: str,
+        display_name: str,
+        action: str,
+        reason: str | None = None,
+    ) -> None:
+        """Tell a member that an administrator approved or rejected the account."""
+
+    def send_account_activity(
+        self,
+        recipient: str,
+        display_name: str,
+        action: str,
+        actor_kind: str,
+    ) -> None:
+        """Tell a member that their active account state changed."""
+
 
 class SmtpMailer:
     """Send bounded transactional mail over an explicitly configured SMTP server."""
@@ -99,6 +126,76 @@ class SmtpMailer:
             f"Hello {recipient_name.strip() or 'member'},\n\n"
             f"{member_name} ({member_email}) selected you as their voucher.\n\n"
             "Sign in to review the pending request.",
+        )
+
+    def send_voucher_approval_notification(
+        self,
+        recipient: str,
+        recipient_name: str,
+        voucher_name: str,
+        member_name: str,
+    ) -> None:
+        """Send a bounded post-commit voucher-approval notice to an account manager."""
+        self._send(
+            recipient,
+            "Voucher approved a new Alumni Portal account",
+            f"Hello {recipient_name.strip() or 'administrator'},\n\n"
+            f"{member_name} was approved by their selected voucher, {voucher_name}.\n\n"
+            "No further action is required unless you want to review the account.",
+        )
+
+    def send_account_status(
+        self,
+        recipient: str,
+        display_name: str,
+        action: str,
+        reason: str | None = None,
+    ) -> None:
+        """Send a bounded plain-text equivalent of the legacy status email."""
+        safe_name = display_name.strip() or "member"
+        if action == "approve":
+            self._send(
+                recipient,
+                "Your FGGC Alumni Account Has Been Approved",
+                f"Congratulations, {safe_name}!\n\n"
+                "Your FGGC Alumni account has been reviewed and approved. "
+                "You can now sign in and access the portal.",
+            )
+            return
+        reason_text = f"\n\nReason: {reason}" if reason else ""
+        self._send(
+            recipient,
+            "Update on Your FGGC Alumni Account Application",
+            f"Dear {safe_name},\n\n"
+            "After review, we are unable to approve your alumni account at this time."
+            f"{reason_text}\n\n"
+            "Please contact support if you believe this is an error.",
+        )
+
+    def send_account_activity(
+        self,
+        recipient: str,
+        display_name: str,
+        action: str,
+        actor_kind: str,
+    ) -> None:
+        """Send the bounded plain-text equivalent of the legacy activity email."""
+        safe_name = display_name.strip() or "member"
+        if action == "activate":
+            subject = "Your Alumni Portal Account Has Been Activated"
+            outcome = "activated"
+            next_step = "You can now sign in and access the portal."
+        else:
+            subject = "Your Alumni Portal Account Has Been Deactivated"
+            outcome = "deactivated"
+            next_step = "Contact an administrator if you want the account reactivated."
+        actor_text = "you" if actor_kind == "self" else "an account administrator"
+        self._send(
+            recipient,
+            subject,
+            f"Hello {safe_name},\n\n"
+            f"Your Alumni Portal account was {outcome} by {actor_text}.\n\n"
+            f"{next_step}",
         )
 
     def _send(self, recipient: str, subject: str, body: str) -> None:

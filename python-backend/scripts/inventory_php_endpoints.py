@@ -46,10 +46,18 @@ UNSAFE_METHODS = frozenset(
     {
         "change_user_password1",
         "check_reset_password",
+        "create_role",
+        "deactivate_staff",
         "getAPIKey2",
+        "get_roles",
+        "manage_role",
         "sendUserOTP",
         "test_qr",
         "trackUser",
+        "update_user_account",
+        "update_user_role",
+        "manage_user_roles",
+        "user_tokens",
     }
 )
 CONSOLIDATED_METHODS = frozenset({"resend_otp", "verify_otp"})

@@ -52,3 +52,10 @@ def require_access(request: Request) -> AccessPrincipal:
         email=str(claims.get("email", "")),
         user_role=str(claims["user_role"]) if claims.get("user_role") is not None else None,
     )
+
+
+def optional_access(request: Request) -> AccessPrincipal | None:
+    """Validate a supplied Bearer token while allowing genuinely public requests."""
+    if not request.headers.get("authorization", "").strip():
+        return None
+    return require_access(request)

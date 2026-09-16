@@ -2,46 +2,168 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from io import BytesIO
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import bcrypt
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import Workbook  # type: ignore[import-untyped]
+from PIL import Image
 from sqlalchemy import Engine, Table, create_engine, func, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import MailDeliveryError
-from app.core.security import TokenService
+from app.core.security import PasswordService, TokenService
+from app.integrations.alumni_import import AlumniImportRow
+from app.integrations.geography_import import GeographyImportRow
 from app.integrations.mail import Mailer
+from app.integrations.uploads import (
+    AnnouncementStorage,
+    AvatarStorage,
+    MarketplaceStorage,
+    ProjectStorage,
+    prepare_avatar,
+)
 from app.main import create_app
 from app.models.generated import (
+    AlumniCategory,
+    AlumniChapter,
+    Announcements,
+    Attachments,
     Cities,
+    Groups,
     JwtRefreshTokens,
+    Leadership,
+    MarketplaceListings,
+    Notifications,
+    Projects,
     RegisterUserOtp,
     Roles,
+    SetupParameters,
     UserProfiles,
     Users,
+    UsersGroups,
     Vouches,
     Zones,
 )
+from app.repositories.announcements import AnnouncementRepository
+from app.repositories.auth import AuthRepository
+from app.repositories.leadership import LeadershipRepository
+from app.repositories.marketplace import MarketplaceRepository
+from app.repositories.members import MemberRepository
+from app.repositories.notifications import NotificationRepository
+from app.repositories.projects import ProjectRepository
+from app.schemas.announcements import AnnouncementCreateRequest
+from app.schemas.leadership import LeadershipCreateRequest
+from app.schemas.marketplace import MarketplaceCreateRequest
+from app.schemas.members import (
+    ManageCityRequest,
+    ManageZoneRequest,
+    UpdateProfileRequest,
+    VouchActionRequest,
+)
+from app.schemas.projects import ProjectCreateRequest
+from app.services import members as members_service_module
+from app.services.announcements import AnnouncementService
+from app.services.leadership import LeadershipService
+from app.services.marketplace import MarketplaceService
+from app.services.members import MemberService
+from app.services.notifications import NotificationService
+from app.services.projects import ProjectService
 
 USERS_TABLE = cast(Table, Users.__table__)
+ALUMNI_CATEGORY_TABLE = cast(Table, AlumniCategory.__table__)
+ALUMNI_CHAPTER_TABLE = cast(Table, AlumniChapter.__table__)
+ATTACHMENTS_TABLE = cast(Table, Attachments.__table__)
 PROFILES_TABLE = cast(Table, UserProfiles.__table__)
 ROLES_TABLE = cast(Table, Roles.__table__)
+SETUP_PARAMETERS_TABLE = cast(Table, SetupParameters.__table__)
 CITIES_TABLE = cast(Table, Cities.__table__)
 ZONES_TABLE = cast(Table, Zones.__table__)
 REFRESH_TABLE = cast(Table, JwtRefreshTokens.__table__)
 OTP_TABLE = cast(Table, RegisterUserOtp.__table__)
 VOUCHES_TABLE = cast(Table, Vouches.__table__)
+USERS_GROUPS_TABLE = cast(Table, UsersGroups.__table__)
+GROUPS_TABLE = cast(Table, Groups.__table__)
+NOTIFICATIONS_TABLE = cast(Table, Notifications.__table__)
+MARKETPLACE_LISTINGS_TABLE = cast(Table, MarketplaceListings.__table__)
+PROJECTS_TABLE = cast(Table, Projects.__table__)
+LEADERSHIP_TABLE = cast(Table, Leadership.__table__)
 PASSPHRASE = "Correct horse battery staple!"
+REGISTRATION_PASSPHRASE = "Correct horse battery staple! 7"
 NEW_PASSPHRASE = "A different strong passphrase!"
+
+
+class _FixedLagosDateTime(datetime):
+    """Supply a deterministic date to the birthday endpoint without production hooks."""
+
+    reference_date = date(2025, 2, 28)
+
+    @classmethod
+    def now(cls, tz: Any = None) -> _FixedLagosDateTime:
+        return cls(
+            cls.reference_date.year,
+            cls.reference_date.month,
+            cls.reference_date.day,
+            tzinfo=tz,
+        )
+
+
+def _geography_xlsx_bytes(rows: list[tuple[str, str]]) -> bytes:
+    """Build a small in-memory XLSX fixture without touching workspace files."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(("zone", "city"))
+    for zone, city in rows:
+        sheet.append((zone, city))
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+def _alumni_import_row(
+    email: str,
+    city: str,
+    *,
+    source_row: int = 1,
+    coordinator_requested: bool = False,
+) -> AlumniImportRow:
+    """Build one fully validated-equivalent synthetic roster row for service tests."""
+    return AlumniImportRow(
+        source_row=source_row,
+        email=email,
+        first_name="Synthetic",
+        last_name="Imported",
+        fullname="Synthetic Ada Imported",
+        name_in_school="Synthetic School Name",
+        phone="08000000001",
+        alternative_phone=None,
+        birth_date=date(1990, 1, 2),
+        graduation_year=datetime.now(UTC).year,
+        house_color="Blue",
+        coordinator_requested=coordinator_requested,
+        residential_address="Synthetic import address",
+        area="Synthetic Area",
+        city=city,
+        employment_status="Employed",
+        occupation="Engineer",
+        industry_sector="Technology",
+        years_of_experience="10",
+        is_volunteer=True,
+    )
 
 
 @dataclass(slots=True)
@@ -52,6 +174,9 @@ class RecordingMailer(Mailer):
     verification_deliveries: list[tuple[str, str, str]] = field(default_factory=list)
     manager_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
     voucher_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
+    voucher_approval_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
+    account_status_deliveries: list[tuple[str, str, str, str | None]] = field(default_factory=list)
+    account_activity_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
     fail: bool = False
 
     def send_password_reset(self, recipient: str, display_name: str, reset_url: str) -> None:
@@ -90,6 +215,44 @@ class RecordingMailer(Mailer):
             raise MailDeliveryError("synthetic delivery failure")
         self.voucher_deliveries.append((recipient, recipient_name, member_name, member_email))
 
+    def send_voucher_approval_notification(
+        self,
+        recipient: str,
+        recipient_name: str,
+        voucher_name: str,
+        member_name: str,
+    ) -> None:
+        """Record a manager voucher-approval notice or provider failure."""
+        if self.fail:
+            raise MailDeliveryError("synthetic delivery failure")
+        self.voucher_approval_deliveries.append(
+            (recipient, recipient_name, voucher_name, member_name)
+        )
+
+    def send_account_status(
+        self,
+        recipient: str,
+        display_name: str,
+        action: str,
+        reason: str | None = None,
+    ) -> None:
+        """Record an account-status notification or provider failure."""
+        if self.fail:
+            raise MailDeliveryError("synthetic delivery failure")
+        self.account_status_deliveries.append((recipient, display_name, action, reason))
+
+    def send_account_activity(
+        self,
+        recipient: str,
+        display_name: str,
+        action: str,
+        actor_kind: str,
+    ) -> None:
+        """Record an account activity notification or provider failure."""
+        if self.fail:
+            raise MailDeliveryError("synthetic delivery failure")
+        self.account_activity_deliveries.append((recipient, display_name, action, actor_kind))
+
 
 @dataclass(slots=True)
 class AuthHarness:
@@ -104,6 +267,10 @@ class AuthHarness:
     city_names: list[str] = field(default_factory=list)
     zone_names: list[str] = field(default_factory=list)
     emails: list[str] = field(default_factory=list)
+    alumni_category_ids: list[int] = field(default_factory=list)
+    alumni_chapter_ids: list[int] = field(default_factory=list)
+    setup_parameter_ids: list[int] = field(default_factory=list)
+    created_member_group: bool = False
 
     def create_user(
         self,
@@ -114,6 +281,11 @@ class AuthHarness:
         is_approved: int = 1,
         onboarding_completion: int = 1,
         city: str = "",
+        voucher: str = "",
+        user_role: str = "alumni",
+        fullname: str = "Synthetic Member",
+        graduation_year: int | None = None,
+        profile_status: str = "active",
     ) -> tuple[int, str, str]:
         """Insert one fully synthetic user with a legacy `$2y$` password hash."""
         unique = uuid.uuid4().hex[:10]
@@ -135,19 +307,20 @@ class AuthHarness:
                     country="Nigeria",
                     created_on=int(time.time()),
                     userAccessCode=f"SYN-{unique}",
-                    profile_status="active",
-                    voucher="",
+                    profile_status=profile_status,
+                    voucher=voucher,
                     resetKey="",
                     first_name="Synthetic",
                     last_name="Member",
-                    fullname="Synthetic Member",
+                    fullname=fullname,
                     phone="+2348000000000",
                     avatar="uploads/profiles/synthetic.png",
                     city=city,
                     active=active,
-                    user_role="alumni",
+                    user_role=user_role,
                     is_approved=is_approved,
                     email_verified=email_verified,
+                    graduation_year=graduation_year,
                 )
             )
             inserted_key = result.inserted_primary_key
@@ -188,6 +361,140 @@ class AuthHarness:
         self.city_names.append(city)
         self.zone_names.append(zone_name)
 
+    def create_registration_location(self, *, enabled: int = 1) -> tuple[int, str]:
+        """Create one chapter-backed city advertised by the registration catalogue."""
+        self.ensure_member_group()
+        suffix = uuid.uuid4().hex[:10]
+        chapter_name = f"Synthetic Registration Chapter {suffix}"
+        city = f"Synthetic Registration City {suffix}"
+        zone = f"Synthetic Registration Zone {suffix}"
+        with self.engine.begin() as connection:
+            chapter_result = connection.execute(
+                ALUMNI_CHAPTER_TABLE.insert().values(
+                    chapter_name=chapter_name,
+                    location="Synthetic Location",
+                    is_enabled=enabled,
+                )
+            )
+            chapter_key = chapter_result.inserted_primary_key
+            assert chapter_key is not None
+            chapter_id = int(chapter_key[0])
+            zone_result = connection.execute(
+                ZONES_TABLE.insert().values(zone=zone, chapter_id=chapter_id)
+            )
+            zone_key = zone_result.inserted_primary_key
+            assert zone_key is not None
+            connection.execute(
+                CITIES_TABLE.insert().values(
+                    city=city,
+                    zone_id=int(zone_key[0]),
+                    chapter_id=chapter_id,
+                )
+            )
+        self.alumni_chapter_ids.append(chapter_id)
+        self.city_names.append(city)
+        self.zone_names.append(zone)
+        return chapter_id, city
+
+    def create_chapter(self, *, enabled: int = 1, chapter_id: int | None = None) -> int:
+        """Create and track one chapter for geography-management tests."""
+        suffix = uuid.uuid4().hex[:10]
+        with self.engine.begin() as connection:
+            result = connection.execute(
+                ALUMNI_CHAPTER_TABLE.insert().values(
+                    id=chapter_id,
+                    chapter_name=f"Synthetic Geography Chapter {suffix}",
+                    location="Synthetic Location",
+                    is_enabled=enabled,
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            created_chapter_id = int(inserted_key[0])
+        self.alumni_chapter_ids.append(created_chapter_id)
+        return created_chapter_id
+
+    def ensure_member_group(self) -> None:
+        """Seed the schema-only fixture's reviewed Ion Auth member group once."""
+        if self.created_member_group:
+            return
+        with self.engine.begin() as connection:
+            exists = connection.scalar(select(Groups.id).where(Groups.id == 2))
+            if exists is None:
+                connection.execute(
+                    GROUPS_TABLE.insert().values(
+                        id=2,
+                        name="members",
+                        description="General User",
+                    )
+                )
+                self.created_member_group = True
+
+    def create_vouch(
+        self,
+        registrant_user_id: int,
+        voucher_user_id: int,
+        *,
+        status: str = "pending",
+        reason: str | None = None,
+    ) -> int:
+        """Create one synthetic voucher relationship owned by tracked users."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with self.engine.begin() as connection:
+            result = connection.execute(
+                VOUCHES_TABLE.insert().values(
+                    register_id=registrant_user_id,
+                    voucher_id=voucher_user_id,
+                    status=status,
+                    reason=reason,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            return int(inserted_key[0])
+
+    def create_zone(
+        self,
+        *,
+        coordinator_user_id: int | None = None,
+        chapter_id: int = 1,
+        cities: tuple[str, ...] = (),
+    ) -> tuple[int, dict[str, int]]:
+        """Create one uniquely named zone and tracked city rows."""
+        suffix = uuid.uuid4().hex[:10]
+        zone_name = f"Synthetic Zone Catalogue {suffix}"
+        now = datetime.now(UTC).replace(tzinfo=None)
+        city_ids: dict[str, int] = {}
+        with self.engine.begin() as connection:
+            result = connection.execute(
+                ZONES_TABLE.insert().values(
+                    zone=zone_name,
+                    coordinator_user_id=coordinator_user_id,
+                    chapter_id=chapter_id,
+                    created_at=now,
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            zone_id = int(inserted_key[0])
+            for city in cities:
+                city_result = connection.execute(
+                    CITIES_TABLE.insert().values(
+                        city=city,
+                        zone_id=zone_id,
+                        chapter_id=chapter_id,
+                        created_at=now,
+                    )
+                )
+                city_key = city_result.inserted_primary_key
+                assert city_key is not None
+                city_ids[city] = int(city_key[0])
+        self.zone_names.append(zone_name)
+        self.city_names.extend(cities)
+        return zone_id, city_ids
+
     def refresh_rows(self, user_id: int) -> list[dict[str, Any]]:
         """Read refresh-token metadata without exposing the plaintext token."""
         with self.engine.connect() as connection:
@@ -200,34 +507,78 @@ class AuthHarness:
 
     def cleanup(self) -> None:
         """Delete only rows created by this fixture, respecting foreign keys."""
-        if not self.user_ids and not self.city_names and not self.zone_names:
+        if (
+            not self.user_ids
+            and not self.city_names
+            and not self.zone_names
+            and not self.alumni_category_ids
+            and not self.alumni_chapter_ids
+            and not self.setup_parameter_ids
+            and not self.created_member_group
+        ):
             return
         with self.engine.begin() as connection:
-            if self.user_ids:
+            tracked_user_ids = set(self.user_ids)
+            if self.emails:
+                tracked_user_ids.update(
+                    connection.scalars(select(Users.id).where(Users.email.in_(self.emails)))
+                )
+            if self.setup_parameter_ids:
                 connection.execute(
-                    VOUCHES_TABLE.delete().where(
-                        Vouches.register_id.in_(self.user_ids)
-                        | Vouches.voucher_id.in_(self.user_ids)
+                    SETUP_PARAMETERS_TABLE.delete().where(
+                        SetupParameters.setup_id.in_(self.setup_parameter_ids)
+                    )
+                )
+            if self.alumni_category_ids:
+                connection.execute(
+                    ALUMNI_CATEGORY_TABLE.delete().where(
+                        AlumniCategory.id.in_(self.alumni_category_ids)
+                    )
+                )
+            if tracked_user_ids:
+                connection.execute(
+                    ALUMNI_CATEGORY_TABLE.delete().where(
+                        AlumniCategory.user_id.in_(tracked_user_ids)
                     )
                 )
                 connection.execute(
-                    REFRESH_TABLE.delete().where(JwtRefreshTokens.user_id.in_(self.user_ids))
+                    VOUCHES_TABLE.delete().where(
+                        Vouches.register_id.in_(tracked_user_ids)
+                        | Vouches.voucher_id.in_(tracked_user_ids)
+                    )
                 )
                 connection.execute(
-                    PROFILES_TABLE.delete().where(UserProfiles.user_id.in_(self.user_ids))
+                    REFRESH_TABLE.delete().where(JwtRefreshTokens.user_id.in_(tracked_user_ids))
                 )
-                connection.execute(ROLES_TABLE.delete().where(Roles.user_id.in_(self.user_ids)))
-                connection.execute(USERS_TABLE.delete().where(Users.id.in_(self.user_ids)))
+                connection.execute(
+                    ATTACHMENTS_TABLE.delete().where(Attachments.user_id.in_(tracked_user_ids))
+                )
+                connection.execute(
+                    PROFILES_TABLE.delete().where(UserProfiles.user_id.in_(tracked_user_ids))
+                )
+                connection.execute(ROLES_TABLE.delete().where(Roles.user_id.in_(tracked_user_ids)))
+                connection.execute(
+                    USERS_GROUPS_TABLE.delete().where(UsersGroups.user_id.in_(tracked_user_ids))
+                )
+                connection.execute(USERS_TABLE.delete().where(Users.id.in_(tracked_user_ids)))
+            if self.created_member_group:
+                connection.execute(GROUPS_TABLE.delete().where(Groups.id == 2))
             if self.emails:
                 connection.execute(OTP_TABLE.delete().where(RegisterUserOtp.email.in_(self.emails)))
             if self.city_names:
                 connection.execute(CITIES_TABLE.delete().where(Cities.city.in_(self.city_names)))
             if self.zone_names:
                 connection.execute(ZONES_TABLE.delete().where(Zones.zone.in_(self.zone_names)))
+            if self.alumni_chapter_ids:
+                connection.execute(
+                    ALUMNI_CHAPTER_TABLE.delete().where(
+                        AlumniChapter.id.in_(self.alumni_chapter_ids)
+                    )
+                )
 
 
 @pytest.fixture
-def auth_harness(rsa_pem_pair: tuple[str, str]) -> Iterator[AuthHarness]:
+def auth_harness(rsa_pem_pair: tuple[str, str], tmp_path: Path) -> Iterator[AuthHarness]:
     """Provide an API client and direct SQL inspection over an isolated test database."""
     database_url = os.getenv("ALUMNI_TEST_DATABASE_URL")
     if not database_url:
@@ -240,6 +591,7 @@ def auth_harness(rsa_pem_pair: tuple[str, str]) -> Iterator[AuthHarness]:
         jwt_verification_key=public_pem,
         public_base_url="https://alumni.example.test/",
         frontend_base_url="https://frontend.example.test/",
+        upload_root=tmp_path / "uploads",
     )
     engine = create_engine(database_url, pool_pre_ping=True)
     mailer = RecordingMailer()
@@ -279,6 +631,1186 @@ def _access_token_for(
         )
         .access_token
     )
+
+
+def _registration_payload(
+    auth_harness: AuthHarness,
+    chapter_id: int,
+    city: str,
+    *,
+    email: str | None = None,
+    voucher_id: int | None = None,
+) -> dict[str, object]:
+    """Build one current-frontend-compatible registration request."""
+    identity = email or f"codex-register-{auth_harness.marker}-{uuid.uuid4().hex}@example.com"
+    auth_harness.emails.append(identity.lower())
+    payload: dict[str, object] = {
+        "email": identity,
+        "password": REGISTRATION_PASSPHRASE,
+        "first_name": "Synthetic",
+        "last_name": "Registrant",
+        "phone": "08000000001",
+        "chapter_id": chapter_id,
+        "graduation_year": datetime.now(UTC).year,
+        "city": city,
+        "department": "Science",
+        "name_in_school": "Synthetic School Name",
+        "nick_name": "Synth",
+        "residential_address": "Synthetic registration address",
+        "area": "Synthetic Area",
+        "state": "Lagos",
+        "is_volunteer": "1",
+        "user_role": "superadmin",
+        "is_coordinator": "1",
+        "year": "1999",
+    }
+    if voucher_id is not None:
+        payload["voucher_id"] = voucher_id
+    return payload
+
+
+@pytest.mark.integration
+def test_registration_creates_complete_private_account_with_server_owned_privileges(
+    auth_harness: AuthHarness,
+) -> None:
+    """Registration atomically creates every required row and ignores privilege fields."""
+    chapter_id, city = auth_harness.create_registration_location()
+    voucher_id, voucher_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == voucher_id).values(voucher="yes"))
+    payload = _registration_payload(
+        auth_harness,
+        chapter_id,
+        city,
+        email=f"CODEX-REGISTER-{auth_harness.marker}@EXAMPLE.COM",
+        voucher_id=voucher_id,
+    )
+
+    response = auth_harness.client.post(
+        "/api/register",
+        headers={"X-API-Key": "ignored-legacy-key"},
+        json=payload,
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["status"] == 200
+    assert body["user_role"] == "alumni"
+    assert body["is_coordinator"] is False
+    assert body["is_volunteer"] is True
+    assert body["chapter_id"] == chapter_id
+    assert body["city"] == city
+    assert body["expires_in_minutes"] == 1440
+    assert body["user_code"].startswith(f"MBR-{datetime.now(UTC).year}-")
+    assert len(body["user_code"].rsplit("-", 1)[1]) == 6
+    assert not ({"password", "verify_token", "ip_address", "voucher_id"} & body.keys())
+
+    user_id = int(body["user_id"])
+    auth_harness.user_ids.append(user_id)
+    with auth_harness.engine.connect() as connection:
+        user = (
+            connection.execute(select(Users.__table__).where(Users.id == user_id)).mappings().one()
+        )
+        group_id = connection.scalar(
+            select(UsersGroups.group_id).where(UsersGroups.user_id == user_id)
+        )
+        category = (
+            connection.execute(
+                select(AlumniCategory.__table__).where(AlumniCategory.user_id == user_id)
+            )
+            .mappings()
+            .one()
+        )
+        profile = (
+            connection.execute(
+                select(UserProfiles.__table__).where(UserProfiles.user_id == user_id)
+            )
+            .mappings()
+            .one()
+        )
+        vouch = (
+            connection.execute(select(Vouches.__table__).where(Vouches.register_id == user_id))
+            .mappings()
+            .one()
+        )
+        otp = (
+            connection.execute(
+                select(RegisterUserOtp.__table__).where(RegisterUserOtp.email == body["email"])
+            )
+            .mappings()
+            .one()
+        )
+
+    assert user["email"] == str(payload["email"]).lower()
+    assert user["username"] == user["email"]
+    assert PasswordService().verify(REGISTRATION_PASSPHRASE, str(user["password"]))
+    assert str(user["password"]).startswith("$argon2id$")
+    assert (user["active"], user["email_verified"], user["is_approved"]) == (0, 0, 0)
+    assert (user["user_role"], user["is_coordinator"]) == ("alumni", 0)
+    assert group_id == 2
+    assert (category["chapter_id"], category["location"]) == (chapter_id, city)
+    assert (profile["chapter_id"], profile["city"], profile["is_visible"]) == (
+        chapter_id,
+        city,
+        0,
+    )
+    assert all(value is False for value in json.loads(profile["field_visibility"]).values())
+    assert (vouch["voucher_id"], vouch["status"].value) == (voucher_id, "pending")
+    assert (otp["is_active"], str(otp["otp"])) == (1, str(user["verify_token"]))
+    assert auth_harness.mailer.verification_deliveries == [
+        (body["email"], "Synthetic Registrant", str(otp["otp"]))
+    ]
+    assert auth_harness.mailer.voucher_deliveries == []
+    assert voucher_email != body["email"]
+
+
+@pytest.mark.integration
+def test_registration_accepts_normalized_multipart_avatar(auth_harness: AuthHarness) -> None:
+    """The legacy avatar option uses the shared bounded storage and attachment contract."""
+    chapter_id, city = auth_harness.create_registration_location()
+    payload = _registration_payload(auth_harness, chapter_id, city)
+    image_output = BytesIO()
+    Image.new("RGBA", (9, 7), color=(10, 20, 30, 120)).save(image_output, format="PNG")
+
+    response = auth_harness.client.post(
+        "/api/register",
+        data={key: str(value) for key, value in payload.items()},
+        files={"avatar": ("synthetic avatar.png", image_output.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    user_id = int(body["user_id"])
+    auth_harness.user_ids.append(user_id)
+    assert body["avatar"].startswith("https://alumni.example.test/uploads/profiles/")
+    with auth_harness.engine.connect() as connection:
+        stored_avatar = connection.scalar(select(Users.avatar).where(Users.id == user_id))
+        attachment = (
+            connection.execute(select(Attachments.__table__).where(Attachments.user_id == user_id))
+            .mappings()
+            .one()
+        )
+    assert stored_avatar == attachment["attachment_file"]
+    assert attachment["filename"] == "synthetic_avatar.png"
+    assert attachment["file_type"] == "profile_image"
+    stored_file = auth_harness.settings.upload_root / str(stored_avatar).removeprefix("uploads/")
+    assert stored_file.is_file()
+    with Image.open(stored_file) as stored_image:
+        assert stored_image.format == "PNG"
+        assert stored_image.size == (9, 7)
+
+
+@pytest.mark.integration
+def test_registration_rejects_invalid_relationships_and_duplicate_email(
+    auth_harness: AuthHarness,
+) -> None:
+    """Invalid registration relationships and duplicate identities fail closed."""
+    chapter_id, city = auth_harness.create_registration_location()
+    other_chapter_id, other_city = auth_harness.create_registration_location()
+    disabled_chapter_id, disabled_city = auth_harness.create_registration_location(enabled=0)
+    voucher_id, _voucher_email, _ = auth_harness.create_user(active=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == voucher_id).values(voucher="yes"))
+
+    requests = [
+        _registration_payload(auth_harness, disabled_chapter_id, disabled_city),
+        _registration_payload(auth_harness, chapter_id, other_city),
+        _registration_payload(auth_harness, other_chapter_id, city),
+        _registration_payload(auth_harness, chapter_id, city, voucher_id=voucher_id),
+    ]
+    responses = [auth_harness.client.post("/api/register", json=payload) for payload in requests]
+    assert [response.status_code for response in responses] == [400, 400, 400, 400]
+    assert [response.json()["code"] for response in responses] == [
+        "registration_chapter_invalid",
+        "registration_city_invalid",
+        "registration_city_invalid",
+        "registration_voucher_invalid",
+    ]
+
+    valid_payload = _registration_payload(auth_harness, chapter_id, city)
+    created = auth_harness.client.post("/api/register", json=valid_payload)
+    duplicate = auth_harness.client.post("/api/register", json=valid_payload)
+    assert created.status_code == 200
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "registration_email_exists"
+    auth_harness.user_ids.append(int(created.json()["user_id"]))
+    with auth_harness.engine.connect() as connection:
+        duplicate_count = connection.scalar(
+            select(func.count())
+            .select_from(USERS_TABLE)
+            .where(Users.email == str(valid_payload["email"]))
+        )
+        rejected_count = connection.scalar(
+            select(func.count())
+            .select_from(USERS_TABLE)
+            .where(Users.email.in_([str(payload["email"]) for payload in requests]))
+        )
+    assert duplicate_count == 1
+    assert rejected_count == 0
+
+
+@pytest.mark.integration
+def test_registration_mail_failure_preserves_resendable_account(auth_harness: AuthHarness) -> None:
+    """A provider outage does not orphan the user or falsely claim successful delivery."""
+    chapter_id, city = auth_harness.create_registration_location()
+    payload = _registration_payload(auth_harness, chapter_id, city)
+    auth_harness.mailer.fail = True
+
+    response = auth_harness.client.post("/api/register", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "Registration saved. Please request a new verification code to continue."
+    )
+    user_id = int(response.json()["user_id"])
+    auth_harness.user_ids.append(user_id)
+    with auth_harness.engine.connect() as connection:
+        original_code = connection.scalar(
+            select(RegisterUserOtp.otp).where(
+                RegisterUserOtp.email == str(payload["email"]),
+                RegisterUserOtp.is_active == 1,
+            )
+        )
+    assert original_code is not None
+
+    auth_harness.mailer.fail = False
+    resent = auth_harness.client.post("/api/resend_verify_email", json={"user_id": user_id})
+    assert resent.status_code == 200
+    assert auth_harness.mailer.verification_deliveries[-1][2] != str(original_code)
+
+
+@pytest.mark.integration
+def test_registration_avatar_database_failure_rolls_back_rows_and_file(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A late metadata failure removes the normalized file and every registration row."""
+    chapter_id, city = auth_harness.create_registration_location()
+    payload = _registration_payload(auth_harness, chapter_id, city)
+    image_output = BytesIO()
+    Image.new("RGB", (8, 8), color=(20, 40, 60)).save(image_output, format="PNG")
+
+    def fail_attachment_insert(*_args: object, **_kwargs: object) -> None:
+        raise SQLAlchemyError("synthetic registration metadata failure")
+
+    monkeypatch.setattr(
+        AuthRepository,
+        "insert_registration_avatar_attachment",
+        fail_attachment_insert,
+    )
+    response = auth_harness.client.post(
+        "/api/register",
+        data={key: str(value) for key, value in payload.items()},
+        files={"avatar": ("synthetic.png", image_output.getvalue(), "image/png")},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "registration_unavailable"
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count())
+                .select_from(USERS_TABLE)
+                .where(Users.email == str(payload["email"]))
+            )
+            == 0
+        )
+        assert (
+            connection.scalar(
+                select(func.count())
+                .select_from(OTP_TABLE)
+                .where(RegisterUserOtp.email == str(payload["email"]))
+            )
+            == 0
+        )
+    profile_directory = auth_harness.settings.upload_root / "profiles"
+    assert not profile_directory.exists() or list(profile_directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_voucher_discovery_is_filtered_deterministic_and_public_safe(
+    auth_harness: AuthHarness,
+) -> None:
+    """Registration can discover active class-year vouchers without contact data."""
+    first_id, _first_email, _ = auth_harness.create_user(
+        voucher="yes",
+        fullname="Synthetic Alpha Voucher",
+        graduation_year=2001,
+    )
+    second_id, _second_email, _ = auth_harness.create_user(
+        voucher="yes",
+        fullname="Synthetic Beta Voucher",
+        graduation_year=2001,
+    )
+    auth_harness.create_user(
+        voucher="yes",
+        active=0,
+        fullname="Synthetic Inactive Voucher",
+        graduation_year=2001,
+    )
+    auth_harness.create_user(
+        fullname="Synthetic Non Voucher",
+        graduation_year=2001,
+    )
+    auth_harness.create_user(
+        voucher="yes",
+        fullname="Synthetic Other Class Voucher",
+        graduation_year=2002,
+    )
+
+    post_response = auth_harness.client.post(
+        "/api/get_vouchers",
+        json={"graduation_year": 2001},
+        headers={"X-API-Key": "legacy-shared-key-is-ignored"},
+    )
+    get_response = auth_harness.client.get(
+        "/api/get_vouchers",
+        params={"graduation_year": 2001},
+    )
+
+    assert post_response.status_code == get_response.status_code == 200
+    assert post_response.json() == get_response.json()
+    body = post_response.json()
+    assert body["total"] == 2
+    assert [voucher["voucher_id"] for voucher in body["vouchers"]] == [first_id, second_id]
+    assert [voucher["fullname"] for voucher in body["vouchers"]] == [
+        "Synthetic Alpha Voucher",
+        "Synthetic Beta Voucher",
+    ]
+    assert all(
+        set(voucher) == {"voucher_id", "fullname", "graduation_year", "chapter_id"}
+        for voucher in body["vouchers"]
+    )
+    assert all(
+        {"email", "phone", "department", "avatar", "user_role"}.isdisjoint(voucher)
+        for voucher in body["vouchers"]
+    )
+
+
+@pytest.mark.integration
+def test_pending_vouches_are_current_role_checked_and_owner_scoped(
+    auth_harness: AuthHarness,
+) -> None:
+    """A voucher sees only their pending registrations through either legacy method."""
+    owner_id, owner_email, _ = auth_harness.create_user(voucher="yes")
+    other_owner_id, _other_owner_email, _ = auth_harness.create_user(voucher="yes")
+    nonvoucher_id, nonvoucher_email, _ = auth_harness.create_user()
+    own_pending_id, own_pending_email, _ = auth_harness.create_user(
+        is_approved=0,
+        fullname="Synthetic Pending Registrant",
+        graduation_year=2004,
+    )
+    own_denied_id, _own_denied_email, _ = auth_harness.create_user(is_approved=0)
+    other_pending_id, _other_pending_email, _ = auth_harness.create_user(is_approved=0)
+    own_vouch_id = auth_harness.create_vouch(own_pending_id, owner_id)
+    auth_harness.create_vouch(own_denied_id, owner_id, status="denied")
+    auth_harness.create_vouch(other_pending_id, other_owner_id)
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+
+    get_response = auth_harness.client.get("/api/voucher_pending", headers=owner_headers)
+    post_response = auth_harness.client.post("/api/voucher_pending", headers=owner_headers)
+
+    assert get_response.status_code == post_response.status_code == 200
+    assert get_response.json() == post_response.json()
+    assert get_response.json() == {
+        "status": 200,
+        "message": "Pending vouches retrieved successfully",
+        "total": 1,
+        "pending": [
+            {
+                "vouch_id": own_vouch_id,
+                "user_id": own_pending_id,
+                "fullname": "Synthetic Pending Registrant",
+                "email": own_pending_email,
+                "graduation_year": 2004,
+                "nick_name": "Synthetic",
+                "status": "pending",
+                "created_at": get_response.json()["pending"][0]["created_at"],
+            }
+        ],
+    }
+
+    nonvoucher_response = auth_harness.client.get(
+        "/api/voucher_pending",
+        headers={
+            "Authorization": (
+                f"Bearer {_access_token_for(auth_harness, nonvoucher_id, nonvoucher_email)}"
+            )
+        },
+    )
+    assert nonvoucher_response.status_code == 403
+    assert nonvoucher_response.json()["code"] == "voucher_role_required"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == owner_id).values(active=0))
+    inactive_response = auth_harness.client.get("/api/voucher_pending", headers=owner_headers)
+    assert inactive_response.status_code == 401
+    assert inactive_response.json()["code"] == "voucher_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_vouch_action_approves_or_denies_once_and_notifies_bounded_recipients(
+    auth_harness: AuthHarness,
+) -> None:
+    """Owned decisions persist canonical states and only notify reviewed recipients."""
+    owner_id, owner_email, _ = auth_harness.create_user(
+        voucher="yes",
+        fullname="Synthetic Trusted Voucher",
+    )
+    manager_id, manager_email, _ = auth_harness.create_user(
+        user_role="admin",
+        fullname="Synthetic Account Manager",
+    )
+    auth_harness.create_user(user_role="subadmin")
+    approved_id, approved_email, _ = auth_harness.create_user(
+        active=0,
+        is_approved=0,
+        fullname="Synthetic Approved Registrant",
+        profile_status="pending",
+    )
+    denied_id, denied_email, _ = auth_harness.create_user(
+        active=0,
+        is_approved=0,
+        fullname="Synthetic Denied Registrant",
+        profile_status="pending",
+    )
+    approved_vouch_id = auth_harness.create_vouch(approved_id, owner_id)
+    denied_vouch_id = auth_harness.create_vouch(denied_id, owner_id)
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"}
+
+    approved = auth_harness.client.post(
+        "/api/vouch_action",
+        headers=headers,
+        json={"vouch_id": approved_vouch_id, "action": "approve"},
+    )
+    denied = auth_harness.client.post(
+        "/api/vouch_action",
+        headers=headers,
+        data={"vouch_id": str(denied_vouch_id), "action": "reject", "reason": "  Not known  "},
+    )
+    replay = auth_harness.client.post(
+        "/api/vouch_action",
+        headers=headers,
+        json={"vouch_id": denied_vouch_id, "action": "deny"},
+    )
+
+    assert approved.status_code == denied.status_code == 200
+    assert approved.json() == {
+        "status": 200,
+        "message": "Account approved by voucher",
+        "vouch_id": approved_vouch_id,
+        "register_id": approved_id,
+        "action": "approve",
+        "vouch_status": "approved",
+        "account_approved": True,
+        "account_active": True,
+    }
+    assert denied.json()["action"] == "deny"
+    assert denied.json()["vouch_status"] == "denied"
+    assert denied.json()["account_approved"] is False
+    assert denied.json()["account_active"] is False
+    assert replay.status_code == 409
+    assert replay.json()["code"] == "vouch_already_actioned"
+
+    with auth_harness.engine.connect() as connection:
+        approved_vouch = (
+            connection.execute(select(VOUCHES_TABLE).where(Vouches.id == approved_vouch_id))
+            .mappings()
+            .one()
+        )
+        denied_vouch = (
+            connection.execute(select(VOUCHES_TABLE).where(Vouches.id == denied_vouch_id))
+            .mappings()
+            .one()
+        )
+        approved_user = (
+            connection.execute(select(USERS_TABLE).where(Users.id == approved_id)).mappings().one()
+        )
+        denied_user = (
+            connection.execute(select(USERS_TABLE).where(Users.id == denied_id)).mappings().one()
+        )
+    assert getattr(approved_vouch["status"], "value", approved_vouch["status"]) == "approved"
+    assert approved_vouch["reason"] is None
+    assert (
+        approved_user["is_approved"],
+        approved_user["active"],
+        approved_user["profile_status"],
+    ) == (
+        1,
+        1,
+        "active",
+    )
+    assert getattr(denied_vouch["status"], "value", denied_vouch["status"]) == "denied"
+    assert denied_vouch["reason"] == "Not known"
+    assert (denied_user["is_approved"], denied_user["active"], denied_user["profile_status"]) == (
+        0,
+        0,
+        "pending",
+    )
+    assert auth_harness.mailer.account_status_deliveries == [
+        (approved_email, "Synthetic Approved Registrant", "approve", None),
+        (denied_email, "Synthetic Denied Registrant", "reject", "Not known"),
+    ]
+    assert auth_harness.mailer.voucher_approval_deliveries == [
+        (
+            manager_email,
+            "Synthetic Account Manager",
+            "Synthetic Trusted Voucher",
+            "Synthetic Approved Registrant",
+        )
+    ]
+    assert manager_id in auth_harness.user_ids
+
+
+@pytest.mark.integration
+def test_vouch_action_rechecks_owner_and_registrant_eligibility(
+    auth_harness: AuthHarness,
+) -> None:
+    """Cross-owner, unverified, and already-approved decisions fail closed."""
+    owner_id, owner_email, _ = auth_harness.create_user(voucher="yes")
+    other_owner_id, other_owner_email, _ = auth_harness.create_user(voucher="yes")
+    unverified_id, _unverified_email, _ = auth_harness.create_user(
+        email_verified=0,
+        is_approved=0,
+    )
+    already_approved_id, _approved_email, _ = auth_harness.create_user(is_approved=1)
+    unverified_vouch_id = auth_harness.create_vouch(unverified_id, owner_id)
+    approved_vouch_id = auth_harness.create_vouch(already_approved_id, owner_id)
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+    other_headers = {
+        "Authorization": (
+            f"Bearer {_access_token_for(auth_harness, other_owner_id, other_owner_email)}"
+        )
+    }
+
+    wrong_owner = auth_harness.client.post(
+        "/api/vouch_action",
+        headers=other_headers,
+        json={"vouch_id": unverified_vouch_id, "action": "approve"},
+    )
+    unverified = auth_harness.client.post(
+        "/api/vouch_action",
+        headers=owner_headers,
+        json={"vouch_id": unverified_vouch_id, "action": "approve"},
+    )
+    already_approved = auth_harness.client.post(
+        "/api/vouch_action",
+        headers=owner_headers,
+        json={"vouch_id": approved_vouch_id, "action": "approve"},
+    )
+
+    assert wrong_owner.status_code == 404
+    assert wrong_owner.json()["code"] == "vouch_not_found"
+    assert unverified.status_code == 409
+    assert unverified.json()["code"] == "vouch_email_unverified"
+    assert already_approved.status_code == 409
+    assert already_approved.json()["code"] == "vouch_account_already_approved"
+    with auth_harness.engine.connect() as connection:
+        statuses = connection.execute(
+            select(Vouches.id, Vouches.status).where(
+                Vouches.id.in_((unverified_vouch_id, approved_vouch_id))
+            )
+        ).all()
+    assert {vouch_id: getattr(status, "value", status) for vouch_id, status in statuses} == {
+        unverified_vouch_id: "pending",
+        approved_vouch_id: "pending",
+    }
+
+
+@pytest.mark.integration
+def test_vouch_action_rolls_back_late_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after both mutations rolls the vouch and account back together."""
+    owner_id, _owner_email, _ = auth_harness.create_user(voucher="yes")
+    registrant_id, _registrant_email, _ = auth_harness.create_user(
+        active=0,
+        is_approved=0,
+        profile_status="pending",
+    )
+    vouch_id = auth_harness.create_vouch(registrant_id, owner_id)
+
+    def fail_manager_lookup(_self: MemberRepository) -> list[dict[str, Any]]:
+        raise SQLAlchemyError("synthetic manager lookup failure")
+
+    monkeypatch.setattr(MemberRepository, "account_manager_recipients", fail_manager_lookup)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(SQLAlchemyError, match="synthetic manager lookup failure"),
+    ):
+        MemberService(session, auth_harness.settings, auth_harness.mailer).decide_vouch(
+            owner_id,
+            VouchActionRequest(vouch_id=vouch_id, action="approve"),
+        )
+
+    with auth_harness.engine.connect() as connection:
+        status = connection.scalar(select(Vouches.status).where(Vouches.id == vouch_id))
+        account = (
+            connection.execute(
+                select(Users.is_approved, Users.active, Users.profile_status).where(
+                    Users.id == registrant_id
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert getattr(status, "value", status) == "pending"
+    assert (account["is_approved"], account["active"], account["profile_status"]) == (
+        0,
+        0,
+        "pending",
+    )
+    assert auth_harness.mailer.account_status_deliveries == []
+    assert auth_harness.mailer.voucher_approval_deliveries == []
+
+
+@pytest.mark.integration
+def test_vouch_action_commits_before_best_effort_notification(
+    auth_harness: AuthHarness,
+) -> None:
+    """A mail outage cannot roll back a valid owned voucher approval."""
+    owner_id, owner_email, _ = auth_harness.create_user(voucher="yes")
+    registrant_id, _registrant_email, _ = auth_harness.create_user(
+        active=0,
+        is_approved=0,
+        profile_status="pending",
+    )
+    vouch_id = auth_harness.create_vouch(registrant_id, owner_id)
+    auth_harness.mailer.fail = True
+
+    response = auth_harness.client.post(
+        "/api/vouch_action",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+        },
+        json={"vouch_id": vouch_id, "action": "approve"},
+    )
+
+    assert response.status_code == 200
+    with auth_harness.engine.connect() as connection:
+        status = connection.scalar(select(Vouches.status).where(Vouches.id == vouch_id))
+        account = connection.execute(
+            select(Users.is_approved, Users.active).where(Users.id == registrant_id)
+        ).one()
+    assert getattr(status, "value", status) == "approved"
+    assert tuple(account) == (1, 1)
+    assert auth_harness.mailer.account_status_deliveries == []
+
+
+@pytest.mark.integration
+def test_city_catalogue_is_public_deterministic_and_keeps_orphan_zone_ids(
+    auth_harness: AuthHarness,
+) -> None:
+    """Registration receives bounded city metadata without the reusable application key."""
+    suffix = uuid.uuid4().hex[:8]
+    first_cities = (f"Synthetic Z City {suffix}", f"Synthetic A City {suffix}")
+    first_zone_id, first_city_ids = auth_harness.create_zone(cities=first_cities)
+    first_zone_name = auth_harness.zone_names[-1]
+    second_city = f"Synthetic B City {suffix}"
+    second_zone_id, second_city_ids = auth_harness.create_zone(cities=(second_city,))
+    second_zone_name = auth_harness.zone_names[-1]
+    orphan_city = f"Synthetic Orphan City {suffix}"
+    orphan_zone_id = 2_000_000_000
+    with auth_harness.engine.begin() as connection:
+        orphan_result = connection.execute(
+            CITIES_TABLE.insert().values(
+                city=orphan_city,
+                zone_id=orphan_zone_id,
+                chapter_id=1,
+                created_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        )
+        orphan_key = orphan_result.inserted_primary_key
+        assert orphan_key is not None
+        orphan_city_id = int(orphan_key[0])
+    auth_harness.city_names.append(orphan_city)
+
+    get_response = auth_harness.client.get(
+        "/api/get_cities",
+        headers={"X-API-Key": "legacy-shared-key-is-ignored"},
+    )
+    post_response = auth_harness.client.post("/api/get_cities", json={"token": "ignored"})
+
+    assert get_response.status_code == post_response.status_code == 200
+    assert get_response.json() == post_response.json()
+    body = get_response.json()
+    assert body["status"] == 200
+    assert body["message"] == "Cities retrieved successfully"
+    tracked_ids = {*first_city_ids.values(), *second_city_ids.values(), orphan_city_id}
+    tracked = [city for city in body["data"] if city["city_id"] in tracked_ids]
+    assert tracked == [
+        {
+            "city_id": first_city_ids[first_cities[1]],
+            "city": first_cities[1],
+            "chapter_id": 1,
+            "zone_id": first_zone_id,
+            "zone": first_zone_name,
+        },
+        {
+            "city_id": first_city_ids[first_cities[0]],
+            "city": first_cities[0],
+            "chapter_id": 1,
+            "zone_id": first_zone_id,
+            "zone": first_zone_name,
+        },
+        {
+            "city_id": second_city_ids[second_city],
+            "city": second_city,
+            "chapter_id": 1,
+            "zone_id": second_zone_id,
+            "zone": second_zone_name,
+        },
+        {
+            "city_id": orphan_city_id,
+            "city": orphan_city,
+            "chapter_id": 1,
+            "zone_id": orphan_zone_id,
+        },
+    ]
+    assert all(
+        {"email", "phone", "avatar", "user_role", "coordinator_user_id"}.isdisjoint(city)
+        for city in body["data"]
+    )
+
+
+@pytest.mark.integration
+def test_zone_catalogue_is_public_nested_and_coordinator_privacy_aware(
+    auth_harness: AuthHarness,
+) -> None:
+    """Welfare zones keep public structure while coordinator PII obeys eligibility/privacy."""
+    eligible_id, eligible_email, _ = auth_harness.create_user(
+        fullname="Synthetic Visible Coordinator"
+    )
+    malformed_id, malformed_email, _ = auth_harness.create_user(
+        fullname="Synthetic Malformed Coordinator"
+    )
+    default_id, default_email, _ = auth_harness.create_user(
+        fullname="Synthetic Default Visibility Coordinator"
+    )
+    hidden_id, hidden_email, _ = auth_harness.create_user(fullname="Synthetic Hidden Coordinator")
+    inactive_id, inactive_email, _ = auth_harness.create_user(
+        active=0,
+        fullname="Synthetic Inactive Coordinator",
+    )
+    unapproved_id, unapproved_email, _ = auth_harness.create_user(
+        is_approved=0,
+        fullname="Synthetic Unapproved Coordinator",
+    )
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert(),
+            [
+                {
+                    "user_id": eligible_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 1,
+                    "field_visibility": json.dumps({"phone": "public", "avatar": "private"}),
+                },
+                {
+                    "user_id": malformed_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 1,
+                    "field_visibility": "not-json",
+                },
+                {
+                    "user_id": hidden_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 0,
+                    "field_visibility": None,
+                },
+            ],
+        )
+
+    suffix = uuid.uuid4().hex[:8]
+    zone_specs = (
+        (eligible_id, (f"Synthetic Z Welfare City {suffix}", f"Synthetic A Welfare City {suffix}")),
+        (malformed_id, (f"Synthetic Malformed City {suffix}",)),
+        (default_id, (f"Synthetic Default Visibility City {suffix}",)),
+        (hidden_id, (f"Synthetic Hidden City {suffix}",)),
+        (inactive_id, (f"Synthetic Inactive City {suffix}",)),
+        (unapproved_id, (f"Synthetic Unapproved City {suffix}",)),
+        (None, (f"Synthetic Unassigned City {suffix}",)),
+    )
+    zone_ids: list[int] = []
+    zone_city_ids: list[dict[str, int]] = []
+    for coordinator_id, cities in zone_specs:
+        zone_id, city_ids = auth_harness.create_zone(
+            coordinator_user_id=coordinator_id,
+            cities=cities,
+        )
+        zone_ids.append(zone_id)
+        zone_city_ids.append(city_ids)
+
+    get_response = auth_harness.client.get("/api/get_zones")
+    post_response = auth_harness.client.post(
+        "/api/get_zones",
+        headers={"X-API-Key": "legacy-shared-key-is-ignored"},
+    )
+
+    assert get_response.status_code == post_response.status_code == 200
+    assert get_response.json() == post_response.json()
+    tracked = [zone for zone in get_response.json()["data"] if zone["zone_id"] in zone_ids]
+    assert [zone["zone_id"] for zone in tracked] == zone_ids
+    assert tracked[0]["cities"] == [
+        {
+            "city_id": zone_city_ids[0][zone_specs[0][1][1]],
+            "city": zone_specs[0][1][1],
+        },
+        {
+            "city_id": zone_city_ids[0][zone_specs[0][1][0]],
+            "city": zone_specs[0][1][0],
+        },
+    ]
+    assert tracked[0]["coordinator"] == {
+        "user_id": eligible_id,
+        "name": "Synthetic Visible Coordinator",
+        "first_name": "Synthetic",
+        "last_name": "Member",
+        "phone": "+2348000000000",
+    }
+    assert tracked[1]["coordinator"] == {
+        "user_id": malformed_id,
+        "name": "Synthetic Malformed Coordinator",
+        "first_name": "Synthetic",
+        "last_name": "Member",
+    }
+    assert tracked[2]["coordinator"] == {
+        "user_id": default_id,
+        "name": "Synthetic Default Visibility Coordinator",
+        "first_name": "Synthetic",
+        "last_name": "Member",
+        "phone": "+2348000000000",
+        "avatar": "https://alumni.example.test/uploads/profiles/synthetic.png",
+    }
+    assert all(zone["coordinator"] is None for zone in tracked[3:])
+    assert all(
+        "email" not in coordinator
+        for zone in get_response.json()["data"]
+        if (coordinator := zone.get("coordinator")) is not None
+    )
+    for private_email in (
+        eligible_email,
+        malformed_email,
+        default_email,
+        hidden_email,
+        inactive_email,
+        unapproved_email,
+    ):
+        assert private_email not in get_response.text
+
+
+@pytest.mark.integration
+def test_zone_member_roster_uses_current_auth_and_membership_privacy(
+    auth_harness: AuthHarness,
+) -> None:
+    """Zone-name lookup works and excludes hidden, private-city, or ineligible records."""
+    suffix = uuid.uuid4().hex[:8]
+    city = f"Synthetic Roster City {suffix}"
+    actor_id, actor_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster A Actor",
+    )
+    coordinator_id, coordinator_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster B Coordinator",
+    )
+    private_contact_id, private_contact_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster C Private Contact",
+    )
+    default_id, default_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster D Default Visibility",
+    )
+    private_city_id, private_city_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster E Private City",
+    )
+    malformed_id, malformed_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster F Malformed Visibility",
+    )
+    hidden_id, hidden_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster G Globally Hidden",
+    )
+    inactive_id, inactive_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster H Inactive",
+        active=0,
+    )
+    unapproved_id, unapproved_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster I Unapproved",
+        is_approved=0,
+    )
+    unverified_id, unverified_email, _ = auth_harness.create_user(
+        city=city,
+        fullname="Roster J Unverified",
+        email_verified=0,
+    )
+    zone_id, _ = auth_harness.create_zone(
+        coordinator_user_id=coordinator_id,
+        cities=(city,),
+    )
+    zone_name = auth_harness.zone_names[-1]
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert(),
+            [
+                {
+                    "user_id": actor_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 0,
+                    "field_visibility": "not-json",
+                },
+                {
+                    "user_id": coordinator_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 1,
+                    "field_visibility": json.dumps(
+                        {"city": "public", "phone": "public", "avatar": "private"}
+                    ),
+                },
+                {
+                    "user_id": private_contact_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 1,
+                    "field_visibility": json.dumps({"city": True, "phone": False, "avatar": False}),
+                },
+                {
+                    "user_id": private_city_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 1,
+                    "field_visibility": json.dumps({"city": False}),
+                },
+                {
+                    "user_id": malformed_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 1,
+                    "field_visibility": "not-json",
+                },
+                {
+                    "user_id": hidden_id,
+                    "instagram": "",
+                    "tiktok": "",
+                    "updated_at": now,
+                    "is_visible": 0,
+                    "field_visibility": None,
+                },
+            ],
+        )
+
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    by_name = auth_harness.client.get(
+        "/api/get_users_by_zone",
+        headers=headers,
+        params={"zone": f"  {zone_name.upper()}  "},
+    )
+    first_page = auth_harness.client.post(
+        "/api/get_users_by_zone",
+        headers=headers,
+        json={"zone_id": zone_id, "zone": "ignored-name", "page": 1, "limit": 2},
+    )
+    second_page = auth_harness.client.post(
+        "/api/get_users_by_zone",
+        headers=headers,
+        data={"zone_id": str(zone_id), "page": "2", "limit": "2"},
+    )
+
+    assert by_name.status_code == first_page.status_code == second_page.status_code == 200
+    body = by_name.json()
+    assert body["zone"] == {
+        "zone_id": zone_id,
+        "zone": zone_name,
+        "coordinator": {
+            "user_id": coordinator_id,
+            "name": "Roster B Coordinator",
+            "first_name": "Synthetic",
+            "last_name": "Member",
+            "phone": "+2348000000000",
+        },
+    }
+    assert body["count"] == body["total"] == 4
+    assert body["has_more"] is False
+    assert [user["user_id"] for user in body["users"]] == [
+        actor_id,
+        coordinator_id,
+        private_contact_id,
+        default_id,
+    ]
+    assert body["users"][0]["phone"] == "+2348000000000"
+    assert body["users"][0]["avatar"].endswith("/uploads/profiles/synthetic.png")
+    assert "phone" not in body["users"][2]
+    assert "avatar" not in body["users"][2]
+    assert body["users"][3]["phone"] == "+2348000000000"
+    assert first_page.json()["total"] == second_page.json()["total"] == 4
+    assert first_page.json()["has_more"] is True
+    assert second_page.json()["has_more"] is False
+    assert [user["user_id"] for user in first_page.json()["users"]] == [
+        actor_id,
+        coordinator_id,
+    ]
+    assert [user["user_id"] for user in second_page.json()["users"]] == [
+        private_contact_id,
+        default_id,
+    ]
+
+    excluded_ids = {
+        private_city_id,
+        malformed_id,
+        hidden_id,
+        inactive_id,
+        unapproved_id,
+        unverified_id,
+    }
+    assert excluded_ids.isdisjoint(user["user_id"] for user in body["users"])
+    for private_email in (
+        actor_email,
+        coordinator_email,
+        private_contact_email,
+        default_email,
+        private_city_email,
+        malformed_email,
+        hidden_email,
+        inactive_email,
+        unapproved_email,
+        unverified_email,
+    ):
+        assert private_email not in by_name.text
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == actor_id).values(active=0))
+    stale_actor = auth_harness.client.get(
+        "/api/get_users_by_zone",
+        headers=headers,
+        params={"zone_id": zone_id},
+    )
+    assert stale_actor.status_code == 401
+    assert stale_actor.json()["code"] == "zone_members_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_my_zone_is_self_scoped_deterministic_and_privacy_aware(
+    auth_harness: AuthHarness,
+) -> None:
+    """Self lookup chooses the oldest city mapping and never exposes coordinator email."""
+    suffix = uuid.uuid4().hex[:8]
+    city = f"Synthetic Self Zone City {suffix}"
+    coordinator_id, coordinator_email, _ = auth_harness.create_user(
+        fullname="Synthetic Self Zone Coordinator"
+    )
+    actor_id, actor_email, _ = auth_harness.create_user(city=f"  {city.upper()}  ")
+    no_city_id, no_city_email, _ = auth_harness.create_user(city="")
+    orphan_id, orphan_email, _ = auth_harness.create_user(city=f"Synthetic Unmapped City {suffix}")
+    inactive_id, inactive_email, _ = auth_harness.create_user(city=city, active=0)
+    first_zone_id, _ = auth_harness.create_zone(
+        coordinator_user_id=coordinator_id,
+        cities=(city,),
+    )
+    first_zone_name = auth_harness.zone_names[-1]
+    second_zone_id, _ = auth_harness.create_zone(cities=(city,))
+    assert first_zone_id < second_zone_id
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=coordinator_id,
+                instagram="",
+                tiktok="",
+                updated_at=now,
+                is_visible=1,
+                field_visibility=json.dumps({"phone": False, "avatar": True}),
+            )
+        )
+
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    get_response = auth_harness.client.get("/api/get_my_zone", headers=headers)
+    post_response = auth_harness.client.post(
+        "/api/get_my_zone",
+        headers=headers,
+        json={"user_id": no_city_id, "token": "ignored"},
+    )
+
+    assert get_response.status_code == post_response.status_code == 200
+    assert get_response.json() == post_response.json()
+    assert get_response.json() == {
+        "status": 200,
+        "message": "Zone retrieved successfully",
+        "city": city.upper(),
+        "zone": {
+            "zone_id": first_zone_id,
+            "zone": first_zone_name,
+            "coordinator": {
+                "user_id": coordinator_id,
+                "name": "Synthetic Self Zone Coordinator",
+                "first_name": "Synthetic",
+                "last_name": "Member",
+                "avatar": "https://alumni.example.test/uploads/profiles/synthetic.png",
+            },
+        },
+    }
+    assert coordinator_email not in get_response.text
+
+    no_city = auth_harness.client.get(
+        "/api/get_my_zone",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, no_city_id, no_city_email)}"
+        },
+    )
+    orphan = auth_harness.client.get(
+        "/api/get_my_zone",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, orphan_id, orphan_email)}"
+        },
+    )
+    inactive = auth_harness.client.get(
+        "/api/get_my_zone",
+        headers={
+            "Authorization": (
+                f"Bearer {_access_token_for(auth_harness, inactive_id, inactive_email)}"
+            )
+        },
+    )
+
+    assert no_city.status_code == orphan.status_code == 200
+    assert no_city.json() == {
+        "status": 200,
+        "message": "Zone not yet available",
+        "city": None,
+        "zone": "Not Yet Available",
+    }
+    assert orphan.json() == {
+        "status": 200,
+        "message": "Zone not yet available",
+        "city": f"Synthetic Unmapped City {suffix}",
+        "zone": "Not Yet Available",
+    }
+    assert inactive.status_code == 401
+    assert inactive.json()["code"] == "my_zone_actor_unavailable"
 
 
 @pytest.mark.integration
@@ -1058,3 +2590,3623 @@ def test_member_profile_rechecks_actor_state_and_missing_target(
     )
     assert inactive.status_code == 401
     assert inactive.json()["code"] == "profile_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_member_approval_uses_database_role_and_returns_allowlisted_state(
+    auth_harness: AuthHarness,
+) -> None:
+    """A current manager can approve a verified member despite a stale JWT role claim."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, target_email, _ = auth_harness.create_user(is_approved=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == target_id).values(profile_status="No", active=1)
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+
+    response = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": str(target_id), "action": " APPROVE ", "token": "ignored"},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["message"] == "User account approved successfully"
+    assert body["user"] == {
+        "id": target_id,
+        "fullname": "Synthetic Member",
+        "email": target_email,
+        "user_role": "alumni",
+        "active": True,
+        "is_approved": True,
+        "profile_status": "active",
+    }
+    assert {
+        "password",
+        "reset_token",
+        "verify_token",
+        "userAccessCode",
+        "device_token",
+    }.isdisjoint(body["user"])
+    assert auth_harness.mailer.account_status_deliveries == [
+        (target_email, "Synthetic Member", "approve", None)
+    ]
+
+
+@pytest.mark.integration
+def test_member_rejection_commits_before_best_effort_notification(
+    auth_harness: AuthHarness,
+) -> None:
+    """A provider outage cannot roll back a valid rejection transaction."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, _target_email, _ = auth_harness.create_user(is_approved=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == target_id).values(profile_status="No", active=1)
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+    auth_harness.mailer.fail = True
+
+    response = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "user_id": target_id,
+            "action": "reject",
+            "reject_reason": "  Synthetic review reason  ",
+        },
+    )
+    auth_harness.mailer.fail = False
+
+    assert response.status_code == 200
+    assert response.json()["user"]["profile_status"] == "rejected"
+    with auth_harness.engine.connect() as connection:
+        state = connection.execute(
+            select(Users.active, Users.is_approved, Users.profile_status).where(
+                Users.id == target_id
+            )
+        ).one()
+    assert tuple(state) == (0, 0, "rejected")
+
+
+@pytest.mark.integration
+def test_member_approval_blocks_forged_claims_self_action_and_role_escalation(
+    auth_harness: AuthHarness,
+) -> None:
+    """Current database facts and hierarchy rules fail closed for privileged actions."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    member_id, _member_email, _ = auth_harness.create_user(is_approved=0)
+    admin_id, _admin_email, _ = auth_harness.create_user(is_approved=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_((member_id, admin_id)))
+            .values(profile_status="No", active=1)
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == admin_id).values(user_role="admin")
+        )
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="superadmin")
+
+    denied = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": member_id, "action": "approve"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "approval_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+    stale_token = _access_token_for(auth_harness, actor_id, actor_email)
+    escalated = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {stale_token}"},
+        json={"user_id": admin_id, "action": "approve"},
+    )
+    self_action = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {stale_token}"},
+        json={"user_id": actor_id, "action": "reject"},
+    )
+    assert escalated.status_code == 403
+    assert escalated.json()["code"] == "approval_role_forbidden"
+    assert self_action.status_code == 403
+    assert self_action.json()["code"] == "approval_self_forbidden"
+
+
+@pytest.mark.integration
+def test_member_approval_rejects_unverified_and_invalid_existing_states(
+    auth_harness: AuthHarness,
+) -> None:
+    """Approval decisions cannot bypass verification or misuse the pending workflow."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    unverified_id, _email, _ = auth_harness.create_user(
+        active=1,
+        email_verified=0,
+        is_approved=0,
+    )
+    approved_id, _approved_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+
+    missing = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": 2_000_000_000, "action": "approve"},
+    )
+    unverified = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": unverified_id, "action": "approve"},
+    )
+    duplicate = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": approved_id, "action": "approve"},
+    )
+    wrong_workflow = auth_harness.client.post(
+        "/api/approve_user",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": approved_id, "action": "reject"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "approval_target_not_found"
+    assert unverified.status_code == 409
+    assert unverified.json()["code"] == "approval_email_unverified"
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "approval_already_approved"
+    assert wrong_workflow.status_code == 409
+    assert wrong_workflow.json()["code"] == "approval_reject_active_forbidden"
+
+
+@pytest.mark.integration
+def test_member_approval_transaction_rolls_back_on_repository_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after the update statement leaves the pending member unchanged."""
+    actor_id, _actor_email, _ = auth_harness.create_user()
+    target_id, _target_email, _ = auth_harness.create_user(is_approved=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == target_id).values(profile_status="No", active=1)
+        )
+
+    original = MemberRepository.update_approval_state
+
+    def fail_after_update(self: MemberRepository, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        raise RuntimeError("synthetic post-update failure")
+
+    monkeypatch.setattr(MemberRepository, "update_approval_state", fail_after_update)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic post-update failure"),
+    ):
+        MemberService(session, auth_harness.settings, auth_harness.mailer).decide_member_approval(
+            actor_id,
+            target_id,
+            "approve",
+            None,
+        )
+
+    with auth_harness.engine.connect() as connection:
+        state = connection.execute(
+            select(Users.active, Users.is_approved, Users.profile_status).where(
+                Users.id == target_id
+            )
+        ).one()
+    assert tuple(state) == (1, 0, "No")
+
+
+@pytest.mark.integration
+def test_member_self_deactivation_revokes_sessions_and_returns_allowlisted_state(
+    auth_harness: AuthHarness,
+) -> None:
+    """A member can deactivate only self and all refresh sessions are revoked atomically."""
+    user_id, email, _ = auth_harness.create_user()
+    login = auth_harness.client.post(
+        "/api/login",
+        json={"identity": email, "password": PASSPHRASE},
+    )
+    token = login.json()["access_token"]
+    assert any(row["revoked"] == 0 for row in auth_harness.refresh_rows(user_id))
+
+    response = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"action": " DEACTIVATE ", "token": "ignored"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user"] == {
+        "id": user_id,
+        "fullname": "Synthetic Member",
+        "email": email,
+        "phone": "+2348000000000",
+        "user_role": "alumni",
+        "active": False,
+        "profile_status": "active",
+    }
+    assert all(row["revoked"] == 1 for row in auth_harness.refresh_rows(user_id))
+    assert auth_harness.mailer.account_activity_deliveries == [
+        (email, "Synthetic Member", "deactivate", "self")
+    ]
+
+
+@pytest.mark.integration
+def test_account_management_uses_database_role_and_downward_hierarchy(
+    auth_harness: AuthHarness,
+) -> None:
+    """Forged claims cannot grant management, while a current manager can deactivate a member."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, target_email, _ = auth_harness.create_user()
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="superadmin")
+
+    denied = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": target_id, "action": "deactivate"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "account_role_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+    stale_token = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    allowed = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {stale_token}"},
+        json={"user_id": str(target_id), "action": "deactivate"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["user"]["active"] is False
+    assert auth_harness.mailer.account_activity_deliveries == [
+        (target_email, "Synthetic Member", "deactivate", "administrator")
+    ]
+
+
+@pytest.mark.integration
+def test_account_activation_requires_approved_verified_inactive_member(
+    auth_harness: AuthHarness,
+) -> None:
+    """Activation cannot bypass approval/email gates or become a silent no-op."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    valid_id, _valid_email, _ = auth_harness.create_user(active=0)
+    unapproved_id, _email, _ = auth_harness.create_user(active=0, is_approved=0)
+    unverified_id, _email, _ = auth_harness.create_user(active=0, email_verified=0)
+    active_id, _email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+
+    valid = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": valid_id, "action": "activate"},
+    )
+    unapproved = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": unapproved_id, "action": "activate"},
+    )
+    unverified = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": unverified_id, "action": "activate"},
+    )
+    duplicate = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": active_id, "action": "activate"},
+    )
+
+    assert valid.status_code == 200
+    assert valid.json()["user"]["active"] is True
+    assert unapproved.status_code == unverified.status_code == 409
+    assert unapproved.json()["code"] == "account_activation_state_invalid"
+    assert unverified.json()["code"] == "account_activation_state_invalid"
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "account_state_unchanged"
+
+
+@pytest.mark.integration
+def test_account_management_blocks_self_activation_hierarchy_and_missing_target(
+    auth_harness: AuthHarness,
+) -> None:
+    """Self escalation, peer changes, unknown roles, and absent accounts fail closed."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    peer_id, _email, _ = auth_harness.create_user()
+    unknown_id, _email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == peer_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == unknown_id).values(user_role="mystery admin")
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    self_activate = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"action": "activate"},
+    )
+    peer = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": peer_id, "action": "deactivate"},
+    )
+    unknown = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": unknown_id, "action": "deactivate"},
+    )
+    missing = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": 2_000_000_000, "action": "deactivate"},
+    )
+
+    assert self_activate.status_code == 403
+    assert self_activate.json()["code"] == "account_self_activate_forbidden"
+    assert peer.status_code == unknown.status_code == 403
+    assert peer.json()["code"] == unknown.json()["code"] == "account_role_forbidden"
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "account_target_not_found"
+
+
+@pytest.mark.integration
+def test_account_deactivation_commits_before_mail_failure_and_rolls_back_on_sql_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mail is post-commit, while repository failures roll back state and token revocation."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    committed_id, _email, _ = auth_harness.create_user()
+    rollback_id, rollback_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+    rollback_login = auth_harness.client.post(
+        "/api/login",
+        json={"identity": rollback_email, "password": PASSPHRASE},
+    )
+    assert rollback_login.status_code == 200
+    assert any(row["revoked"] == 0 for row in auth_harness.refresh_rows(rollback_id))
+    auth_harness.mailer.fail = True
+    committed = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": committed_id, "action": "deactivate"},
+    )
+    auth_harness.mailer.fail = False
+    assert committed.status_code == 200
+
+    original = MemberRepository.update_active_state
+
+    def fail_after_update(self: MemberRepository, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        raise RuntimeError("synthetic account update failure")
+
+    monkeypatch.setattr(MemberRepository, "update_active_state", fail_after_update)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic account update failure"),
+    ):
+        MemberService(session, auth_harness.settings, auth_harness.mailer).manage_member_account(
+            actor_id,
+            rollback_id,
+            "deactivate",
+            None,
+        )
+
+    with auth_harness.engine.connect() as connection:
+        committed_active = connection.scalar(select(Users.active).where(Users.id == committed_id))
+        rollback_active = connection.scalar(select(Users.active).where(Users.id == rollback_id))
+    assert committed_active == 0
+    assert rollback_active == 1
+    assert any(row["revoked"] == 0 for row in auth_harness.refresh_rows(rollback_id))
+    assert auth_harness.mailer.account_activity_deliveries == []
+
+
+@pytest.mark.integration
+def test_role_change_uses_current_superadmin_facts_and_revokes_sessions(
+    auth_harness: AuthHarness,
+) -> None:
+    """A current super administrator can apply one reviewed role despite a stale token."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, target_email, _ = auth_harness.create_user()
+    target_login = auth_harness.client.post(
+        "/api/login",
+        json={"identity": target_email, "password": PASSPHRASE},
+    )
+    assert target_login.status_code == 200
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="super admin")
+        )
+    stale_token = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+
+    response = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {stale_token}"},
+        json={"user_id": str(target_id), "user_role": " Content_Administrator "},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": 200,
+        "message": "User role updated to content admin",
+        "user": {
+            "id": target_id,
+            "fullname": "Synthetic Member",
+            "email": target_email,
+            "phone": "+2348000000000",
+            "user_role": "content admin",
+            "active": True,
+            "profile_status": "active",
+        },
+    }
+    assert all(row["revoked"] == 1 for row in auth_harness.refresh_rows(target_id))
+    assert auth_harness.mailer.account_activity_deliveries == []
+
+
+@pytest.mark.integration
+def test_role_change_blocks_forged_claims_category_admins_and_self_change(
+    auth_harness: AuthHarness,
+) -> None:
+    """JWT text, category-admin access, and self-targeting cannot grant roles."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, _target_email, _ = auth_harness.create_user()
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="super admin")
+
+    forged_denial = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": target_id, "user_role": "content admin"},
+    )
+    assert forged_denial.status_code == 403
+    assert forged_denial.json()["code"] == "account_role_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="approval admin")
+        )
+    category_denial = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": target_id, "user_role": "content admin"},
+    )
+    assert category_denial.status_code == 403
+    assert category_denial.json()["code"] == "account_role_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="super admin")
+        )
+    self_denial = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": actor_id, "user_role": "alumni"},
+    )
+    assert self_denial.status_code == 403
+    assert self_denial.json()["code"] == "account_role_self_forbidden"
+
+
+@pytest.mark.integration
+def test_role_change_enforces_hierarchy_state_and_duplicate_guards(
+    auth_harness: AuthHarness,
+) -> None:
+    """Administrative grants cannot bypass hierarchy or account-readiness checks."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    member_id, _member_email, _ = auth_harness.create_user()
+    unverified_id, _email, _ = auth_harness.create_user(email_verified=0)
+    category_id, _category_email, _ = auth_harness.create_user()
+    unknown_id, _unknown_email, _ = auth_harness.create_user()
+    super_peer_id, _super_peer_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == category_id).values(user_role="content admin")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == unknown_id).values(user_role="auditor admin")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == super_peer_id).values(user_role="super admin")
+        )
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    allowed = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": member_id, "user_role": "approval admin"},
+    )
+    unverified_super_grant = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": unverified_id, "user_role": "super admin"},
+    )
+    peer_denial = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": category_id, "user_role": "alumni"},
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["user"]["user_role"] == "approval admin"
+    assert unverified_super_grant.status_code == 409
+    assert unverified_super_grant.json()["code"] == "account_role_state_invalid"
+    assert peer_denial.status_code == 403
+    assert peer_denial.json()["code"] == "account_role_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="super admin")
+        )
+    unverified = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": unverified_id, "user_role": "event admin"},
+    )
+    duplicate = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": category_id, "user_role": "content administrator"},
+    )
+    unknown_target = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": unknown_id, "user_role": "alumni"},
+    )
+    peer_demotion = auth_harness.client.post(
+        "/api/manage_user_account",
+        headers=headers,
+        json={"user_id": super_peer_id, "user_role": "alumni"},
+    )
+    assert unverified.status_code == duplicate.status_code == 409
+    assert unverified.json()["code"] == "account_role_state_invalid"
+    assert duplicate.json()["code"] == "account_role_unchanged"
+    assert unknown_target.status_code == 403
+    assert unknown_target.json()["code"] == "account_role_forbidden"
+    assert peer_demotion.status_code == 200
+    assert peer_demotion.json()["user"]["user_role"] == "alumni"
+
+
+@pytest.mark.integration
+def test_role_change_rolls_back_role_and_refresh_revocation_on_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Role persistence and refresh revocation share one rollback boundary."""
+    actor_id, _actor_email, _ = auth_harness.create_user()
+    target_id, target_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="super admin")
+        )
+    login = auth_harness.client.post(
+        "/api/login",
+        json={"identity": target_email, "password": PASSPHRASE},
+    )
+    assert login.status_code == 200
+    original = MemberRepository.update_user_role
+
+    def fail_after_update(self: MemberRepository, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        self.revoke_refresh_tokens(target_id)
+        raise RuntimeError("synthetic role update failure")
+
+    monkeypatch.setattr(MemberRepository, "update_user_role", fail_after_update)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic role update failure"),
+    ):
+        MemberService(session, auth_harness.settings, auth_harness.mailer).manage_member_account(
+            actor_id,
+            target_id,
+            None,
+            "event admin",
+        )
+
+    with auth_harness.engine.connect() as connection:
+        role = connection.scalar(select(Users.user_role).where(Users.id == target_id))
+    assert role == "alumni"
+    assert any(row["revoked"] == 0 for row in auth_harness.refresh_rows(target_id))
+
+
+@pytest.mark.integration
+def test_profile_visibility_self_defaults_create_and_merge(auth_harness: AuthHarness) -> None:
+    """Self-service visibility creates a missing profile and preserves unspecified fields."""
+    user_id, email, _ = auth_harness.create_user()
+    token = _access_token_for(auth_harness, user_id, email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    defaults = auth_harness.client.post(
+        "/api/get_profile_visibility",
+        headers=headers,
+        json={},
+    )
+    assert defaults.status_code == 200
+    assert defaults.json()["user_id"] == user_id
+    assert defaults.json()["is_visible"] is True
+    assert set(defaults.json()["field_visibility"].values()) == {"public"}
+
+    created = auth_harness.client.post(
+        "/api/update_profile_visibility",
+        headers=headers,
+        json={
+            "is_visible": False,
+            "phone_visible": False,
+            "socials_visible": False,
+            "token": "ignored",
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["is_visible"] is False
+    assert created.json()["field_visibility"]["phone"] == "private"
+    assert created.json()["field_visibility"]["socials"] == "private"
+    assert created.json()["field_visibility"]["avatar"] == "public"
+
+    merged = auth_harness.client.post(
+        "/api/update_profile_visibility",
+        headers=headers,
+        json={"avatar_visible": False},
+    )
+    assert merged.status_code == 200
+    assert merged.json()["is_visible"] is False
+    assert merged.json()["field_visibility"]["avatar"] == "private"
+    assert merged.json()["field_visibility"]["phone"] == "private"
+    with auth_harness.engine.connect() as connection:
+        stored = connection.execute(
+            select(UserProfiles.instagram, UserProfiles.tiktok, UserProfiles.field_visibility)
+            .where(UserProfiles.user_id == user_id)
+            .limit(1)
+        ).one()
+    assert stored[0:2] == ("", "")
+    assert stored[2] == '{"avatar":false,"phone":false,"socials":false}'
+
+
+@pytest.mark.integration
+def test_profile_visibility_cross_user_access_uses_current_database_hierarchy(
+    auth_harness: AuthHarness,
+) -> None:
+    """JWT role claims cannot grant cross-user access, while a current manager can act down."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, _target_email, _ = auth_harness.create_user()
+    peer_id, _peer_email, _ = auth_harness.create_user()
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="superadmin")
+
+    denied = auth_harness.client.post(
+        "/api/update_profile_visibility",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": target_id, "phone_visible": False},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "visibility_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == peer_id).values(user_role="manager")
+        )
+    stale = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    allowed = auth_harness.client.post(
+        "/api/update_profile_visibility",
+        headers={"Authorization": f"Bearer {stale}"},
+        json={"user_id": target_id, "phone_visible": False},
+    )
+    peer_denied = auth_harness.client.post(
+        "/api/get_profile_visibility",
+        headers={"Authorization": f"Bearer {stale}"},
+        json={"user_id": peer_id},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["field_visibility"]["phone"] == "private"
+    assert peer_denied.status_code == 403
+    assert peer_denied.json()["code"] == "visibility_forbidden"
+
+
+@pytest.mark.integration
+def test_profile_visibility_fails_closed_for_bad_json_and_account_state(
+    auth_harness: AuthHarness,
+) -> None:
+    """Malformed stored settings become private and missing/inactive principals fail closed."""
+    user_id, email, _ = auth_harness.create_user()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=user_id,
+                instagram="",
+                tiktok="",
+                updated_at=now,
+                field_visibility="not-json",
+            )
+        )
+    token = _access_token_for(auth_harness, user_id, email)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = auth_harness.client.post(
+        "/api/get_profile_visibility",
+        headers=headers,
+        json={},
+    )
+    assert response.status_code == 200
+    assert set(response.json()["field_visibility"].values()) == {"private"}
+
+    missing = auth_harness.client.post(
+        "/api/get_profile_visibility",
+        headers=headers,
+        json={"user_id": 2_000_000_000},
+    )
+    assert missing.status_code == 403
+    assert missing.json()["code"] == "visibility_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == user_id).values(active=0))
+    inactive = auth_harness.client.post(
+        "/api/get_profile_visibility",
+        headers=headers,
+        json={},
+    )
+    assert inactive.status_code == 401
+    assert inactive.json()["code"] == "visibility_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_profile_visibility_update_rolls_back_on_repository_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after the visibility write leaves the prior profile unchanged."""
+    user_id, _email, _ = auth_harness.create_user()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=user_id,
+                instagram="",
+                tiktok="",
+                updated_at=now,
+                is_visible=1,
+                field_visibility='{"phone":true}',
+            )
+        )
+
+    original = MemberRepository.upsert_profile_visibility
+
+    def fail_after_update(self: MemberRepository, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        raise RuntimeError("synthetic visibility update failure")
+
+    monkeypatch.setattr(MemberRepository, "upsert_profile_visibility", fail_after_update)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic visibility update failure"),
+    ):
+        MemberService(session, auth_harness.settings).update_profile_visibility(
+            user_id,
+            None,
+            False,
+            {"phone": False},
+        )
+
+    with auth_harness.engine.connect() as connection:
+        stored = connection.execute(
+            select(UserProfiles.is_visible, UserProfiles.field_visibility).where(
+                UserProfiles.user_id == user_id
+            )
+        ).one()
+    assert tuple(stored) == (1, '{"phone":true}')
+
+
+@pytest.mark.integration
+def test_member_directory_enforces_global_and_field_visibility(
+    auth_harness: AuthHarness,
+) -> None:
+    """Other members never receive hidden profiles or private field values."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    private_id, private_email, _ = auth_harness.create_user(city="Private City")
+    hidden_id, hidden_email, _ = auth_harness.create_user(city="Hidden City")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == private_id)
+            .values(
+                fullname="Private Directory Member",
+                phone="+2348111111111",
+                alternative_phone="+2348222222222",
+                avatar="uploads/profiles/private.png",
+                birth_date=date(1990, 1, 2),
+                residential_address="Private Street",
+                area="Private Area",
+                state="Private State",
+                employment_status="employed",
+                occupation="Engineer",
+                industry_sector="Technology",
+                years_of_experience="10",
+                is_volunteer=1,
+            )
+        )
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=private_id,
+                instagram="private-instagram",
+                tiktok="private-tiktok",
+                updated_at=now,
+                linkedin="private-linkedin",
+                facebook="private-facebook",
+                current_company="Private Company",
+                current_position="Private Position",
+                city="Private Profile City",
+                country="Nigeria",
+                is_visible=1,
+                field_visibility=json.dumps(
+                    {
+                        "avatar": False,
+                        "phone": False,
+                        "alternative_phone": False,
+                        "birth_date": False,
+                        "residential_address": False,
+                        "area": False,
+                        "city": False,
+                        "employment_status": False,
+                        "occupation": False,
+                        "industry_sector": False,
+                        "years_of_experience": False,
+                        "is_volunteer": False,
+                        "socials": False,
+                    }
+                ),
+            )
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == hidden_id)
+            .values(fullname="Globally Hidden Member", phone="+2348333333333")
+        )
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=hidden_id,
+                instagram="hidden-instagram",
+                tiktok="hidden-tiktok",
+                updated_at=now,
+                is_visible=0,
+                field_visibility='{"phone":false}',
+            )
+        )
+
+    actor_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"
+    }
+    private_response = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=actor_headers,
+        json={"action_type": "approved", "user_id": private_id},
+    )
+    hidden_response = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=actor_headers,
+        json={"action_type": "approved", "user_id": hidden_id},
+    )
+    owner_response = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, hidden_id, hidden_email)}"
+        },
+        json={"action_type": "approved", "user_id": hidden_id},
+    )
+
+    assert private_response.status_code == hidden_response.status_code == 200
+    private_user = private_response.json()["users"][0]
+    assert private_response.json()["count"] == private_response.json()["total"] == 1
+    assert private_user["fullname"] == "Private Directory Member"
+    for private_field in (
+        "avatar",
+        "phone",
+        "alternative_phone",
+        "birth_date",
+        "residential_address",
+        "area",
+        "city",
+        "state",
+        "employment_status",
+        "occupation",
+        "industry_sector",
+        "years_of_experience",
+        "is_volunteer",
+    ):
+        assert private_field not in private_user
+    assert "linkedin" not in private_user["profile"]
+    assert "current_company" not in private_user["profile"]
+    assert "email" not in private_user
+    assert "password" not in private_user
+    assert "ip_address" not in private_user
+    assert set(private_user["profile"]["field_visibility"].values()) == {
+        "public",
+        "private",
+    }
+    assert hidden_response.json()["users"] == []
+    assert hidden_response.json()["total"] == 0
+    assert owner_response.status_code == 200
+    assert owner_response.json()["users"][0]["phone"] == "+2348333333333"
+    assert owner_response.json()["users"][0]["profile"]["instagram"] == "hidden-instagram"
+    assert private_email not in private_response.text
+
+
+@pytest.mark.integration
+def test_member_directory_fails_closed_on_bad_json_and_defaults_missing_profile_public(
+    auth_harness: AuthHarness,
+) -> None:
+    """Corrupt legacy visibility hides controlled fields while absent state stays compatible."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    corrupt_id, _corrupt_email, _ = auth_harness.create_user(city="Corrupt City")
+    default_id, _default_email, _ = auth_harness.create_user(city="Default City")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=corrupt_id,
+                instagram="corrupt-instagram",
+                tiktok="corrupt-tiktok",
+                updated_at=now,
+                current_position="Corrupt Position",
+                is_visible=1,
+                field_visibility="not-json",
+            )
+        )
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    corrupt = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={"user_id": corrupt_id},
+    )
+    defaults = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={"user_id": default_id},
+    )
+
+    corrupt_user = corrupt.json()["users"][0]
+    assert corrupt.status_code == defaults.status_code == 200
+    assert "avatar" not in corrupt_user
+    assert "phone" not in corrupt_user
+    assert "city" not in corrupt_user
+    assert "current_position" not in corrupt_user["profile"]
+    assert "instagram" not in corrupt_user["profile"]
+    assert set(corrupt_user["profile"]["field_visibility"].values()) == {"private"}
+    default_user = defaults.json()["users"][0]
+    assert default_user["phone"] == "+2348000000000"
+    assert default_user["city"] == "Default City"
+    assert default_user["avatar"] == ("https://alumni.example.test/uploads/profiles/synthetic.png")
+    assert set(default_user["profile"]["field_visibility"].values()) == {"public"}
+
+
+@pytest.mark.integration
+def test_administrative_member_list_uses_database_role_and_downward_projection(
+    auth_harness: AuthHarness,
+) -> None:
+    """Forged claims cannot list accounts and current managers see only lower roles."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    member_id, member_email, _ = auth_harness.create_user()
+    manager_id, manager_email, _ = auth_harness.create_user()
+    peer_id, _peer_email, _ = auth_harness.create_user()
+    unknown_id, _unknown_email, _ = auth_harness.create_user()
+    unverified_id, _unverified_email, _ = auth_harness.create_user(email_verified=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == member_id).values(user_role="alumni")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == manager_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == peer_id).values(user_role="admin")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == unknown_id).values(user_role="event admin")
+        )
+
+    stale_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"
+    }
+    first_page = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=stale_headers,
+        json={"action_type": "all_users", "page": 1, "limit": 1},
+    )
+    second_page = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=stale_headers,
+        json={"action_type": "all users", "page": 2, "limit": 1},
+    )
+    forged = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers={
+            "Authorization": "Bearer "
+            + _access_token_for(
+                auth_harness,
+                member_id,
+                member_email,
+                user_role="superadmin",
+            )
+        },
+        json={"action_type": "all_users"},
+    )
+
+    assert first_page.status_code == second_page.status_code == 200
+    assert first_page.json()["total"] == 2
+    assert first_page.json()["count"] == 1
+    assert first_page.json()["has_more"] is True
+    listed_ids = {
+        first_page.json()["users"][0]["id"],
+        second_page.json()["users"][0]["id"],
+    }
+    assert listed_ids == {member_id, manager_id}
+    admin_user = first_page.json()["users"][0]
+    assert set(admin_user) == {
+        "id",
+        "fullname",
+        "email",
+        "phone",
+        "user_role",
+        "active",
+        "profile_status",
+        "is_approved",
+        "email_verified",
+    }
+    assert admin_user["email"] in {member_email, manager_email}
+    assert peer_id not in listed_ids
+    assert unknown_id not in listed_ids
+    assert unverified_id not in listed_ids
+    assert forged.status_code == 403
+    assert forged.json()["code"] == "members_admin_forbidden"
+
+
+@pytest.mark.integration
+def test_pending_member_list_and_bounded_filters(auth_harness: AuthHarness) -> None:
+    """Pending status, year/search filters, and current actor state are enforced in SQL."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    pending_id, pending_email, _ = auth_harness.create_user(is_approved=0)
+    approved_id, _approved_email, _ = auth_harness.create_user(is_approved=1)
+    inactive_pending_id, _inactive_email, _ = auth_harness.create_user(
+        active=0,
+        is_approved=0,
+    )
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == pending_id)
+            .values(fullname="Pending Searchable Member", graduation_year=1999)
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == approved_id)
+            .values(fullname="Pending Searchable Approved", graduation_year=1999)
+        )
+
+    token = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    headers = {"Authorization": f"Bearer {token}"}
+    pending = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={
+            "action_type": "pending Approval",
+            "search": "searchable",
+            "year": 1999,
+        },
+    )
+    assert pending.status_code == 200
+    assert pending.json()["total"] == pending.json()["count"] == 1
+    assert pending.json()["users"][0]["id"] == pending_id
+    assert pending.json()["users"][0]["email"] == pending_email
+    assert approved_id != pending.json()["users"][0]["id"]
+    assert inactive_pending_id != pending.json()["users"][0]["id"]
+
+    approved = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={"action_type": "approved", "user_id": approved_id},
+    )
+    pending_in_directory = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={"action_type": "approved", "user_id": pending_id},
+    )
+    inactive_in_directory = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={"action_type": "approved", "user_id": inactive_pending_id},
+    )
+    assert approved.json()["total"] == 1
+    assert pending_in_directory.json()["total"] == 0
+    assert inactive_in_directory.json()["total"] == 0
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == actor_id).values(active=0))
+    inactive_actor = auth_harness.client.post(
+        "/api/get_users_by_action",
+        headers=headers,
+        json={"action_type": "approved"},
+    )
+    assert inactive_actor.status_code == 401
+    assert inactive_actor.json()["code"] == "members_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_alumni_stats_preserve_reviewed_counts_and_recheck_current_actor(
+    auth_harness: AuthHarness,
+) -> None:
+    """GET/POST return only four PHP-compatible aggregates to a current active user."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    baseline_response = auth_harness.client.get("/api/get_alumni_stats", headers=headers)
+    assert baseline_response.status_code == 200
+    baseline = baseline_response.json()["stats"]
+
+    qualified_id, qualified_email, _ = auth_harness.create_user()
+    inactive_id, inactive_email, _ = auth_harness.create_user(active=0)
+    unapproved_id, unapproved_email, _ = auth_harness.create_user(is_approved=0)
+    manager_id, manager_email, _ = auth_harness.create_user()
+    suffix = uuid.uuid4().hex[:10]
+    department_a = f"Stats Department A {suffix}"
+    department_b = f"Stats Department B {suffix}"
+    excluded_department = f"Stats Excluded Department {suffix}"
+    chapter_name = f"Stats Enabled Chapter {suffix}"
+    disabled_chapter_name = f"Stats Disabled Chapter {suffix}"
+
+    with auth_harness.engine.begin() as connection:
+        existing_years = {
+            str(value)
+            for value in connection.scalars(select(AlumniCategory.year))
+            if value is not None
+        }
+        selected_years = [
+            str(year) for year in range(2199, 1799, -1) if str(year) not in existing_years
+        ][:2]
+        assert len(selected_years) == 2
+
+        enabled_result = connection.execute(
+            ALUMNI_CHAPTER_TABLE.insert().values(
+                chapter_name=chapter_name,
+                location=f"Stats Location {suffix}",
+                is_enabled=1,
+            )
+        )
+        disabled_result = connection.execute(
+            ALUMNI_CHAPTER_TABLE.insert().values(
+                chapter_name=disabled_chapter_name,
+                location=f"Stats Disabled Location {suffix}",
+                is_enabled=0,
+            )
+        )
+        enabled_key = enabled_result.inserted_primary_key
+        disabled_key = disabled_result.inserted_primary_key
+        assert enabled_key is not None
+        assert disabled_key is not None
+        enabled_chapter_id = int(enabled_key[0])
+        auth_harness.alumni_chapter_ids.extend((enabled_chapter_id, int(disabled_key[0])))
+
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == qualified_id).values(department=department_a)
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == inactive_id).values(department=department_a)
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == unapproved_id)
+            .values(department=excluded_department)
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == manager_id)
+            .values(user_role="manager", department=department_b)
+        )
+
+        for user_id, year in (
+            (qualified_id, selected_years[0]),
+            (inactive_id, selected_years[0]),
+            (manager_id, selected_years[1]),
+        ):
+            category_result = connection.execute(
+                ALUMNI_CATEGORY_TABLE.insert().values(
+                    user_id=user_id,
+                    chapter_id=enabled_chapter_id,
+                    year=year,
+                    location=f"Stats Category Location {suffix}",
+                )
+            )
+            category_key = category_result.inserted_primary_key
+            assert category_key is not None
+            auth_harness.alumni_category_ids.append(int(category_key[0]))
+
+    expected = {
+        "total_alumni": baseline["total_alumni"] + 1,
+        "total_years": baseline["total_years"] + 2,
+        "total_chapters": baseline["total_chapters"] + 1,
+        "total_departments": baseline["total_departments"] + 2,
+    }
+    get_response = auth_harness.client.get("/api/get_alumni_stats", headers=headers)
+    post_response = auth_harness.client.post(
+        "/api/get_alumni_stats",
+        headers=headers,
+        json={"token": "ignored-legacy-value", "user_id": manager_id},
+    )
+    expected_body = {
+        "status": 200,
+        "message": "Alumni stats retrieved successfully",
+        "stats": expected,
+    }
+    assert get_response.status_code == post_response.status_code == 200
+    assert get_response.json() == post_response.json() == expected_body
+    for sensitive_value in (
+        qualified_email,
+        inactive_email,
+        unapproved_email,
+        manager_email,
+        department_a,
+        department_b,
+    ):
+        assert sensitive_value not in get_response.text
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == actor_id).values(active=0))
+    inactive_actor = auth_harness.client.get("/api/get_alumni_stats", headers=headers)
+    assert inactive_actor.status_code == 401
+    assert inactive_actor.json()["code"] == "alumni_stats_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_birthdays_preserve_windows_privacy_frontend_contract_and_current_actor(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET/bodyless POST honor Lagos dates, opt-in privacy, leap days, and safe fields."""
+    reference_date = date(2025, 2, 28)
+    monkeypatch.setattr(
+        members_service_module,
+        "datetime",
+        _FixedLagosDateTime,
+    )
+    _FixedLagosDateTime.reference_date = reference_date
+
+    actor_id, actor_email, _ = auth_harness.create_user(fullname="020 Birthday Actor")
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    baseline_today = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"limit": 200},
+    ).json()
+    baseline_week = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "week", "limit": 200},
+    ).json()
+    baseline_upcoming = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "upcoming", "days": 2, "limit": 200},
+    ).json()
+    baseline_month = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "month", "month": 3, "limit": 200},
+    ).json()
+    assert baseline_today["total"] == 0
+    assert baseline_today["message"] == "No birthdays found for this period"
+
+    synthetic: dict[str, int] = {"actor": actor_id}
+    for name, active, verified, approved, dob in (
+        ("010 Alpha Today", 1, 1, 1, date(1985, 2, 28)),
+        ("030 Beta Leap", 1, 1, 1, date(1988, 2, 29)),
+        ("040 Gamma Unverified", 1, 0, 0, date(1991, 2, 28)),
+        ("050 Private Birthday", 1, 1, 1, date(1990, 2, 28)),
+        ("060 Malformed Visibility", 1, 1, 1, date(1990, 2, 28)),
+        ("070 Inactive Birthday", 0, 1, 1, date(1990, 2, 28)),
+        ("080 Delta Tomorrow", 1, 1, 1, date(1990, 3, 1)),
+        ("090 Echo Week", 1, 1, 1, date(1990, 3, 6)),
+        ("100 Foxtrot Outside", 1, 1, 1, date(1990, 3, 7)),
+    ):
+        user_id, _, _ = auth_harness.create_user(
+            active=active,
+            email_verified=verified,
+            is_approved=approved,
+            fullname=name,
+            graduation_year=2004,
+        )
+        synthetic[name] = user_id
+        with auth_harness.engine.begin() as connection:
+            connection.execute(
+                USERS_TABLE.update()
+                .where(Users.id == user_id)
+                .values(birth_date=dob, name_in_school=f"School {name}")
+            )
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == actor_id)
+            .values(birth_date=date(1990, 2, 28), graduation_year=2001)
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == synthetic["030 Beta Leap"])
+            .values(fullname=None, first_name="Beta", last_name="Leap")
+        )
+        for user_id, visible, fields in (
+            (synthetic["010 Alpha Today"], 0, '{"birth_date":true,"avatar":false}'),
+            (synthetic["050 Private Birthday"], 1, '{"birth_date":false}'),
+            (synthetic["060 Malformed Visibility"], 1, "{bad-json"),
+        ):
+            connection.execute(
+                PROFILES_TABLE.insert().values(
+                    user_id=user_id,
+                    instagram="",
+                    tiktok="",
+                    updated_at=now,
+                    is_visible=visible,
+                    field_visibility=fields,
+                )
+            )
+
+    get_response = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"limit": 200},
+    )
+    post_response = auth_harness.client.post(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"limit": 200},
+    )
+    assert get_response.status_code == post_response.status_code == 200
+    assert get_response.json() == post_response.json()
+    today_body = get_response.json()
+    assert today_body["scope"] == "today"
+    assert today_body["date"] == "2025-02-28"
+    assert today_body["total"] == baseline_today["total"] + 4
+    assert today_body["returned"] == len(today_body["birthdays"])
+
+    today_by_id = {item["user_id"]: item for item in today_body["birthdays"]}
+    expected_today_ids = {
+        actor_id,
+        synthetic["010 Alpha Today"],
+        synthetic["030 Beta Leap"],
+        synthetic["040 Gamma Unverified"],
+    }
+    assert expected_today_ids <= set(today_by_id)
+    assert synthetic["050 Private Birthday"] not in today_by_id
+    assert synthetic["060 Malformed Visibility"] not in today_by_id
+    assert synthetic["070 Inactive Birthday"] not in today_by_id
+    assert today_by_id[synthetic["010 Alpha Today"]]["avatar"] is None
+    assert today_by_id[synthetic["010 Alpha Today"]]["class_label"] == "Class '04"
+    assert today_by_id[synthetic["030 Beta Leap"]]["date"] == "2025-02-28"
+    assert today_by_id[synthetic["030 Beta Leap"]]["fullname"] == "Beta Leap"
+    assert today_by_id[actor_id]["is_self"] is True
+    expected_item_keys = {
+        "user_id",
+        "fullname",
+        "name_in_school",
+        "avatar",
+        "class_label",
+        "date",
+        "days_until",
+        "is_today",
+        "is_self",
+        "message",
+    }
+    assert set(today_by_id[actor_id]) == expected_item_keys
+    for forbidden in ("birth_date", "age", "email", "phone", "user_code", "department"):
+        assert forbidden not in today_by_id[actor_id]
+
+    without_self = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"include_self": "0", "limit": 200},
+    ).json()
+    assert without_self["total"] == today_body["total"] - 1
+    assert actor_id not in {item["user_id"] for item in without_self["birthdays"]}
+
+    week = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "week", "limit": 200},
+    ).json()
+    assert week["total"] == baseline_week["total"] + 6
+    week_ids = {item["user_id"] for item in week["birthdays"]}
+    assert synthetic["080 Delta Tomorrow"] in week_ids
+    assert synthetic["090 Echo Week"] in week_ids
+    assert synthetic["100 Foxtrot Outside"] not in week_ids
+
+    upcoming = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "upcoming", "days": 2, "limit": 200},
+    ).json()
+    assert upcoming["total"] == baseline_upcoming["total"] + 5
+    upcoming_ids = {item["user_id"] for item in upcoming["birthdays"]}
+    assert synthetic["080 Delta Tomorrow"] in upcoming_ids
+    assert synthetic["090 Echo Week"] not in upcoming_ids
+
+    month = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "month", "month": 3, "limit": 200},
+    ).json()
+    assert month["total"] == baseline_month["total"] + 3
+    month_ids = {item["user_id"] for item in month["birthdays"]}
+    assert {
+        synthetic["080 Delta Tomorrow"],
+        synthetic["090 Echo Week"],
+        synthetic["100 Foxtrot Outside"],
+    } <= month_ids
+
+    limited = auth_harness.client.get(
+        "/api/get_birthdays",
+        headers=headers,
+        params={"scope": "week", "limit": 2},
+    ).json()
+    assert limited["total"] == week["total"]
+    assert limited["returned"] == len(limited["birthdays"]) == 2
+    assert [
+        (item["days_until"], item["fullname"].casefold(), item["user_id"])
+        for item in limited["birthdays"]
+    ] == sorted(
+        (item["days_until"], item["fullname"].casefold(), item["user_id"])
+        for item in limited["birthdays"]
+    )
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == actor_id).values(active=0))
+    inactive_actor = auth_harness.client.get("/api/get_birthdays", headers=headers)
+    assert inactive_actor.status_code == 401
+    assert inactive_actor.json()["code"] == "birthdays_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_birthdays_fail_safely_when_the_candidate_scan_bound_is_exceeded(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pathological catalogue is rejected instead of creating an unbounded API workload."""
+    reference_date = date(2025, 4, 15)
+    _FixedLagosDateTime.reference_date = reference_date
+    monkeypatch.setattr(members_service_module, "datetime", _FixedLagosDateTime)
+    monkeypatch.setattr(members_service_module, "MAX_BIRTHDAY_CANDIDATES", 1)
+    actor_id, actor_email, _ = auth_harness.create_user()
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    candidate_ids = [
+        auth_harness.create_user(fullname=f"Bounded Birthday {i}")[0] for i in range(2)
+    ]
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_(candidate_ids))
+            .values(birth_date=date(1990, 4, 15))
+        )
+
+    response = auth_harness.client.get("/api/get_birthdays", headers=headers)
+    assert response.status_code == 503
+    assert response.json()["code"] == "birthdays_candidate_limit_exceeded"
+
+
+@pytest.mark.integration
+def test_chapter_list_is_public_bounded_and_user_assignment_is_deterministic(
+    auth_harness: AuthHarness,
+) -> None:
+    """Public metadata excludes disabled chapters; self lookup returns the oldest assignment."""
+    user_id, email, _ = auth_harness.create_user()
+    suffix = uuid.uuid4().hex[:10]
+    chapter_rows = (
+        (f"A Stats Chapter {suffix}", 1),
+        (f"B Stats Chapter {suffix}", 1),
+        (f"Disabled Stats Chapter {suffix}", 0),
+    )
+    chapter_ids: list[int] = []
+    with auth_harness.engine.begin() as connection:
+        for name, enabled in chapter_rows:
+            result = connection.execute(
+                ALUMNI_CHAPTER_TABLE.insert().values(
+                    chapter_name=name,
+                    location=f"Chapter Location {suffix}",
+                    is_enabled=enabled,
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            chapter_ids.append(int(inserted_key[0]))
+        auth_harness.alumni_chapter_ids.extend(chapter_ids)
+
+        for chapter_id, year in ((chapter_ids[1], "1998"), (chapter_ids[0], "1999")):
+            result = connection.execute(
+                ALUMNI_CATEGORY_TABLE.insert().values(
+                    user_id=user_id,
+                    chapter_id=chapter_id,
+                    year=year,
+                    location=f"Assignment Location {suffix}",
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            auth_harness.alumni_category_ids.append(int(inserted_key[0]))
+
+    public_get = auth_harness.client.get("/api/get_chapters")
+    public_post = auth_harness.client.post(
+        "/api/get_chapters",
+        json={"token": "ignored-legacy-value", "user_id_typo": user_id},
+    )
+    assert public_get.status_code == public_post.status_code == 200
+    assert public_get.json() == public_post.json()
+    body = public_get.json()
+    assert body["status"] == 200
+    assert body["message"] == "Chapters retrieved successfully"
+    listed = [chapter for chapter in body["chapters"] if chapter["id"] in chapter_ids]
+    assert [chapter["chapter_name"] for chapter in listed] == [
+        chapter_rows[0][0],
+        chapter_rows[1][0],
+    ]
+    assert chapter_ids[2] not in {chapter["id"] for chapter in body["chapters"]}
+    assert all(
+        set(chapter) == {"id", "chapter_name", "location", "is_enabled", "created_at"}
+        for chapter in listed
+    )
+
+    self_lookup = auth_harness.client.post(
+        "/api/get_chapters",
+        headers={"Authorization": f"Bearer {_access_token_for(auth_harness, user_id, email)}"},
+        json={"user_id": user_id, "token": "ignored-legacy-value"},
+    )
+    assert self_lookup.status_code == 200
+    assignment = self_lookup.json()
+    assert assignment["message"] == "User chapter retrieved successfully"
+    assert assignment["user_id"] == user_id
+    assert assignment["chapter"] == {
+        "category_id": auth_harness.alumni_category_ids[0],
+        "user_id": user_id,
+        "year": "1998",
+        "location": f"Assignment Location {suffix}",
+        "joined_at": assignment["chapter"]["joined_at"],
+        "chapter_id": chapter_ids[1],
+        "chapter_name": chapter_rows[1][0],
+        "is_enabled": True,
+    }
+    assert email not in self_lookup.text
+    assert "password" not in self_lookup.text
+
+
+@pytest.mark.integration
+def test_user_chapter_lookup_uses_current_downward_authorization(
+    auth_harness: AuthHarness,
+) -> None:
+    """Stale positive claims work only with current authority; forged claims fail closed."""
+    manager_id, manager_email, _ = auth_harness.create_user()
+    target_id, target_email, _ = auth_harness.create_user()
+    unassigned_id, _unassigned_email, _ = auth_harness.create_user()
+    suffix = uuid.uuid4().hex[:10]
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == manager_id).values(user_role="manager")
+        )
+        chapter_result = connection.execute(
+            ALUMNI_CHAPTER_TABLE.insert().values(
+                chapter_name=f"Authorization Chapter {suffix}",
+                location=f"Authorization Location {suffix}",
+                is_enabled=1,
+            )
+        )
+        chapter_key = chapter_result.inserted_primary_key
+        assert chapter_key is not None
+        chapter_id = int(chapter_key[0])
+        auth_harness.alumni_chapter_ids.append(chapter_id)
+        category_result = connection.execute(
+            ALUMNI_CATEGORY_TABLE.insert().values(
+                user_id=target_id,
+                chapter_id=chapter_id,
+                year="2001",
+                location=f"Target Assignment {suffix}",
+            )
+        )
+        category_key = category_result.inserted_primary_key
+        assert category_key is not None
+        auth_harness.alumni_category_ids.append(int(category_key[0]))
+
+    stale_manager_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, manager_id, manager_email)}"
+    }
+    allowed = auth_harness.client.get(
+        "/api/get_chapters",
+        headers=stale_manager_headers,
+        params={"user_id": target_id},
+    )
+    forged = auth_harness.client.get(
+        "/api/get_chapters",
+        headers={
+            "Authorization": "Bearer "
+            + _access_token_for(
+                auth_harness,
+                target_id,
+                target_email,
+                user_role="super admin",
+            )
+        },
+        params={"user_id": manager_id},
+    )
+    missing = auth_harness.client.get(
+        "/api/get_chapters",
+        headers=stale_manager_headers,
+        params={"user_id": 2_000_000_000},
+    )
+    unassigned = auth_harness.client.post(
+        "/api/get_chapters",
+        headers=stale_manager_headers,
+        json={"user_id": unassigned_id},
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["chapter"]["chapter_id"] == chapter_id
+    assert forged.status_code == 403
+    assert forged.json()["code"] == "chapter_forbidden"
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "chapter_user_not_found"
+    assert unassigned.status_code == 200
+    assert unassigned.json() == {
+        "status": 200,
+        "message": "User is not assigned to any chapter",
+        "chapter": None,
+    }
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == manager_id).values(active=0))
+    inactive_actor = auth_harness.client.get(
+        "/api/get_chapters",
+        headers=stale_manager_headers,
+        params={"user_id": target_id},
+    )
+    assert inactive_actor.status_code == 401
+    assert inactive_actor.json()["code"] == "chapter_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_setup_parameters_is_bounded_deterministic_and_rechecks_current_actor(
+    auth_harness: AuthHarness,
+) -> None:
+    """The oldest matching setup row is returned only while the Bearer actor remains active."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    suffix = uuid.uuid4().hex[:10]
+    setup_name = f"Currency {suffix}"
+    raw_value = " NGN, USD, , GBP, 0 "
+    with auth_harness.engine.begin() as connection:
+        for value in (raw_value, "SHOULD_NOT_WIN"):
+            result = connection.execute(
+                SETUP_PARAMETERS_TABLE.insert().values(
+                    setup_name=setup_name,
+                    setup_value=value,
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            auth_harness.setup_parameter_ids.append(int(inserted_key[0]))
+
+    headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}",
+        "X-API-Key": "ignored-legacy-value",
+    }
+    json_response = auth_harness.client.post(
+        "/api/get_setup_parameters",
+        headers=headers,
+        json={"action_type": setup_name.lower(), "token": "ignored-legacy-value"},
+    )
+    form_response = auth_harness.client.post(
+        "/api/get_setup_parameters",
+        headers=headers,
+        data={"action_type": setup_name},
+    )
+    expected = {
+        "status": 200,
+        "message": "Setup parameters retrieved successfully",
+        "data": {
+            "setup_id": auth_harness.setup_parameter_ids[0],
+            "setup_name": setup_name,
+            "setup_value": raw_value,
+            "values": ["NGN", "USD", "GBP", "0"],
+        },
+    }
+    assert json_response.status_code == form_response.status_code == 200
+    assert json_response.json() == form_response.json() == expected
+    assert set(json_response.json()["data"]) == {
+        "setup_id",
+        "setup_name",
+        "setup_value",
+        "values",
+    }
+
+    missing = auth_harness.client.post(
+        "/api/get_setup_parameters",
+        headers=headers,
+        json={"action_type": f"Missing {suffix}"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "setup_parameters_not_found"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == actor_id).values(active=0))
+    inactive_actor = auth_harness.client.post(
+        "/api/get_setup_parameters",
+        headers=headers,
+        json={"action_type": setup_name},
+    )
+    assert inactive_actor.status_code == 401
+    assert inactive_actor.json()["code"] == "setup_parameters_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_profile_update_merges_json_fields_and_returns_a_fresh_bounded_projection(
+    auth_harness: AuthHarness,
+) -> None:
+    """JSON updates trim supplied fields, preserve omissions, and never expose credentials."""
+    user_id, email, original_password = auth_harness.create_user(city="Old City")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=user_id,
+                instagram="old-instagram",
+                tiktok="old-tiktok",
+                updated_at=now,
+                current_company="Old Company",
+                current_position="Old Position",
+                city="Old Profile City",
+                field_visibility='{"phone":false}',
+            )
+        )
+    token = _access_token_for(auth_harness, user_id, email)
+    response = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "user_id": user_id,
+            "first_name": "  Updated  ",
+            "phone": "",
+            "graduation_year": "",
+            "city": "  New City  ",
+            "is_volunteer": "1",
+            "email": "ignored@example.com",
+            "password": "ignored-password",
+            "profile": {
+                "instagram": "  new-instagram  ",
+                "current_position": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == 200
+    assert body["user"]["id"] == user_id
+    assert body["user"]["first_name"] == "Updated"
+    assert body["user"]["last_name"] == "Member"
+    assert body["user"]["fullname"] == "Updated Member"
+    assert body["user"]["phone"] == ""
+    assert "graduation_year" not in body["user"]
+    assert body["user"]["city"] == "New City"
+    assert body["user"]["is_volunteer"] is True
+    assert body["user"]["email"] == email
+    assert body["profile"]["instagram"] == "new-instagram"
+    assert body["profile"]["tiktok"] == "old-tiktok"
+    assert body["profile"]["current_position"] == ""
+    assert body["profile"]["city"] == "New City"
+    assert body["profile"]["field_visibility"] == '{"phone":false}'
+    assert "password" not in body["user"]
+    assert "reset_token" not in body["user"]
+
+    with auth_harness.engine.connect() as connection:
+        stored = connection.execute(
+            select(
+                Users.first_name,
+                Users.last_name,
+                Users.fullname,
+                Users.phone,
+                Users.graduation_year,
+                Users.city,
+                Users.is_volunteer,
+                Users.password,
+                Users.active,
+                Users.onboarding_completion,
+            ).where(Users.id == user_id)
+        ).one()
+    assert tuple(stored) == (
+        "Updated",
+        "Member",
+        "Updated Member",
+        "",
+        None,
+        "New City",
+        1,
+        original_password,
+        1,
+        1,
+    )
+    invalid_chapter = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"chapter_id": 2_000_000_000},
+    )
+    assert invalid_chapter.status_code == 400
+    assert invalid_chapter.json()["code"] == "profile_update_chapter_invalid"
+
+
+@pytest.mark.integration
+def test_profile_update_authorization_uses_current_database_hierarchy(
+    auth_harness: AuthHarness,
+) -> None:
+    """Forged role claims fail while a current manager can edit only a lower role."""
+    actor_id, actor_email, _ = auth_harness.create_user()
+    target_id, target_email, _ = auth_harness.create_user()
+    peer_id, _peer_email, _ = auth_harness.create_user()
+    inactive_id, _inactive_email, _ = auth_harness.create_user(active=0)
+    forged = _access_token_for(
+        auth_harness,
+        actor_id,
+        actor_email,
+        user_role="superadmin",
+    )
+    denied = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": target_id, "bio": "forged"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "profile_update_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="manager")
+        )
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == peer_id).values(user_role="manager")
+        )
+    stale = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    allowed = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {stale}"},
+        json={"user_id": target_id, "bio": "managed update"},
+    )
+    peer_denied = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {stale}"},
+        json={"user_id": peer_id, "bio": "peer update"},
+    )
+    inactive_target = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {stale}"},
+        json={"user_id": inactive_id, "bio": "remains inactive"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["user"]["bio"] == "managed update"
+    assert allowed.json()["user"]["email"] == target_email
+    assert peer_denied.status_code == 403
+    assert inactive_target.status_code == 200
+    assert inactive_target.json()["user"]["active"] is False
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(Users.bio).where(Users.id == peer_id)) is None
+
+
+@pytest.mark.integration
+def test_profile_update_accepts_nested_multipart_avatar_and_records_attachment(
+    auth_harness: AuthHarness,
+) -> None:
+    """A verified image is normalized, stored under a server name, and committed with metadata."""
+    user_id, email, _ = auth_harness.create_user()
+    image_output = BytesIO()
+    Image.new("RGB", (12, 10), color=(120, 40, 20)).save(image_output, format="PNG")
+    token = _access_token_for(auth_harness, user_id, email)
+    response = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "user_id": str(user_id),
+            "profile[current_company]": "  Multipart Company  ",
+        },
+        files={
+            "avatar": (
+                "../../unsafe name.png",
+                image_output.getvalue(),
+                "application/octet-stream",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profile"]["current_company"] == "Multipart Company"
+    relative_path = body["user"]["avatar"].removeprefix("https://alumni.example.test/")
+    assert relative_path.startswith("uploads/profiles/")
+    stored_path = auth_harness.settings.upload_root / relative_path.removeprefix("uploads/")
+    assert stored_path.is_file()
+    with Image.open(stored_path) as image:
+        assert image.format == "PNG"
+        assert image.size == (12, 10)
+    with auth_harness.engine.connect() as connection:
+        attachment = connection.execute(
+            select(
+                Attachments.file_type,
+                Attachments.filename,
+                Attachments.attachment_file,
+            ).where(Attachments.user_id == user_id)
+        ).one()
+    assert attachment.file_type == "profile_image"
+    assert attachment.filename == "unsafe_name.png"
+    assert attachment.attachment_file == relative_path
+    served = auth_harness.client.get(f"/uploads/profiles/{stored_path.name}")
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/png"
+    assert served.content == stored_path.read_bytes()
+
+
+@pytest.mark.integration
+def test_profile_only_update_creates_required_legacy_profile_defaults(
+    auth_harness: AuthHarness,
+) -> None:
+    """A profile-only update can upsert the legacy row without changing onboarding state."""
+    user_id, email, _ = auth_harness.create_user(onboarding_completion=0)
+    token = _access_token_for(auth_harness, user_id, email)
+    response = auth_harness.client.post(
+        "/api/update_profile",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"profile": {"linkedin": "  https://example.test/profile  "}},
+    )
+    assert response.status_code == 200
+    assert response.json()["profile"]["linkedin"] == "https://example.test/profile"
+    with auth_harness.engine.connect() as connection:
+        stored = connection.execute(
+            select(
+                UserProfiles.linkedin,
+                UserProfiles.instagram,
+                UserProfiles.tiktok,
+                Users.onboarding_completion,
+            )
+            .select_from(
+                Users.__table__.join(
+                    UserProfiles.__table__,
+                    UserProfiles.user_id == Users.id,
+                )
+            )
+            .where(Users.id == user_id)
+        ).one()
+    assert tuple(stored) == ("https://example.test/profile", "", "", 0)
+
+
+@pytest.mark.integration
+def test_profile_update_rolls_back_database_and_avatar_on_repository_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after file creation leaves no database changes, metadata, or orphan file."""
+    user_id, _email, _ = auth_harness.create_user()
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="JPEG")
+    avatar = prepare_avatar("rollback.jpg", image_output.getvalue())
+    storage = AvatarStorage(auth_harness.settings.upload_root)
+    original = MemberRepository.insert_avatar_attachment
+
+    def fail_after_attachment(self: MemberRepository, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **kwargs)
+        raise RuntimeError("synthetic profile update failure")
+
+    monkeypatch.setattr(MemberRepository, "insert_avatar_attachment", fail_after_attachment)
+    request = UpdateProfileRequest.model_validate({"bio": "must roll back"})
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic profile update failure"),
+    ):
+        MemberService(session, auth_harness.settings).update_profile(
+            user_id,
+            request,
+            avatar,
+            storage,
+        )
+
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(Users.bio).where(Users.id == user_id)) is None
+        assert (
+            connection.scalar(
+                select(func.count(Attachments.id)).where(Attachments.user_id == user_id)
+            )
+            == 0
+        )
+    profile_directory = auth_harness.settings.upload_root / "profiles"
+    assert not profile_directory.exists() or list(profile_directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_announcements_are_public_but_writes_use_current_content_permission(
+    auth_harness: AuthHarness,
+) -> None:
+    """The legacy public feed cannot turn an old JWT role claim into a write grant."""
+    actor_id, actor_email, _ = auth_harness.create_user(user_role="alumni")
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+
+    denied = auth_harness.client.post(
+        "/api/create_announcement",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Denied", "content": "member cannot publish"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "announcement_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="content admin")
+        )
+    image_output = BytesIO()
+    Image.new("RGB", (8, 6), color=(6, 70, 120)).save(image_output, format="PNG")
+    created = auth_harness.client.post(
+        "/api/create_announcement",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "title": "  Reunion update  ",
+            "content": "  Registration opens today.  ",
+            "type": "event",
+            "year": "2001",
+        },
+        files={"images": ("../../../announcement.png", image_output.getvalue(), "image/png")},
+    )
+    assert created.status_code == 200
+    created_body = created.json()
+    assert created_body["data"]["title"] == "Reunion update"
+    announcement_id = created_body["data"]["id"]
+    relative_image = created_body["data"]["images"]
+    assert relative_image.startswith("uploads/announcements/")
+    image_path = auth_harness.settings.upload_root / relative_image.removeprefix("uploads/")
+    assert image_path.is_file()
+
+    public_feed = auth_harness.client.post("/api/get_announcements", json={"type": "event"})
+    assert public_feed.status_code == 200
+    assert public_feed.json()["total"] == 1
+    assert public_feed.json()["data"][0]["created_by"] == actor_id
+    assert "user_role" not in public_feed.json()["data"][0]
+
+    updated = auth_harness.client.post(
+        "/api/manage_announcement",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"function_type": "update", "id": announcement_id, "title": "Reunion reminder"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["title"] == "Reunion reminder"
+
+    replacement_output = BytesIO()
+    Image.new("RGB", (7, 5), color=(180, 30, 20)).save(replacement_output, format="JPEG")
+    image_replaced = auth_harness.client.post(
+        "/api/manage_announcement",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"function_type": "update", "id": str(announcement_id)},
+        files={"image": ("replacement.jpg", replacement_output.getvalue(), "image/jpeg")},
+    )
+    assert image_replaced.status_code == 200
+    replacement_relative_image = image_replaced.json()["data"]["images"]
+    replacement_image_path = (
+        auth_harness.settings.upload_root / replacement_relative_image.removeprefix("uploads/")
+    )
+    assert replacement_image_path.is_file()
+    assert not image_path.exists()
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="alumni")
+        )
+    stale_claim_denied = auth_harness.client.post(
+        "/api/manage_announcement",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"function_type": "delete", "id": announcement_id},
+    )
+    assert stale_claim_denied.status_code == 403
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="content admin")
+        )
+    deleted = auth_harness.client.post(
+        "/api/manage_announcement",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"function_type": "delete", "id": announcement_id},
+    )
+    assert deleted.status_code == 200
+    assert not replacement_image_path.exists()
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(func.count(Announcements.id))) == 0
+
+
+@pytest.mark.integration
+def test_announcement_create_rolls_back_stored_image_on_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A database exception after file persistence leaves no announcement or orphan file."""
+    actor_id, _email, _ = auth_harness.create_user(user_role="content admin")
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="PNG")
+    image = prepare_avatar("rollback.png", image_output.getvalue())
+    original = AnnouncementRepository.create
+
+    def fail_after_insert(self: AnnouncementRepository, values: dict[str, Any]) -> int:
+        original(self, values)
+        raise RuntimeError("synthetic announcement insert failure")
+
+    monkeypatch.setattr(AnnouncementRepository, "create", fail_after_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic announcement insert failure"),
+    ):
+        AnnouncementService(session, AnnouncementStorage(auth_harness.settings.upload_root)).create(
+            actor_id,
+            AnnouncementCreateRequest.model_validate({"title": "Rollback", "content": "No row"}),
+            image,
+        )
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(func.count(Announcements.id))) == 0
+    directory = auth_harness.settings.upload_root / "announcements"
+    assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_marketplace_listing_writes_use_server_ownership_and_current_store_permission(
+    auth_harness: AuthHarness,
+) -> None:
+    """Legacy user IDs and JWT roles never authorize another seller's listing."""
+    chapter_id = auth_harness.create_chapter()
+    owner_id, owner_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+    other_token = _access_token_for(auth_harness, other_id, other_email, user_role="admin")
+    other_headers = {"Authorization": f"Bearer {other_token}"}
+
+    created = auth_harness.client.post(
+        "/api/create_listing",
+        headers=owner_headers,
+        json={
+            "user_id": other_id,
+            "title": "  Carefully made chair  ",
+            "business_name": "  Alumni Crafts  ",
+            "phone": "08000000001",
+            "chapter_id": chapter_id,
+            "category": "items",
+            "status": "sold",
+            "is_featured": True,
+            "social_instagram": "https://instagram.example.test/alumni-crafts",
+        },
+    )
+    assert created.status_code == 200
+    listing = created.json()["listing"]
+    listing_id = int(listing["id"])
+    assert listing["user_id"] == owner_id
+    assert listing["status"] == "active"
+    assert listing["is_featured"] is False
+    assert listing["images"] == []
+    assert (
+        listing["social_media"]["instagram_url"] == "https://instagram.example.test/alumni-crafts"
+    )
+
+    public = auth_harness.client.post("/api/get_listings", json={"id": listing_id})
+    assert public.status_code == 200
+    assert public.json()["listing"]["id"] == listing_id
+    assert "email" not in public.json()["listing"]
+
+    denied = auth_harness.client.post(
+        "/api/manage_listing",
+        headers=other_headers,
+        json={"function_type": "update", "id": listing_id, "title": "Not allowed"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "marketplace_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == other_id).values(user_role="storekeeper admin")
+        )
+    allowed = auth_harness.client.post(
+        "/api/manage_listing",
+        headers=other_headers,
+        json={"function_type": "update", "id": listing_id, "title": "Current policy allowed"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["listing"]["title"] == "Current policy allowed"
+
+
+@pytest.mark.integration
+def test_marketplace_create_rolls_back_stored_images_on_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A late database failure cannot leave a listing or marketplace image behind."""
+    actor_id, _email, _ = auth_harness.create_user()
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="PNG")
+    image = prepare_avatar("rollback.png", image_output.getvalue())
+    original = MarketplaceRepository.create
+
+    def fail_after_insert(self: MarketplaceRepository, values: dict[str, Any]) -> int:
+        original(self, values)
+        raise RuntimeError("synthetic marketplace insert failure")
+
+    monkeypatch.setattr(MarketplaceRepository, "create", fail_after_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic marketplace insert failure"),
+    ):
+        MarketplaceService(session, MarketplaceStorage(auth_harness.settings.upload_root)).create(
+            actor_id,
+            MarketplaceCreateRequest.model_validate(
+                {"title": "Rollback", "business_name": "Rollback", "phone": "08000000001"}
+            ),
+            [image],
+            {},
+        )
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(func.count(MarketplaceListings.id))) == 0
+    directory = auth_harness.settings.upload_root / "marketplace"
+    assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_projects_use_current_content_policy_public_shaping_and_soft_deletion(
+    auth_harness: AuthHarness,
+) -> None:
+    """JWT role claims and creator IDs cannot bypass the reviewed content policy."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_((actor_id, other_id)))
+            .values(chapter_id=chapter_id)
+        )
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="super admin")
+    denied = auth_harness.client.post(
+        "/api/create_project",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"title": "Denied project"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "project_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="content admin")
+        )
+    image_output = BytesIO()
+    Image.new("RGB", (8, 6), color=(6, 70, 120)).save(image_output, format="PNG")
+    created = auth_harness.client.post(
+        "/api/create_project",
+        headers={"Authorization": f"Bearer {forged}"},
+        data={
+            "title": "  Synthetic community library  ",
+            "description": "  New books for the community.  ",
+            "status": "ongoing",
+            "location": "Lagos",
+            "created_by": str(other_id),
+            "is_deleted": "1",
+        },
+        files={"images[]": ("../../../project.png", image_output.getvalue(), "image/png")},
+    )
+    assert created.status_code == 200
+    project = created.json()["project"]
+    project_id = int(project["id"])
+    assert project["title"] == "Synthetic community library"
+    assert project["chapter_id"] == chapter_id
+    assert project["status"] == "ongoing"
+    assert project["images"][0].startswith("uploads/projects/")
+    image_path = auth_harness.settings.upload_root / project["images"][0].removeprefix("uploads/")
+    assert image_path.is_file()
+
+    public = auth_harness.client.post("/api/get_projects", json={"id": project_id})
+    assert public.status_code == 200
+    assert public.json()["project"]["id"] == project_id
+    assert "created_by" not in public.json()["project"]
+    assert "email" not in public.json()["project"]
+
+    other_token = _access_token_for(auth_harness, other_id, other_email, user_role="content admin")
+    denied_update = auth_harness.client.post(
+        "/api/manage_project",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={"function_type": "update", "id": project_id, "status": "draft"},
+    )
+    assert denied_update.status_code == 403
+    assert denied_update.json()["code"] == "project_forbidden"
+
+    drafted = auth_harness.client.post(
+        "/api/manage_project",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"function_type": "update", "id": project_id, "status": "draft"},
+    )
+    assert drafted.status_code == 200
+    assert drafted.json()["project"]["status"] == "draft"
+    concealed = auth_harness.client.post("/api/get_projects", json={"id": project_id})
+    assert concealed.status_code == 404
+
+    deleted = auth_harness.client.post(
+        "/api/manage_project",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"function_type": "delete", "id": project_id},
+    )
+    assert deleted.status_code == 200
+    assert not image_path.exists()
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(Projects.is_deleted).where(Projects.id == project_id)) == 1
+
+
+@pytest.mark.integration
+def test_project_create_rolls_back_stored_images_on_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A late failure must not retain a soft-visible project or its generated files."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, _email, _ = auth_harness.create_user(user_role="content admin")
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(chapter_id=chapter_id)
+        )
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="PNG")
+    image = prepare_avatar("rollback.png", image_output.getvalue())
+    original = ProjectRepository.create
+
+    def fail_after_insert(self: ProjectRepository, values: dict[str, Any]) -> int:
+        original(self, values)
+        raise RuntimeError("synthetic project insert failure")
+
+    monkeypatch.setattr(ProjectRepository, "create", fail_after_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic project insert failure"),
+    ):
+        ProjectService(session, ProjectStorage(auth_harness.settings.upload_root)).create(
+            actor_id,
+            ProjectCreateRequest.model_validate({"title": "Rollback"}),
+            [image],
+        )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(Projects.id)).where(Projects.created_by == actor_id)
+            )
+            == 0
+        )
+    directory = auth_harness.settings.upload_root / "projects"
+    assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_leadership_uses_current_content_policy_public_shaping_and_soft_deletion(
+    auth_harness: AuthHarness,
+) -> None:
+    """Only current content authority may change leadership and public output omits member PII."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user()
+    member_id, _member_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="super admin")
+    denied = auth_harness.client.post(
+        "/api/create_leader",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"user_id": member_id, "position_title": "Denied"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "leadership_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="content admin")
+        )
+    created = auth_harness.client.post(
+        "/api/create_leader",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={
+            "user_id": member_id,
+            "position_title": "  President  ",
+            "chapter_id": chapter_id,
+            "year": "2026",
+            "is_featured": True,
+            "created_by": other_id,
+            "is_deleted": 1,
+        },
+    )
+    assert created.status_code == 200
+    leader_id = int(created.json()["leader"]["id"])
+    assert created.json()["leader"]["position_title"] == "President"
+
+    public = auth_harness.client.post("/api/get_leadership", json={"id": leader_id})
+    assert public.status_code == 200
+    assert public.json()["leader"]["id"] == leader_id
+    assert "email" not in public.json()["leader"]
+    assert "phone" not in public.json()["leader"]
+
+    other_token = _access_token_for(auth_harness, other_id, other_email, user_role="content admin")
+    denied_update = auth_harness.client.post(
+        "/api/manage_leader",
+        headers={"Authorization": f"Bearer {other_token}"},
+        json={"function_type": "update", "id": leader_id, "position_title": "Blocked"},
+    )
+    assert denied_update.status_code == 403
+
+    deleted = auth_harness.client.post(
+        "/api/manage_leader",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"function_type": "delete", "id": leader_id},
+    )
+    assert deleted.status_code == 200
+    assert (
+        auth_harness.client.post("/api/get_leadership", json={"id": leader_id}).status_code == 404
+    )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(select(Leadership.is_deleted).where(Leadership.id == leader_id)) == 1
+        )
+
+
+@pytest.mark.integration
+def test_leadership_create_rolls_back_stored_image_on_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A late database failure cannot leave a leadership row or generated image behind."""
+    actor_id, _email, _ = auth_harness.create_user(user_role="content admin")
+    member_id, _member_email, _ = auth_harness.create_user()
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="PNG")
+    image = prepare_avatar("rollback.png", image_output.getvalue())
+    original = LeadershipRepository.create
+
+    def fail_after_insert(self: LeadershipRepository, values: dict[str, Any]) -> int:
+        original(self, values)
+        raise RuntimeError("synthetic leadership insert failure")
+
+    monkeypatch.setattr(LeadershipRepository, "create", fail_after_insert)
+    from app.integrations.uploads import LeadershipStorage
+
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic leadership insert failure"),
+    ):
+        LeadershipService(session, LeadershipStorage(auth_harness.settings.upload_root)).create(
+            actor_id,
+            LeadershipCreateRequest.model_validate(
+                {"user_id": member_id, "position_title": "Rollback"}
+            ),
+            image,
+        )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(Leadership.id)).where(Leadership.created_by == actor_id)
+            )
+            == 0
+        )
+    directory = auth_harness.settings.upload_root / "leadership"
+    assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_geography_management_uses_current_database_permission_and_bounded_contracts(
+    auth_harness: AuthHarness,
+) -> None:
+    """JWT claims cannot grant writes; current admin and super-admin facts can."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user()
+    coordinator_id, _coordinator_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_((actor_id, coordinator_id)))
+            .values(chapter_id=chapter_id)
+        )
+
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="super admin")
+    missing_auth = auth_harness.client.post(
+        "/api/manage_zone",
+        json={"action": "create", "zone": "Unauthorized Zone", "chapter_id": chapter_id},
+    )
+    forged_zone = auth_harness.client.post(
+        "/api/manage_zone",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"action": "create", "zone": "Forged Zone", "chapter_id": chapter_id},
+    )
+    forged_city = auth_harness.client.post(
+        "/api/manage_city",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"action": "delete", "city_id": 2_000_000_000},
+    )
+    assert missing_auth.status_code == 401
+    assert forged_zone.status_code == forged_city.status_code == 403
+    assert forged_zone.json()["code"] == forged_city.json()["code"] == "geography_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+    stale = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    headers = {"Authorization": f"Bearer {stale}"}
+    suffix = uuid.uuid4().hex[:8]
+    zone_name = f"Managed Zone {suffix}"
+    created_zone = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={
+            "action": " CREATE ",
+            "zone": f"  Managed   Zone {suffix}  ",
+            "chapter_id": chapter_id,
+            "coordinator_user_id": coordinator_id,
+            "token": "ignored",
+        },
+    )
+    assert created_zone.status_code == 200
+    zone_id = created_zone.json()["zone_id"]
+    assert created_zone.json() == {
+        "status": 200,
+        "message": "Zone created successfully",
+        "zone_id": zone_id,
+    }
+    auth_harness.zone_names.append(zone_name)
+
+    city_name = f"Managed City {suffix}"
+    created_city = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        data={
+            "action": "create",
+            "city": city_name,
+            "zone_id": str(zone_id),
+            "chapter_id": str(chapter_id),
+            "user_role": "ignored",
+        },
+    )
+    assert created_city.status_code == 200
+    city_id = created_city.json()["city_id"]
+    assert created_city.json() == {
+        "status": 200,
+        "message": "City created successfully",
+        "city_id": city_id,
+    }
+    auth_harness.city_names.append(city_name)
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="super admin")
+        )
+    revised_zone_name = f"Managed Zone Revised {suffix}"
+    updated_zone = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        data={
+            "action": "update",
+            "zone_id": str(zone_id),
+            "zone": revised_zone_name,
+            "coordinator_user_id": "",
+        },
+    )
+    assert updated_zone.status_code == 200
+    assert updated_zone.json() == {"status": 200, "message": "Zone updated successfully"}
+    auth_harness.zone_names.append(revised_zone_name)
+    with auth_harness.engine.connect() as connection:
+        stored = connection.execute(
+            select(Zones.zone, Zones.coordinator_user_id, Zones.chapter_id).where(
+                Zones.zone_id == zone_id
+            )
+        ).one()
+    assert tuple(stored) == (revised_zone_name, None, chapter_id)
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == actor_id).values(active=0))
+    inactive = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "delete", "city_id": city_id},
+    )
+    assert inactive.status_code == 401
+    assert inactive.json()["code"] == "geography_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_zone_management_rejects_duplicates_invalid_coordinators_and_orphans(
+    auth_harness: AuthHarness,
+) -> None:
+    """Zone writes preserve unique names, valid assignments, and city relationships."""
+    first_chapter_id = auth_harness.create_chapter()
+    second_chapter_id = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user(user_role="admin")
+    inactive_id, _inactive_email, _ = auth_harness.create_user(active=0)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_((actor_id, inactive_id)))
+            .values(chapter_id=first_chapter_id)
+        )
+    zone_id, city_ids = auth_harness.create_zone(
+        chapter_id=first_chapter_id,
+        cities=(f"Zone Child City {uuid.uuid4().hex[:8]}",),
+    )
+    zone_name = auth_harness.zone_names[-1]
+    city_id = next(iter(city_ids.values()))
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+
+    duplicate = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={
+            "action": "create",
+            "zone": f"  {zone_name.upper()}  ",
+            "chapter_id": first_chapter_id,
+        },
+    )
+    ineligible = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={
+            "action": "create",
+            "zone": f"Ineligible Zone {uuid.uuid4().hex[:8]}",
+            "chapter_id": first_chapter_id,
+            "coordinator_user_id": inactive_id,
+        },
+    )
+    missing_chapter = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={
+            "action": "create",
+            "zone": f"Orphan Zone {uuid.uuid4().hex[:8]}",
+            "chapter_id": 2_000_000_000,
+        },
+    )
+    blocked_delete = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={"action": "delete", "zone_id": zone_id},
+    )
+    assert duplicate.status_code == ineligible.status_code == blocked_delete.status_code == 409
+    assert duplicate.json()["code"] == "zone_already_exists"
+    assert ineligible.json()["code"] == "coordinator_ineligible"
+    assert missing_chapter.status_code == 404
+    assert missing_chapter.json()["code"] == "chapter_not_found"
+    assert blocked_delete.json()["code"] == "zone_has_cities"
+
+    moved = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={"action": "update", "zone_id": zone_id, "chapter_id": second_chapter_id},
+    )
+    assert moved.status_code == 200
+    with auth_harness.engine.connect() as connection:
+        zone_chapter = connection.scalar(select(Zones.chapter_id).where(Zones.zone_id == zone_id))
+        city_chapter = connection.scalar(select(Cities.chapter_id).where(Cities.city_id == city_id))
+    assert zone_chapter == city_chapter == second_chapter_id
+
+    deleted_city = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "delete", "city_id": city_id},
+    )
+    deleted_zone = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={"action": "delete", "zone_id": zone_id},
+    )
+    missing_zone = auth_harness.client.post(
+        "/api/manage_zone",
+        headers=headers,
+        json={"action": "update", "zone_id": zone_id, "zone": zone_name},
+    )
+    assert deleted_city.json() == {"status": 200, "message": "City deleted successfully"}
+    assert deleted_zone.json() == {"status": 200, "message": "Zone deleted successfully"}
+    assert missing_zone.status_code == 404
+    assert missing_zone.json()["code"] == "zone_not_found"
+
+
+@pytest.mark.integration
+def test_city_management_aligns_zone_chapters_and_protects_member_locations(
+    auth_harness: AuthHarness,
+) -> None:
+    """City moves remain consistent while referenced names cannot be renamed or deleted."""
+    first_chapter_id = auth_harness.create_chapter()
+    second_chapter_id = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user(user_role="admin")
+    first_zone_id, _ = auth_harness.create_zone(chapter_id=first_chapter_id)
+    second_zone_id, _ = auth_harness.create_zone(chapter_id=second_chapter_id)
+    headers = {"Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"}
+    suffix = uuid.uuid4().hex[:8]
+    city_name = f"Movable City {suffix}"
+
+    created = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "create", "city": city_name, "zone_id": first_zone_id},
+    )
+    assert created.status_code == 200
+    city_id = created.json()["city_id"]
+    auth_harness.city_names.append(city_name)
+    duplicate = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        data={
+            "action": "create",
+            "city": f"  {city_name.upper()}  ",
+            "zone_id": str(first_zone_id),
+        },
+    )
+    mismatch = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={
+            "action": "update",
+            "city_id": city_id,
+            "zone_id": first_zone_id,
+            "chapter_id": second_chapter_id,
+        },
+    )
+    assert duplicate.status_code == mismatch.status_code == 409
+    assert duplicate.json()["code"] == "city_already_exists"
+    assert mismatch.json()["code"] == "city_chapter_mismatch"
+
+    moved = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "update", "city_id": city_id, "zone_id": second_zone_id},
+    )
+    assert moved.json() == {"status": 200, "message": "City updated successfully"}
+    with auth_harness.engine.connect() as connection:
+        stored = connection.execute(
+            select(Cities.zone_id, Cities.chapter_id).where(Cities.city_id == city_id)
+        ).one()
+    assert tuple(stored) == (second_zone_id, second_chapter_id)
+
+    auth_harness.create_user(city=f"  {city_name.upper()}  ")
+    rename = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "update", "city_id": city_id, "city": f"Renamed City {suffix}"},
+    )
+    delete = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "delete", "city_id": city_id},
+    )
+    invalid = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "update", "city_id": city_id},
+    )
+    missing = auth_harness.client.post(
+        "/api/manage_city",
+        headers=headers,
+        json={"action": "delete", "city_id": 2_000_000_000},
+    )
+    assert rename.status_code == delete.status_code == 409
+    assert rename.json()["code"] == delete.json()["code"] == "city_in_use"
+    assert invalid.status_code == 400
+    assert invalid.json()["code"] == "city_management_invalid_request"
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "city_not_found"
+
+
+@pytest.mark.integration
+def test_geography_mutations_roll_back_after_late_repository_failures(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Zone inserts and city updates remain atomic when persistence fails late."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, _actor_email, _ = auth_harness.create_user(user_role="admin")
+    rollback_zone_name = f"Rollback Zone {uuid.uuid4().hex[:8]}"
+    original_insert_zone = MemberRepository.insert_zone
+
+    def fail_after_zone_insert(self: MemberRepository, *args: Any, **kwargs: Any) -> int:
+        original_insert_zone(self, *args, **kwargs)
+        raise RuntimeError("synthetic zone insert failure")
+
+    monkeypatch.setattr(MemberRepository, "insert_zone", fail_after_zone_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic zone insert failure"),
+    ):
+        MemberService(session, auth_harness.settings).manage_zone(
+            actor_id,
+            ManageZoneRequest(
+                action="create",
+                zone=rollback_zone_name,
+                chapter_id=chapter_id,
+            ),
+        )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(Zones.zone_id)).where(Zones.zone == rollback_zone_name)
+            )
+            == 0
+        )
+
+    monkeypatch.setattr(MemberRepository, "insert_zone", original_insert_zone)
+    original_city = f"Rollback City {uuid.uuid4().hex[:8]}"
+    revised_city = f"Rollback City Revised {uuid.uuid4().hex[:8]}"
+    _zone_id, city_ids = auth_harness.create_zone(
+        chapter_id=chapter_id,
+        cities=(original_city,),
+    )
+    city_id = city_ids[original_city]
+    original_update_city = MemberRepository.update_city
+
+    def fail_after_city_update(self: MemberRepository, *args: Any, **kwargs: Any) -> None:
+        original_update_city(self, *args, **kwargs)
+        raise RuntimeError("synthetic city update failure")
+
+    monkeypatch.setattr(MemberRepository, "update_city", fail_after_city_update)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic city update failure"),
+    ):
+        MemberService(session, auth_harness.settings).manage_city(
+            actor_id,
+            ManageCityRequest(action="update", city_id=city_id, city=revised_city),
+        )
+    with auth_harness.engine.connect() as connection:
+        stored_city = connection.scalar(select(Cities.city).where(Cities.city_id == city_id))
+    assert stored_city == original_city
+
+
+@pytest.mark.integration
+def test_geography_import_requires_current_permission_and_reconciles_csv_atomically(
+    auth_harness: AuthHarness,
+) -> None:
+    """Current database permission controls an idempotent, chapter-aligned bulk import."""
+    chapter_id = auth_harness.create_chapter(chapter_id=1)
+    actor_id, actor_email, _ = auth_harness.create_user()
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="super admin")
+    suffix = uuid.uuid4().hex[:8]
+    denied_zone = f"Denied Import Zone {suffix}"
+    denied = auth_harness.client.post(
+        "/api/upload_zones_cities",
+        headers={"Authorization": f"Bearer {forged}", "X-API-Key": "ignored"},
+        files={
+            "file": (
+                "locations.csv",
+                f"zone,city\n{denied_zone},Denied City {suffix}\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "geography_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+    stale = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    headers = {"Authorization": f"Bearer {stale}"}
+    existing_zone_id, existing_city_ids = auth_harness.create_zone(
+        chapter_id=chapter_id,
+        cities=(f"Imported Existing City {suffix}",),
+    )
+    existing_city = next(iter(existing_city_ids))
+    new_zone = f"Imported New Zone {suffix}"
+    new_city = f"Imported New City {suffix}"
+    csv_content = (f"city,zone\r\n{existing_city},{new_zone}\r\n{new_city},{new_zone}\r\n").encode()
+
+    imported = auth_harness.client.post(
+        "/api/upload_zones_cities",
+        headers=headers,
+        files={"file": ("locations.csv", csv_content, "text/csv")},
+    )
+    assert imported.status_code == 200
+    assert imported.json() == {
+        "status": 200,
+        "message": "Upload processed successfully",
+        "summary": {
+            "zones_added": 1,
+            "cities_added": 1,
+            "cities_updated": 1,
+            "total_rows": 2,
+        },
+    }
+    auth_harness.zone_names.append(new_zone)
+    auth_harness.city_names.append(new_city)
+
+    with auth_harness.engine.connect() as connection:
+        new_zone_row = connection.execute(
+            select(Zones.zone_id, Zones.chapter_id).where(Zones.zone == new_zone)
+        ).one()
+        existing_mapping = connection.execute(
+            select(Cities.zone_id, Cities.chapter_id).where(Cities.city == existing_city)
+        ).one()
+        new_mapping = connection.execute(
+            select(Cities.zone_id, Cities.chapter_id).where(Cities.city == new_city)
+        ).one()
+    new_zone_id, new_zone_chapter = map(int, new_zone_row)
+    assert new_zone_chapter == 1
+    assert tuple(map(int, existing_mapping)) == (new_zone_id, 1)
+    assert tuple(map(int, new_mapping)) == (new_zone_id, 1)
+    assert new_zone_id != existing_zone_id
+
+    repeated = auth_harness.client.post(
+        "/api/upload_zones_cities",
+        headers=headers,
+        files={
+            "file": (
+                "locations.xlsx",
+                _geography_xlsx_bytes([(new_zone, existing_city), (new_zone, new_city)]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert repeated.json()["summary"] == {
+        "zones_added": 0,
+        "cities_added": 0,
+        "cities_updated": 0,
+        "total_rows": 2,
+    }
+
+
+@pytest.mark.integration
+def test_geography_import_rolls_back_every_row_after_a_late_write_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after an earlier insert leaves no partial zone or city catalogue."""
+    auth_harness.create_chapter(chapter_id=1)
+    actor_id, _actor_email, _ = auth_harness.create_user(user_role="admin")
+    suffix = uuid.uuid4().hex[:8]
+    zone_name = f"Atomic Import Zone {suffix}"
+    first_city = f"Atomic First City {suffix}"
+    second_city = f"Atomic Second City {suffix}"
+    original_insert_city = MemberRepository.insert_city
+    insert_count = 0
+
+    def fail_on_second_city(self: MemberRepository, *args: Any, **kwargs: Any) -> int:
+        nonlocal insert_count
+        insert_count += 1
+        result = original_insert_city(self, *args, **kwargs)
+        if insert_count == 2:
+            raise RuntimeError("synthetic bulk city failure")
+        return result
+
+    monkeypatch.setattr(MemberRepository, "insert_city", fail_on_second_city)
+    rows = (
+        GeographyImportRow(source_row=2, zone=zone_name, city=first_city),
+        GeographyImportRow(source_row=3, zone=zone_name, city=second_city),
+    )
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic bulk city failure"),
+    ):
+        MemberService(session, auth_harness.settings).upload_zones_cities(actor_id, rows)
+
+    with auth_harness.engine.connect() as connection:
+        zone_count = connection.scalar(
+            select(func.count(Zones.zone_id)).where(Zones.zone == zone_name)
+        )
+        city_count = connection.scalar(
+            select(func.count(Cities.city_id)).where(Cities.city.in_((first_city, second_city)))
+        )
+    assert zone_count == city_count == 0
+
+
+@pytest.mark.integration
+def test_geography_import_rejects_ambiguous_existing_zones_before_writing(
+    auth_harness: AuthHarness,
+) -> None:
+    """Legacy duplicate zone names fail closed instead of selecting an arbitrary target."""
+    auth_harness.create_chapter(chapter_id=1)
+    actor_id, actor_email, _ = auth_harness.create_user(user_role="admin")
+    suffix = uuid.uuid4().hex[:8]
+    first_zone = f"Ambiguous Zone {suffix}"
+    second_zone = f"  {first_zone.upper()}  "
+    city_name = f"Unwritten Ambiguous City {suffix}"
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            ZONES_TABLE.insert(),
+            [
+                {"zone": first_zone, "chapter_id": 1},
+                {"zone": second_zone, "chapter_id": 1},
+            ],
+        )
+    auth_harness.zone_names.extend((first_zone, second_zone))
+    response = auth_harness.client.post(
+        "/api/upload_zones_cities",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, actor_id, actor_email)}"
+        },
+        files={
+            "file": (
+                "locations.csv",
+                f"zone,city\n{first_zone},{city_name}\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "geography_import_ambiguous_zone"
+    with auth_harness.engine.connect() as connection:
+        city_count = connection.scalar(
+            select(func.count(Cities.city_id)).where(Cities.city == city_name)
+        )
+    assert city_count == 0
+
+
+@pytest.mark.integration
+def test_alumni_import_uses_current_permission_preserves_accounts_and_is_idempotent(
+    auth_harness: AuthHarness,
+) -> None:
+    """The hardened roster import owns privileges and credentials but reconciles profile data."""
+    chapter_id, city = auth_harness.create_registration_location()
+    actor_id, actor_email, _ = auth_harness.create_user()
+    forged = _access_token_for(auth_harness, actor_id, actor_email, user_role="super admin")
+    denied = auth_harness.client.post(
+        "/api/import_alumni",
+        headers={"Authorization": f"Bearer {forged}", "X-API-Key": "ignored"},
+        json={
+            "chapter_id": chapter_id,
+            "records": [
+                {
+                    "email": f"denied-{auth_harness.marker}@example.com",
+                    "last_name": "Imported",
+                    "first_name": "Synthetic Ada",
+                    "graduation_year": datetime.now(UTC).year,
+                    "city": city,
+                }
+            ],
+        },
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "alumni_import_forbidden"
+
+    existing_id, existing_email, existing_password = auth_harness.create_user(
+        active=0,
+        email_verified=0,
+        is_approved=0,
+        profile_status="pending",
+    )
+    suffix = uuid.uuid4().hex[:8]
+    kept_code = f"KEEP-{suffix}"
+    kept_access_code = f"PRIVATE-{suffix}"
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="admin")
+        )
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id == existing_id)
+            .values(
+                has_password=1,
+                is_coordinator=1,
+                user_code=kept_code,
+                userAccessCode=kept_access_code,
+            )
+        )
+        category_result = connection.execute(
+            ALUMNI_CATEGORY_TABLE.insert().values(
+                user_id=existing_id,
+                chapter_id=chapter_id,
+                year="1990",
+                location="Old Location",
+                created_at=now,
+            )
+        )
+        category_key = category_result.inserted_primary_key
+        assert category_key is not None
+        auth_harness.alumni_category_ids.append(int(category_key[0]))
+        connection.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=existing_id,
+                instagram="keep_me",
+                tiktok="keep_me",
+                updated_at=now,
+                chapter_id=chapter_id,
+                year="1990",
+                city="Old Location",
+                is_visible=1,
+                field_visibility='{"phone":true}',
+            )
+        )
+
+    new_email = f"codex-import-{auth_harness.marker}@example.com"
+    auth_harness.emails.append(new_email)
+    stale = _access_token_for(auth_harness, actor_id, actor_email, user_role="alumni")
+    headers = {"Authorization": f"Bearer {stale}"}
+    records = [
+        {
+            "email": existing_email,
+            "last_name": "Imported",
+            "first_name": "Synthetic Ada",
+            "name_in_school": "Synthetic School Name",
+            "phone": "08000000001",
+            "birth_date": "1990-01-02",
+            "graduation_year": datetime.now(UTC).year,
+            "city": city,
+            "is_coordinator": True,
+            "is_volunteer": True,
+        },
+        {
+            "email": new_email,
+            "last_name": "Imported",
+            "first_name": "Synthetic Ada",
+            "graduation_year": datetime.now(UTC).year,
+            "city": city,
+            "is_coordinator": True,
+        },
+    ]
+    imported = auth_harness.client.post(
+        "/api/import_alumni",
+        headers=headers,
+        json={"chapter_id": chapter_id, "records": records},
+    )
+
+    assert imported.status_code == 200
+    body = imported.json()
+    assert body["summary"] == {
+        "total": 2,
+        "imported": 1,
+        "updated": 1,
+        "unchanged": 0,
+        "coordinator_requests_ignored": 2,
+    }
+    assert [result["status"] for result in body["results"]] == ["updated", "imported"]
+    assert all(set(result) == {"row", "status", "user_id"} for result in body["results"])
+
+    with auth_harness.engine.connect() as connection:
+        existing = dict(
+            connection.execute(select(USERS_TABLE).where(Users.id == existing_id)).mappings().one()
+        )
+        existing_profile = dict(
+            connection.execute(select(PROFILES_TABLE).where(UserProfiles.user_id == existing_id))
+            .mappings()
+            .one()
+        )
+        new_user = dict(
+            connection.execute(select(USERS_TABLE).where(Users.email == new_email)).mappings().one()
+        )
+        new_id = int(new_user["id"])
+        new_category = dict(
+            connection.execute(
+                select(ALUMNI_CATEGORY_TABLE).where(AlumniCategory.user_id == new_id)
+            )
+            .mappings()
+            .one()
+        )
+        new_profile = dict(
+            connection.execute(select(PROFILES_TABLE).where(UserProfiles.user_id == new_id))
+            .mappings()
+            .one()
+        )
+        new_group = connection.scalar(
+            select(UsersGroups.id).where(
+                UsersGroups.user_id == new_id,
+                UsersGroups.group_id == 2,
+            )
+        )
+
+    assert existing["password"] == existing_password
+    assert existing["user_code"] == kept_code
+    assert existing["userAccessCode"] == kept_access_code
+    assert (existing["active"], existing["is_approved"], existing["email_verified"]) == (0, 0, 0)
+    assert (existing["user_role"], existing["is_coordinator"], existing["profile_status"]) == (
+        "alumni",
+        1,
+        "pending",
+    )
+    assert existing_profile["field_visibility"] == '{"phone":true}'
+    assert existing_profile["is_visible"] == 1
+    assert (existing_profile["city"], existing_profile["chapter_id"]) == (city, chapter_id)
+
+    assert (new_user["user_role"], new_user["is_coordinator"]) == ("alumni", 0)
+    assert (new_user["active"], new_user["is_approved"], new_user["email_verified"]) == (1, 1, 1)
+    assert new_user["has_password"] == 0
+    assert new_user["userAccessCode"] == ""
+    assert new_user["user_code"].startswith(f"MBR-{datetime.now(UTC).year}-")
+    assert not PasswordService().verify("Alumni@2026", new_user["password"])
+    assert not PasswordService().verify(PASSPHRASE, new_user["password"])
+    assert new_group is not None
+    assert (new_category["chapter_id"], new_category["location"]) == (chapter_id, city)
+    assert new_profile["is_visible"] == 0
+    assert all(value is False for value in json.loads(new_profile["field_visibility"]).values())
+
+    repeated = auth_harness.client.post(
+        "/api/import_alumni",
+        headers=headers,
+        json={"chapter_id": chapter_id, "records": records},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["summary"] == {
+        "total": 2,
+        "imported": 0,
+        "updated": 0,
+        "unchanged": 2,
+        "coordinator_requests_ignored": 2,
+    }
+
+
+@pytest.mark.integration
+def test_alumni_import_rolls_back_all_rows_after_a_late_profile_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A write failure on a later member leaves no account, category, group, or profile rows."""
+    chapter_id, city = auth_harness.create_registration_location()
+    actor_id, _actor_email, _ = auth_harness.create_user(user_role="admin")
+    first_email = f"codex-atomic-first-{auth_harness.marker}@example.com"
+    second_email = f"codex-atomic-second-{auth_harness.marker}@example.com"
+    auth_harness.emails.extend((first_email, second_email))
+    original = MemberRepository.insert_alumni_import_profile
+    inserts = 0
+
+    def fail_on_second_profile(self: MemberRepository, **kwargs: Any) -> None:
+        nonlocal inserts
+        inserts += 1
+        original(self, **kwargs)
+        if inserts == 2:
+            raise RuntimeError("synthetic alumni profile failure")
+
+    monkeypatch.setattr(MemberRepository, "insert_alumni_import_profile", fail_on_second_profile)
+    rows = (
+        _alumni_import_row(first_email, city, source_row=1),
+        _alumni_import_row(second_email, city, source_row=2),
+    )
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic alumni profile failure"),
+    ):
+        MemberService(session, auth_harness.settings).import_alumni(
+            actor_id,
+            chapter_id,
+            rows,
+            "127.0.0.1",
+        )
+
+    with auth_harness.engine.connect() as connection:
+        user_count = connection.scalar(
+            select(func.count(Users.id)).where(Users.email.in_((first_email, second_email)))
+        )
+        category_count = connection.scalar(
+            select(func.count(AlumniCategory.id)).where(
+                AlumniCategory.user_id.in_(
+                    select(Users.id).where(Users.email.in_((first_email, second_email)))
+                )
+            )
+        )
+    assert user_count == category_count == 0
+
+
+@pytest.mark.integration
+def test_alumni_import_rejects_higher_targets_and_ambiguous_memberships_before_writing(
+    auth_harness: AuthHarness,
+) -> None:
+    """Roster reconciliation fails closed for peer/higher accounts and legacy multi-membership."""
+    chapter_id, city = auth_harness.create_registration_location()
+    other_chapter = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user(user_role="admin")
+    target_id, target_email, _ = auth_harness.create_user(user_role="admin")
+    token = _access_token_for(auth_harness, actor_id, actor_email)
+    records = [
+        {
+            "email": target_email,
+            "last_name": "Imported",
+            "first_name": "Synthetic Ada",
+            "graduation_year": datetime.now(UTC).year,
+            "city": city,
+        }
+    ]
+    forbidden = auth_harness.client.post(
+        "/api/import_alumni",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"chapter_id": chapter_id, "records": records},
+    )
+    assert forbidden.status_code == 403
+    assert forbidden.json()["code"] == "alumni_import_target_forbidden"
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == target_id).values(user_role="alumni")
+        )
+        result = connection.execute(
+            ALUMNI_CATEGORY_TABLE.insert(),
+            [
+                {
+                    "user_id": target_id,
+                    "chapter_id": chapter_id,
+                    "year": "2000",
+                    "location": city,
+                    "created_at": now,
+                },
+                {
+                    "user_id": target_id,
+                    "chapter_id": other_chapter,
+                    "year": "2001",
+                    "location": "Other City",
+                    "created_at": now,
+                },
+            ],
+        )
+        assert result.rowcount == 2
+    ambiguous = auth_harness.client.post(
+        "/api/import_alumni",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"chapter_id": chapter_id, "records": records},
+    )
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["code"] == "alumni_import_membership_ambiguous"
+
+
+@pytest.mark.integration
+def test_notifications_are_self_scoped_paginated_and_idempotently_marked(
+    auth_harness: AuthHarness,
+) -> None:
+    """Legacy body targets cannot read or mutate another member's notification rows."""
+    owner_id, owner_email, _ = auth_harness.create_user()
+    other_id, _, _ = auth_harness.create_user()
+    token = _access_token_for(auth_harness, owner_id, owner_email, user_role="super admin")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        old_result = connection.execute(
+            NOTIFICATIONS_TABLE.insert().values(
+                user_id=owner_id,
+                type="old",
+                message="Before this synthetic account existed",
+                is_read=0,
+                created_at=datetime(2000, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+            )
+        )
+        first_result = connection.execute(
+            NOTIFICATIONS_TABLE.insert().values(
+                user_id=owner_id,
+                type="event",
+                message="Owned unread notification",
+                link="https://frontend.example.test/events/1",
+                is_read=0,
+                created_at=now,
+            )
+        )
+        second_result = connection.execute(
+            NOTIFICATIONS_TABLE.insert().values(
+                user_id=owner_id,
+                type="account",
+                message="Owned read notification",
+                is_read=1,
+                created_at=now + timedelta(seconds=1),
+            )
+        )
+        other_result = connection.execute(
+            NOTIFICATIONS_TABLE.insert().values(
+                user_id=other_id,
+                type="private",
+                message="Other member notification",
+                is_read=0,
+                created_at=now,
+            )
+        )
+        old_key = old_result.inserted_primary_key
+        first_key = first_result.inserted_primary_key
+        second_key = second_result.inserted_primary_key
+        other_key = other_result.inserted_primary_key
+        assert old_key is not None
+        assert first_key is not None
+        assert second_key is not None
+        assert other_key is not None
+        old_id = int(old_key[0])
+        first_id = int(first_key[0])
+        second_id = int(second_key[0])
+        other_notification_id = int(other_key[0])
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = auth_harness.client.get(
+        "/api/get_notifications", headers=headers, params={"limit": 1}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["total"] == 2
+    assert body["unread_count"] == 1
+    assert body["has_more"] is True
+    assert body["notifications"][0]["id"] == second_id
+    assert "user_id" not in body["notifications"][0]
+
+    spoofed = auth_harness.client.post(
+        "/api/get_notifications",
+        headers=headers,
+        json={"user_id": other_id, "token": "ignored-legacy-value", "unread_only": True},
+    )
+    assert spoofed.status_code == 200
+    assert [item["id"] for item in spoofed.json()["notifications"]] == [first_id]
+
+    concealed = auth_harness.client.post(
+        "/api/mark_notification_read",
+        headers=headers,
+        json={"notification_id": other_notification_id, "user_id": other_id},
+    )
+    assert concealed.status_code == 404
+    assert concealed.json()["code"] == "notification_not_found"
+
+    marked = auth_harness.client.post(
+        "/api/mark_notification_read",
+        headers=headers,
+        json={"notification_id": first_id, "user_id": other_id},
+    )
+    assert marked.status_code == 200
+    assert marked.json()["updated_count"] == 1
+    repeated = auth_harness.client.post(
+        "/api/mark_notification_read",
+        headers=headers,
+        json={"notification_id": first_id},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["updated_count"] == 0
+
+    with auth_harness.engine.connect() as connection:
+        states: dict[int, int | None] = {
+            int(notification_id): is_read
+            for notification_id, is_read in connection.execute(
+                select(Notifications.id, Notifications.is_read).where(
+                    Notifications.id.in_((old_id, first_id, second_id, other_notification_id))
+                )
+            ).tuples()
+        }
+    assert states == {old_id: 0, first_id: 1, second_id: 1, other_notification_id: 0}
+
+
+@pytest.mark.integration
+def test_mark_all_notifications_is_owned_bounded_and_transactional(
+    auth_harness: AuthHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mark-all updates owned rows atomically and rolls back a late repository failure."""
+    owner_id, owner_email, _ = auth_harness.create_user()
+    other_id, _, _ = auth_harness.create_user()
+    token = _access_token_for(auth_harness, owner_id, owner_email)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with auth_harness.engine.begin() as connection:
+        owner_ids = []
+        for index in range(2):
+            result = connection.execute(
+                NOTIFICATIONS_TABLE.insert().values(
+                    user_id=owner_id,
+                    type="system",
+                    message=f"Owned notification {index}",
+                    is_read=0,
+                    created_at=now + timedelta(seconds=index),
+                )
+            )
+            inserted_key = result.inserted_primary_key
+            assert inserted_key is not None
+            owner_ids.append(int(inserted_key[0]))
+        other_result = connection.execute(
+            NOTIFICATIONS_TABLE.insert().values(
+                user_id=other_id,
+                type="system",
+                message="Other notification",
+                is_read=0,
+                created_at=now,
+            )
+        )
+        other_key = other_result.inserted_primary_key
+        assert other_key is not None
+        other_notification_id = int(other_key[0])
+
+    original_mark_read = NotificationRepository.mark_read
+
+    def fail_after_update(
+        repository: NotificationRepository, user_id: int, notification_ids: list[int]
+    ) -> int:
+        original_mark_read(repository, user_id, notification_ids)
+        raise RuntimeError("synthetic late notification failure")
+
+    monkeypatch.setattr(NotificationRepository, "mark_read", fail_after_update)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic late notification failure"),
+    ):
+        NotificationService(session).mark_read(owner_id, None)
+    monkeypatch.setattr(NotificationRepository, "mark_read", original_mark_read)
+
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(Notifications.id)).where(
+                    Notifications.id.in_(owner_ids), Notifications.is_read == 0
+                )
+            )
+            == 2
+        )
+
+    response = auth_harness.client.post(
+        "/api/mark_notification_read",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"user_id": other_id},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": 200,
+        "message": "All unread notifications marked as read",
+        "updated_count": 2,
+    }
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(Notifications.id)).where(
+                    Notifications.id.in_(owner_ids), Notifications.is_read == 1
+                )
+            )
+            == 2
+        )
+        assert (
+            connection.scalar(
+                select(Notifications.is_read).where(Notifications.id == other_notification_id)
+            )
+            == 0
+        )
+
+
+@pytest.mark.integration
+def test_notification_routes_recheck_current_account_state_and_validate_input(
+    auth_harness: AuthHarness,
+) -> None:
+    """A valid stale token cannot bypass deactivation and malformed IDs fail safely."""
+    user_id, email, _ = auth_harness.create_user()
+    token = _access_token_for(auth_harness, user_id, email, user_role="admin")
+    headers = {"Authorization": f"Bearer {token}"}
+    invalid = auth_harness.client.post(
+        "/api/mark_notification_read",
+        headers=headers,
+        json={"notification_id": 0},
+    )
+    assert invalid.status_code == 400
+    assert invalid.json()["code"] == "notification_mark_invalid"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(USERS_TABLE.update().where(Users.id == user_id).values(active=0))
+    listed = auth_harness.client.get("/api/get_notifications", headers=headers)
+    marked = auth_harness.client.post("/api/mark_notification_read", headers=headers, json={})
+    assert listed.status_code == marked.status_code == 401
+    assert listed.json()["code"] == marked.json()["code"] == "notification_actor_unavailable"

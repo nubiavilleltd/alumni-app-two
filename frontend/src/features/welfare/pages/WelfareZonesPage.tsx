@@ -71,8 +71,14 @@ function ZoneCardSkeleton() {
 }
 
 // ─── Zone card ────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, currentUserEmail }: { zone: WelfareZone; currentUserEmail?: string }) {
-  const isTheSameUserAsCoordinator = currentUserEmail === zone?.coordinator?.email;
+function ZoneCard({
+  zone,
+  currentUserMemberId,
+}: {
+  zone: WelfareZone;
+  currentUserMemberId?: string;
+}) {
+  const isTheSameUserAsCoordinator = currentUserMemberId === String(zone?.coordinator?.userId);
 
   const hasCoordinator = zone.coordinator !== null;
   const coordinatorMemberId =
@@ -140,12 +146,6 @@ function ZoneCard({ zone, currentUserEmail }: { zone: WelfareZone; currentUserEm
                     <span className="flex items-center gap-1.5">
                       <Icon icon="mdi:phone-outline" className="h-4 w-4 text-gray-400" />
                       {zone.coordinator!.phone}
-                    </span>
-                  )}
-                  {zone.coordinator!.email && (
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      <Icon icon="mdi:email-outline" className="h-4 w-4 shrink-0 text-gray-400" />
-                      <span className="break-all">{zone.coordinator!.email}</span>
                     </span>
                   )}
                 </div>
@@ -276,7 +276,11 @@ export default function WelfareZonesPage() {
             {/* 📦 Data */}
             {showZones &&
               zones.map((zone) => (
-                <ZoneCard key={zone.zoneId} zone={zone} currentUserEmail={currentUser?.email} />
+                <ZoneCard
+                  key={zone.zoneId}
+                  zone={zone}
+                  currentUserMemberId={currentUser?.memberId}
+                />
               ))}
           </div>
         </div>

@@ -9,17 +9,27 @@ from sqlalchemy import CursorResult, RowMapping, Table, func, select
 from sqlalchemy.orm import Session
 
 from app.models.generated import (
+    AlumniCategory,
+    AlumniChapter,
+    Attachments,
     Cities,
+    Groups,
     JwtRefreshTokens,
     RegisterUserOtp,
     Roles,
     UserProfiles,
     Users,
+    UsersGroups,
     Vouches,
     Zones,
 )
 
 USERS_TABLE = cast(Table, Users.__table__)
+USERS_GROUPS_TABLE = cast(Table, UsersGroups.__table__)
+ALUMNI_CATEGORY_TABLE = cast(Table, AlumniCategory.__table__)
+PROFILES_TABLE = cast(Table, UserProfiles.__table__)
+VOUCHES_TABLE = cast(Table, Vouches.__table__)
+ATTACHMENTS_TABLE = cast(Table, Attachments.__table__)
 REFRESH_TOKENS_TABLE = cast(Table, JwtRefreshTokens.__table__)
 OTP_TABLE = cast(Table, RegisterUserOtp.__table__)
 
@@ -40,6 +50,161 @@ class AuthRepository:
             .first()
         )
         return self._as_dict(row)
+
+    def enabled_chapter_exists(self, chapter_id: int) -> bool:
+        """Return whether registration may target the selected chapter."""
+        return (
+            self._session.scalar(
+                select(AlumniChapter.id)
+                .where(AlumniChapter.id == chapter_id, AlumniChapter.is_enabled == 1)
+                .limit(1)
+            )
+            is not None
+        )
+
+    def city_belongs_to_chapter(self, city: str, chapter_id: int) -> bool:
+        """Bind the frontend city selection to the chapter advertised with it."""
+        return (
+            self._session.scalar(
+                select(Cities.city_id)
+                .where(
+                    func.lower(func.trim(Cities.city)) == city.strip().lower(),
+                    Cities.chapter_id == chapter_id,
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def eligible_voucher_exists(self, voucher_id: int) -> bool:
+        """Accept only a current active member explicitly enabled as a voucher."""
+        return (
+            self._session.scalar(
+                select(Users.id)
+                .where(
+                    Users.id == voucher_id,
+                    Users.active == 1,
+                    func.lower(func.trim(Users.voucher)) == "yes",
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def member_group_exists(self, group_id: int) -> bool:
+        """Verify the reviewed Ion Auth member-group target before inserting."""
+        return (
+            self._session.scalar(select(Groups.id).where(Groups.id == group_id).limit(1))
+            is not None
+        )
+
+    def user_code_exists(self, user_code: str) -> bool:
+        """Check the compatibility code before attempting the unique insert."""
+        return (
+            self._session.scalar(select(Users.id).where(Users.user_code == user_code).limit(1))
+            is not None
+        )
+
+    def insert_registration_user(self, values: dict[str, Any]) -> int:
+        """Insert the server-controlled user row and return its generated identity."""
+        result = cast(
+            CursorResult[Any], self._session.execute(USERS_TABLE.insert().values(**values))
+        )
+        inserted_key = result.inserted_primary_key
+        if inserted_key is None:
+            raise RuntimeError("Registration insert did not return a user identity")
+        return int(inserted_key[0])
+
+    def add_user_to_group(self, user_id: int, group_id: int) -> None:
+        """Preserve the legacy default alumni membership group."""
+        self._session.execute(
+            USERS_GROUPS_TABLE.insert().values(user_id=user_id, group_id=group_id)
+        )
+
+    def insert_alumni_category(
+        self,
+        user_id: int,
+        chapter_id: int,
+        year: str,
+        location: str,
+        created_at: datetime,
+    ) -> None:
+        """Create the chapter membership record required by member workflows."""
+        self._session.execute(
+            ALUMNI_CATEGORY_TABLE.insert().values(
+                user_id=user_id,
+                chapter_id=chapter_id,
+                year=year,
+                location=location,
+                created_at=created_at,
+            )
+        )
+
+    def insert_registration_profile(
+        self,
+        user_id: int,
+        chapter_id: int,
+        year: str,
+        city: str,
+        field_visibility: str,
+        now: datetime,
+    ) -> None:
+        """Seed a private-by-default profile using explicit non-null legacy values."""
+        self._session.execute(
+            PROFILES_TABLE.insert().values(
+                user_id=user_id,
+                chapter_id=chapter_id,
+                year=year,
+                city=city,
+                instagram="",
+                tiktok="",
+                is_visible=0,
+                field_visibility=field_visibility,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    def insert_pending_vouch(
+        self,
+        registrant_user_id: int,
+        voucher_id: int,
+        now: datetime,
+    ) -> None:
+        """Create the owned pending voucher relationship without sending mail yet."""
+        self._session.execute(
+            VOUCHES_TABLE.insert().values(
+                register_id=registrant_user_id,
+                voucher_id=voucher_id,
+                status="pending",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    def update_registration_avatar(self, user_id: int, relative_path: str) -> None:
+        """Store the normalized avatar path on the new account."""
+        self._session.execute(
+            USERS_TABLE.update().where(Users.id == user_id).values(avatar=relative_path)
+        )
+
+    def insert_registration_avatar_attachment(
+        self,
+        user_id: int,
+        original_filename: str,
+        relative_path: str,
+        created_at: datetime,
+    ) -> None:
+        """Preserve attachment metadata for an optional registration avatar."""
+        self._session.execute(
+            ATTACHMENTS_TABLE.insert().values(
+                user_id=user_id,
+                file_type="profile_image",
+                filename=original_filename,
+                attachment_file=relative_path,
+                dateadded=created_at,
+            )
+        )
 
     def user_by_id(self, user_id: int) -> dict[str, Any] | None:
         """Fetch one user by primary key."""

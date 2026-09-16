@@ -21,7 +21,6 @@ export function mapBackendVoucherToFrontend(raw: unknown): Voucher {
   return {
     id: String(d.voucher_id ?? ''),
     fullName: String(d.fullname ?? ''),
-    email: d.email,
     graduationYear: d.graduation_year ?? '',
     chapterId: d.chapter_id || '',
   };

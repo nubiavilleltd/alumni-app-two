@@ -99,6 +99,37 @@ def test_smtp_mailer_sends_tls_authenticated_reset_message(
     assert fake.message["Subject"] == "Alumni voucher review requested"
     assert "member@example.com" in fake.message.get_content()
 
+    SmtpMailer(settings).send_voucher_approval_notification(
+        "manager@example.com",
+        "Synthetic Manager",
+        "Synthetic Voucher",
+        "Synthetic Member",
+    )
+    assert fake.message is not None
+    assert fake.message["Subject"] == "Voucher approved a new Alumni Portal account"
+    assert "Synthetic Voucher" in fake.message.get_content()
+    assert "Synthetic Member" in fake.message.get_content()
+
+    SmtpMailer(settings).send_account_status(
+        "member@example.com",
+        "Synthetic Member",
+        "reject",
+        "Synthetic review reason",
+    )
+    assert fake.message is not None
+    assert fake.message["Subject"] == "Update on Your FGGC Alumni Account Application"
+    assert "Synthetic review reason" in fake.message.get_content()
+
+    SmtpMailer(settings).send_account_activity(
+        "member@example.com",
+        "Synthetic Member",
+        "deactivate",
+        "self",
+    )
+    assert fake.message is not None
+    assert fake.message["Subject"] == "Your Alumni Portal Account Has Been Deactivated"
+    assert "deactivated by you" in fake.message.get_content()
+
 
 def test_smtp_mailer_requires_configuration_and_wraps_transport_errors(
     monkeypatch: pytest.MonkeyPatch,

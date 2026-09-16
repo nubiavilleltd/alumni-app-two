@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import ipaddress
 from contextlib import suppress
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 
 from app.api.common import (
     body_mapping,
@@ -31,6 +33,13 @@ from app.core.errors import (
 )
 from app.db.session import Database
 from app.integrations.mail import Mailer
+from app.integrations.uploads import (
+    MAX_AVATAR_BYTES,
+    AvatarStorage,
+    AvatarUploadError,
+    UploadStorageError,
+    prepare_avatar,
+)
 from app.schemas.auth import (
     BooleanStatusResponse,
     ChangePasswordRequest,
@@ -40,15 +49,128 @@ from app.schemas.auth import (
     LogoutRequest,
     RefreshRequest,
     RefreshResponse,
+    RegistrationRequest,
+    RegistrationResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
     StatusResponse,
     VerifyAccessCodeRequest,
     VerifyEmailRequest,
 )
-from app.services.auth import AccountStateError, AuthService
+from app.services.auth import AccountStateError, AuthService, RegistrationError
 
 router = APIRouter(prefix="/api", tags=["authentication"])
+
+
+def _registration_request_schema() -> dict[str, Any]:
+    """Describe registration JSON/form fields and the optional multipart avatar."""
+    extra = request_body_schema(RegistrationRequest)
+    multipart_schema = RegistrationRequest.model_json_schema()
+    multipart_schema.setdefault("properties", {})["avatar"] = {
+        "type": "string",
+        "format": "binary",
+    }
+    extra["requestBody"]["content"]["multipart/form-data"]["schema"] = multipart_schema
+    return extra
+
+
+async def _registration_input(request: Request) -> tuple[dict[str, Any], UploadFile | None]:
+    """Read bounded registration fields and only the reviewed avatar upload."""
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/json" in content_type:
+        return await body_mapping(request), None
+    form = await request.form()
+    payload: dict[str, Any] = {}
+    avatar: UploadFile | None = None
+    for key, value in form.multi_items():
+        if key == "avatar" and isinstance(value, UploadFile):
+            avatar = value
+        elif isinstance(value, str):
+            payload[key] = value
+    return payload, avatar
+
+
+def _registration_ip(request: Request) -> str:
+    """Fit a direct peer address into the unchanged legacy IPv4-sized column."""
+    peer = request.client.host if request.client else ""
+    try:
+        normalized = ipaddress.ip_address(peer).compressed
+    except ValueError:
+        return "unavailable"
+    return normalized if len(normalized) <= 15 else "unavailable"
+
+
+@router.post(
+    "/register",
+    response_model=RegistrationResponse | StatusResponse,
+    openapi_extra=_registration_request_schema(),
+)
+async def register(request: Request) -> JSONResponse:
+    """Create a private, unverified alumni account without trusting client privileges."""
+    await enforce_rate_limit(
+        request,
+        "registration-request",
+        limit=30,
+        window_seconds=60 * 60,
+        unavailable_message="Registration service is temporarily unavailable",
+    )
+    payload, upload = await _registration_input(request)
+    try:
+        registration = RegistrationRequest.model_validate(payload)
+        prepared_avatar = None
+        if upload is not None:
+            prepared_avatar = prepare_avatar(
+                upload.filename,
+                await upload.read(MAX_AVATAR_BYTES + 1),
+            )
+    except (ValidationError, AvatarUploadError) as exc:
+        message = str(exc) if isinstance(exc, AvatarUploadError) else "Invalid registration details"
+        return json_response(
+            StatusResponse(status=400, message=message, code="registration_invalid_request"),
+            400,
+        )
+    finally:
+        if upload is not None:
+            await upload.close()
+
+    await enforce_rate_limit(
+        request,
+        "registration-identity",
+        str(registration.email).lower(),
+        limit=5,
+        window_seconds=60 * 60,
+        unavailable_message="Registration service is temporarily unavailable",
+    )
+    database: Database = request.app.state.database
+    settings: Settings = request.app.state.settings
+    mailer: Mailer = request.app.state.mailer
+    storage = AvatarStorage(settings.upload_root)
+    try:
+        result = await run_in_threadpool(
+            with_session,
+            database,
+            lambda session: AuthService(session, settings, mailer).register(
+                registration,
+                _registration_ip(request),
+                prepared_avatar,
+                storage,
+            ),
+        )
+    except RegistrationError as exc:
+        return json_response(
+            StatusResponse(status=exc.http_status, message=exc.message, code=exc.code),
+            exc.http_status,
+        )
+    except UploadStorageError:
+        return json_response(
+            StatusResponse(
+                status=503,
+                message="Avatar storage is temporarily unavailable",
+                code="registration_storage_unavailable",
+            ),
+            503,
+        )
+    return json_response(result, 200)
 
 
 @router.post(

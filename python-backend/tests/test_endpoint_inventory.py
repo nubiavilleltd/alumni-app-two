@@ -71,6 +71,102 @@ def test_workspace_inventory_matches_verified_method_counts() -> None:
         "verify_otp": "replaced-by-consolidated-route",
         "resend_otp": "replaced-by-consolidated-route",
     }
+    update_account_records = {
+        record["source"]: record["disposition"]
+        for record in records
+        if record["method"] == "update_user_account"
+    }
+    assert update_account_records == {
+        "Backend/alumniappV2 - PHP/Api.php": "retire-noncontroller-artifact",
+        "Backend/alumniappV2 - PHP/application/controllers/Api.php": ("retired-security-risk"),
+        "Backend/alumniappV2 - PHP/application/controllers/Api_backup.php": ("contain-or-remove"),
+        "Backend/alumniappV2 - PHP/application/controllers/oldApi.php": ("contain-or-remove"),
+    }
+    primary_role_retirements = {
+        record["method"]: record["disposition"]
+        for record in records
+        if record["source"].endswith("application/controllers/Api.php")
+        and record["method"]
+        in {
+            "create_role",
+            "get_roles",
+            "manage_role",
+            "manage_user_roles",
+            "update_user_role",
+        }
+    }
+    assert primary_role_retirements == {
+        "create_role": "retired-security-risk",
+        "get_roles": "retired-security-risk",
+        "manage_role": "retired-security-risk",
+        "update_user_role": "retired-security-risk",
+        "manage_user_roles": "retired-security-risk",
+    }
+    primary_member_retirements = {
+        record["method"]: record["disposition"]
+        for record in records
+        if record["source"].endswith("application/controllers/Api.php")
+        and record["method"] in {"deactivate_staff", "user_tokens"}
+    }
+    assert primary_member_retirements == {
+        "deactivate_staff": "retired-security-risk",
+        "user_tokens": "retired-security-risk",
+    }
+    legacy_definition_retirements = {
+        (record["source"], record["method"]): record["disposition"]
+        for record in records
+        if record["method"] in {"create_role", "get_roles", "manage_role"}
+    }
+    assert legacy_definition_retirements == {
+        (
+            "Backend/alumniappV2 - PHP/Api.php",
+            "create_role",
+        ): "retire-noncontroller-artifact",
+        (
+            "Backend/alumniappV2 - PHP/Api.php",
+            "get_roles",
+        ): "retire-noncontroller-artifact",
+        (
+            "Backend/alumniappV2 - PHP/Api.php",
+            "manage_role",
+        ): "retire-noncontroller-artifact",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/Api.php",
+            "create_role",
+        ): "retired-security-risk",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/Api.php",
+            "get_roles",
+        ): "retired-security-risk",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/Api.php",
+            "manage_role",
+        ): "retired-security-risk",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/Api_backup.php",
+            "create_role",
+        ): "contain-or-remove",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/Api_backup.php",
+            "get_roles",
+        ): "contain-or-remove",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/Api_backup.php",
+            "manage_role",
+        ): "contain-or-remove",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/oldApi.php",
+            "create_role",
+        ): "contain-or-remove",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/oldApi.php",
+            "get_roles",
+        ): "contain-or-remove",
+        (
+            "Backend/alumniappV2 - PHP/application/controllers/oldApi.php",
+            "manage_role",
+        ): "contain-or-remove",
+    }
 
 
 def test_cli_writes_parseable_inventory(tmp_path: Path) -> None:

@@ -19,7 +19,22 @@ try {
     & $python -m ruff format --check app migrations scripts tests
     & $python -m ruff check app migrations scripts tests
     & $python -m mypy app migrations scripts tests
-    & $python -m pytest --cov=app --cov-report=term-missing
+    $previousDatabaseUrl = $env:ALUMNI_DATABASE_URL
+    try {
+        # Integration fixtures use ALUMNI_TEST_DATABASE_URL directly. Keep the
+        # runtime URL absent during pytest so configuration/health tests remain
+        # deterministic even when the caller also runs the API locally.
+        Remove-Item Env:ALUMNI_DATABASE_URL -ErrorAction SilentlyContinue
+        & $python -m pytest --cov=app --cov-report=term-missing
+    }
+    finally {
+        if ($null -eq $previousDatabaseUrl) {
+            Remove-Item Env:ALUMNI_DATABASE_URL -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:ALUMNI_DATABASE_URL = $previousDatabaseUrl
+        }
+    }
     $previousDatabaseUrl = $env:ALUMNI_DATABASE_URL
     try {
         $env:ALUMNI_DATABASE_URL = $env:ALUMNI_TEST_DATABASE_URL

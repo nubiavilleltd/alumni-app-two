@@ -26,7 +26,6 @@ function mapCoordinator(raw: unknown): ZoneCoordinator | null {
     firstName: safeStr(d.first_name),
     lastName: safeStr(d.last_name),
     phone: safeStr(d.phone),
-    email: safeStr(d.email),
     avatar: safeStr(d.avatar) || null,
   };
 }

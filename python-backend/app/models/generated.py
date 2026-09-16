@@ -742,7 +742,7 @@ class MarketplaceSocialMediaV2(Base):
 
     id: Mapped[int] = mapped_column(INTEGER(11), primary_key=True, autoincrement=True)
     market_id: Mapped[int] = mapped_column(
-        INTEGER(11), nullable=False, comment="FK \x1a marketplace_listings.id"
+        INTEGER(11), nullable=False, comment="FK → marketplace_listings.id"
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("current_timestamp()")
@@ -813,7 +813,7 @@ class MessageThreads(Base):
     )
     title: Mapped[str | None] = mapped_column(String(255), comment="Group name; null for DMs")
     direct_key: Mapped[str | None] = mapped_column(
-        String(100), comment="Sorted user ids e.g. 12__48 - prevents duplicate DM threads"
+        String(100), comment="Sorted user ids e.g. 12__48 — prevents duplicate DM threads"
     )
     last_message_id: Mapped[int | None] = mapped_column(INTEGER(10, unsigned=True))
     last_message_at: Mapped[datetime.datetime | None] = mapped_column(DateTime)
@@ -856,7 +856,7 @@ class Messages(Base):
         String(100), comment="Frontend dedup key"
     )
     deleted_at: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime, comment="Soft delete - body cleared when set"
+        DateTime, comment="Soft delete — body cleared when set"
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime)
 
@@ -994,10 +994,10 @@ class ThreadParticipants(Base):
         DateTime, comment="Soft-leave; NULL means still active"
     )
     last_read_message_id: Mapped[int | None] = mapped_column(
-        INTEGER(10, unsigned=True), comment="Cursor - Seen state"
+        INTEGER(10, unsigned=True), comment="Cursor — Seen state"
     )
     last_delivered_message_id: Mapped[int | None] = mapped_column(
-        INTEGER(10, unsigned=True), comment="Cursor - Delivered state"
+        INTEGER(10, unsigned=True), comment="Cursor — Delivered state"
     )
 
 
@@ -2460,7 +2460,7 @@ class MarketplaceSocialMedia(Base):
 
     id: Mapped[int] = mapped_column(INTEGER(11), primary_key=True, autoincrement=True)
     market_id: Mapped[int] = mapped_column(
-        INTEGER(11), nullable=False, comment="FK \x1a marketplace_listings.id"
+        INTEGER(11), nullable=False, comment="FK → marketplace_listings.id"
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("current_timestamp()")

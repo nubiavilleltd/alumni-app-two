@@ -6,7 +6,6 @@ export interface ZoneCoordinator {
   firstName: string;
   lastName: string;
   phone: string;
-  email: string;
   avatar: string | null;
 }
 

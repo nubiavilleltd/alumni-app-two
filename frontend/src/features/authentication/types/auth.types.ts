@@ -226,7 +226,6 @@ export interface CompleteRegistrationResponse {
 export interface Voucher {
   id: string;
   fullName: string;
-  email: string;
   graduationYear: string;
   chapterId: string;
 }

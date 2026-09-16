@@ -1,0 +1,266 @@
+"""Validated local storage for user-supplied profile images."""
+
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass
+from io import BytesIO
+from pathlib import Path
+from uuid import uuid4
+
+from PIL import Image, UnidentifiedImageError
+
+MAX_AVATAR_BYTES = 5 * 1024 * 1024
+MAX_AVATAR_PIXELS = 40_000_000
+_FORMAT_EXTENSION = {"JPEG": "jpg", "PNG": "png", "GIF": "gif", "WEBP": "webp"}
+
+
+class AvatarUploadError(Exception):
+    """An uploaded avatar failed a bounded content check."""
+
+
+class UploadStorageError(Exception):
+    """Validated upload bytes could not be persisted safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAvatar:
+    """Validated and normalized avatar bytes ready for storage."""
+
+    content: bytes
+    extension: str
+    original_filename: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoredAvatar:
+    """Persisted avatar metadata used by the database transaction."""
+
+    relative_path: str
+    filename: str
+    original_filename: str
+
+
+def prepare_avatar(filename: str | None, content: bytes) -> PreparedAvatar:
+    """Verify, bound, re-encode, and strip metadata from an avatar image."""
+    if not content:
+        raise AvatarUploadError("Avatar file is empty")
+    if len(content) > MAX_AVATAR_BYTES:
+        raise AvatarUploadError("Avatar must not exceed 5 MB")
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.verify()
+        with Image.open(BytesIO(content)) as image:
+            image_format = (image.format or "").upper()
+            extension = _FORMAT_EXTENSION.get(image_format)
+            if extension is None:
+                raise AvatarUploadError("Avatar must be a JPEG, PNG, or GIF image")
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > MAX_AVATAR_PIXELS:
+                raise AvatarUploadError("Avatar image dimensions are invalid or too large")
+            output = BytesIO()
+            if image_format == "JPEG":
+                image.convert("RGB").save(output, format="JPEG", quality=90, optimize=True)
+            elif image_format == "PNG":
+                normalized = (
+                    image.convert("RGBA") if "A" in image.getbands() else image.convert("RGB")
+                )
+                normalized.save(output, format="PNG", optimize=True)
+            elif image_format == "WEBP":
+                normalized = (
+                    image.convert("RGBA") if "A" in image.getbands() else image.convert("RGB")
+                )
+                normalized.save(output, format="WEBP", quality=90, method=6)
+            else:
+                image.seek(0)
+                image.convert("P").save(output, format="GIF", optimize=True)
+    except AvatarUploadError:
+        raise
+    except Image.DecompressionBombError as exc:
+        raise AvatarUploadError("Avatar image dimensions are invalid or too large") from exc
+    except (OSError, UnidentifiedImageError, ValueError) as exc:
+        raise AvatarUploadError("Avatar file is not a valid image") from exc
+
+    clean_name = re.sub(r"[^A-Za-z0-9._-]", "_", Path(filename or "avatar").name)[:200]
+    return PreparedAvatar(
+        content=output.getvalue(),
+        extension=extension,
+        original_filename=clean_name or f"avatar.{extension}",
+    )
+
+
+class AvatarStorage:
+    """Write generated avatar names only beneath the configured upload root."""
+
+    def __init__(self, upload_root: Path) -> None:
+        self._upload_root = upload_root.resolve()
+
+    def save(self, user_id: int, avatar: PreparedAvatar) -> StoredAvatar:
+        """Atomically place one validated avatar in the profiles directory."""
+        directory = (self._upload_root / "profiles").resolve()
+        if directory.parent != self._upload_root:
+            raise UploadStorageError("Avatar storage path is invalid")
+        filename = f"{user_id}_{uuid4().hex}_avatar.{avatar.extension}"
+        target = (directory / filename).resolve()
+        if target.parent != directory:
+            raise UploadStorageError("Avatar storage path is invalid")
+        temporary = target.with_suffix(target.suffix + ".part")
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with temporary.open("xb") as handle:
+                handle.write(avatar.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise UploadStorageError("Avatar could not be stored") from exc
+        return StoredAvatar(
+            relative_path=f"uploads/profiles/{filename}",
+            filename=filename,
+            original_filename=avatar.original_filename,
+        )
+
+    def delete(self, stored: StoredAvatar) -> None:
+        """Remove only a file name previously generated by this storage adapter."""
+        target = (self._upload_root / "profiles" / stored.filename).resolve()
+        directory = (self._upload_root / "profiles").resolve()
+        if target.parent == directory and target.name == stored.filename:
+            target.unlink(missing_ok=True)
+
+
+class AnnouncementStorage(AvatarStorage):
+    """Store validated announcement images separately from member avatars."""
+
+    def save(self, user_id: int, avatar: PreparedAvatar) -> StoredAvatar:
+        directory = (self._upload_root / "announcements").resolve()
+        if directory.parent != self._upload_root:
+            raise UploadStorageError("Announcement storage path is invalid")
+        filename = f"{user_id}_{uuid4().hex}_announcement.{avatar.extension}"
+        target = (directory / filename).resolve()
+        if target.parent != directory:
+            raise UploadStorageError("Announcement storage path is invalid")
+        temporary = target.with_suffix(target.suffix + ".part")
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with temporary.open("xb") as handle:
+                handle.write(avatar.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise UploadStorageError("Announcement image could not be stored") from exc
+        return StoredAvatar(
+            relative_path=f"uploads/announcements/{filename}",
+            filename=filename,
+            original_filename=avatar.original_filename,
+        )
+
+    def delete(self, stored: StoredAvatar) -> None:
+        target = (self._upload_root / "announcements" / stored.filename).resolve()
+        directory = (self._upload_root / "announcements").resolve()
+        if target.parent == directory and target.name == stored.filename:
+            target.unlink(missing_ok=True)
+
+
+class MarketplaceStorage(AvatarStorage):
+    """Store validated marketplace images separately from profile assets."""
+
+    def save(self, user_id: int, avatar: PreparedAvatar) -> StoredAvatar:
+        directory = (self._upload_root / "marketplace").resolve()
+        if directory.parent != self._upload_root:
+            raise UploadStorageError("Marketplace storage path is invalid")
+        filename = f"{user_id}_{uuid4().hex}_listing.{avatar.extension}"
+        target = (directory / filename).resolve()
+        if target.parent != directory:
+            raise UploadStorageError("Marketplace storage path is invalid")
+        temporary = target.with_suffix(target.suffix + ".part")
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with temporary.open("xb") as handle:
+                handle.write(avatar.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise UploadStorageError("Marketplace image could not be stored") from exc
+        return StoredAvatar(
+            relative_path=f"uploads/marketplace/{filename}",
+            filename=filename,
+            original_filename=avatar.original_filename,
+        )
+
+    def delete(self, stored: StoredAvatar) -> None:
+        target = (self._upload_root / "marketplace" / stored.filename).resolve()
+        directory = (self._upload_root / "marketplace").resolve()
+        if target.parent == directory and target.name == stored.filename:
+            target.unlink(missing_ok=True)
+
+
+class ProjectStorage(AvatarStorage):
+    """Store validated project images separately from every other content type."""
+
+    def save(self, user_id: int, avatar: PreparedAvatar) -> StoredAvatar:
+        directory = (self._upload_root / "projects").resolve()
+        if directory.parent != self._upload_root:
+            raise UploadStorageError("Project storage path is invalid")
+        filename = f"{user_id}_{uuid4().hex}_project.{avatar.extension}"
+        target = (directory / filename).resolve()
+        if target.parent != directory:
+            raise UploadStorageError("Project storage path is invalid")
+        temporary = target.with_suffix(target.suffix + ".part")
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with temporary.open("xb") as handle:
+                handle.write(avatar.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise UploadStorageError("Project image could not be stored") from exc
+        return StoredAvatar(
+            relative_path=f"uploads/projects/{filename}",
+            filename=filename,
+            original_filename=avatar.original_filename,
+        )
+
+    def delete(self, stored: StoredAvatar) -> None:
+        target = (self._upload_root / "projects" / stored.filename).resolve()
+        directory = (self._upload_root / "projects").resolve()
+        if target.parent == directory and target.name == stored.filename:
+            target.unlink(missing_ok=True)
+
+
+class LeadershipStorage(AvatarStorage):
+    """Store validated leadership-photo overrides separately from profiles."""
+
+    def save(self, user_id: int, avatar: PreparedAvatar) -> StoredAvatar:
+        directory = (self._upload_root / "leadership").resolve()
+        if directory.parent != self._upload_root:
+            raise UploadStorageError("Leadership storage path is invalid")
+        filename = f"{user_id}_{uuid4().hex}_leader.{avatar.extension}"
+        target = (directory / filename).resolve()
+        if target.parent != directory:
+            raise UploadStorageError("Leadership storage path is invalid")
+        temporary = target.with_suffix(target.suffix + ".part")
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with temporary.open("xb") as handle:
+                handle.write(avatar.content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise UploadStorageError("Leadership image could not be stored") from exc
+        return StoredAvatar(f"uploads/leadership/{filename}", filename, avatar.original_filename)
+
+    def delete(self, stored: StoredAvatar) -> None:
+        target = (self._upload_root / "leadership" / stored.filename).resolve()
+        directory = (self._upload_root / "leadership").resolve()
+        if target.parent == directory and target.name == stored.filename:
+            target.unlink(missing_ok=True)

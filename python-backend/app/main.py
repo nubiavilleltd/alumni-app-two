@@ -7,10 +7,16 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
 
+from app.api.announcements import router as announcements_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.leadership import router as leadership_router
+from app.api.marketplace import router as marketplace_router
 from app.api.members import router as members_router
+from app.api.notifications import router as notifications_router
+from app.api.projects import router as projects_router
 from app.api.retired import router as retired_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
@@ -56,8 +62,38 @@ def create_app(
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(announcements_router)
     app.include_router(members_router)
+    app.include_router(marketplace_router)
+    app.include_router(projects_router)
+    app.include_router(leadership_router)
+    app.include_router(notifications_router)
     app.include_router(retired_router)
+    app.mount(
+        "/uploads/profiles",
+        StaticFiles(directory=resolved_settings.upload_root / "profiles", check_dir=False),
+        name="profile-uploads",
+    )
+    app.mount(
+        "/uploads/announcements",
+        StaticFiles(directory=resolved_settings.upload_root / "announcements", check_dir=False),
+        name="announcement-uploads",
+    )
+    app.mount(
+        "/uploads/marketplace",
+        StaticFiles(directory=resolved_settings.upload_root / "marketplace", check_dir=False),
+        name="marketplace-uploads",
+    )
+    app.mount(
+        "/uploads/projects",
+        StaticFiles(directory=resolved_settings.upload_root / "projects", check_dir=False),
+        name="project-uploads",
+    )
+    app.mount(
+        "/uploads/leadership",
+        StaticFiles(directory=resolved_settings.upload_root / "leadership", check_dir=False),
+        name="leadership-uploads",
+    )
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:

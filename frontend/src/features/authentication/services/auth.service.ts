@@ -154,11 +154,14 @@ export const authApi = {
   },
 
   /** POST /register — step 1 */
-  async startRegistration(values: RegisterDetailsFormValues): Promise<StartRegistrationResponse> {
+  async startRegistration(
+    values: RegisterDetailsFormValues,
+    chapterId: number,
+  ): Promise<StartRegistrationResponse> {
     try {
       const { data } = await apiClient.post(
         API_ENDPOINTS.AUTH.REGISTER,
-        mapRegistrationPayload(values),
+        mapRegistrationPayload(values, chapterId),
       );
       return mapRegistrationResponse(data);
     } catch (error) {
@@ -257,11 +260,12 @@ export const authApi = {
     }
   },
 
-  /** GET /api/get_vouchers - fetch all vouchers */
-  async getVouchers(): Promise<Voucher[]> {
+  /** POST /api/get_vouchers - fetch active vouchers for one class year */
+  async getVouchers(graduationYear: number): Promise<Voucher[]> {
     try {
-      // Use GET request - the apiClient will automatically add the token
-      const { data } = await apiClient.post(API_ENDPOINTS.AUTH.GET_VOUCHERS);
+      const { data } = await apiClient.post(API_ENDPOINTS.AUTH.GET_VOUCHERS, {
+        graduation_year: graduationYear,
+      });
 
       const vouchers = extractList(data, ['vouchers', 'data']);
 

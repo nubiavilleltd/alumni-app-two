@@ -123,9 +123,9 @@ function readResponseString(response: unknown, ...keys: string[]) {
   const root = asRecord(response);
   if (!root) return undefined;
 
-  const nested = [root, root.data, root.user, root.profile]
-    .map(asRecord)
-    .filter(Boolean) as Array<Record<string, unknown>>;
+  const nested = [root, root.data, root.user, root.profile].map(asRecord).filter(Boolean) as Array<
+    Record<string, unknown>
+  >;
 
   return readString(...nested.flatMap((source) => keys.map((key) => source[key])));
 }
@@ -270,15 +270,28 @@ export function RegisterDetailsPage() {
   // }, [detailForm]);
 
   useEffect(() => {
+    if (!graduationYear) {
+      setAllVouchers([]);
+      setFilteredVouchers([]);
+      setIsLoadingVouchers(false);
+      return;
+    }
+
+    let active = true;
     const loadVouchers = async () => {
       setIsLoadingVouchers(true);
-      const vouchers = await authApi.getVouchers();
-      setAllVouchers(vouchers);
-      setIsLoadingVouchers(false);
+      const vouchers = await authApi.getVouchers(Number(graduationYear));
+      if (active) {
+        setAllVouchers(vouchers);
+        setIsLoadingVouchers(false);
+      }
     };
 
     void loadVouchers();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [graduationYear]);
 
   useEffect(() => {
     if (graduationYear) {
@@ -306,7 +319,7 @@ export function RegisterDetailsPage() {
   }, [allVouchers, detailForm, graduationYear]);
 
   const voucherOptions = filteredVouchers.map((voucher) => ({
-    label: `${voucher.fullName} (${voucher.email})`,
+    label: `${voucher.fullName} (Class of ${voucher.graduationYear})`,
     value: String(voucher.id),
   }));
 
@@ -522,7 +535,16 @@ export function RegisterDetailsPage() {
         return;
       }
 
-      const response = await authApi.startRegistration(values);
+      const selectedCity = citiesZoneMapping[values.city];
+      if (!selectedCity?.chapterId) {
+        detailForm.setError('city', {
+          type: 'manual',
+          message: 'Please select a city with an available alumni chapter',
+        });
+        return;
+      }
+
+      const response = await authApi.startRegistration(values, selectedCity.chapterId);
 
       if (!response.userId) {
         console.error('Registration response did not include user ID:', response);

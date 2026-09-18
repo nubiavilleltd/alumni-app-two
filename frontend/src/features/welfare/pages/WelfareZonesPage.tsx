@@ -72,8 +72,15 @@ function ZoneCardSkeleton() {
 }
 
 // ─── Zone card ────────────────────────────────────────────────────────────────
-function ZoneCard({ zone, currentUserEmail }: { zone: WelfareZone; currentUserEmail?: string }) {
-  const isTheSameUserAsCoordinator = currentUserEmail === zone?.coordinator?.email;
+function ZoneCard({
+  zone,
+  currentUserMemberId,
+}: {
+  zone: WelfareZone;
+  currentUserMemberId?: string;
+}) {
+  const isTheSameUserAsCoordinator =
+    currentUserMemberId != null && String(currentUserMemberId) === String(zone.coordinator?.userId);
 
   const hasCoordinator = zone.coordinator !== null;
   const coordinatorMemberId =
@@ -138,8 +145,8 @@ function ZoneCard({ zone, currentUserEmail }: { zone: WelfareZone; currentUserEm
                 </div>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-base font-medium leading-tight text-gray-500">
                   <ProtectedContactAvailability
-                    phone={Boolean(zone.coordinator!.phone)}
-                    email={Boolean(zone.coordinator!.email)}
+                    phone={zone.coordinator!.hasPhone}
+                    email={zone.coordinator!.hasEmail}
                     label={`Protected contact details for ${zone.coordinator!.name}`}
                   />
                 </div>
@@ -270,7 +277,11 @@ export default function WelfareZonesPage() {
             {/* 📦 Data */}
             {showZones &&
               zones.map((zone) => (
-                <ZoneCard key={zone.zoneId} zone={zone} currentUserEmail={currentUser?.email} />
+                <ZoneCard
+                  key={zone.zoneId}
+                  zone={zone}
+                  currentUserMemberId={currentUser?.memberId}
+                />
               ))}
           </div>
         </div>

@@ -13,10 +13,11 @@ export const alumniKeys = {
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 /** All alumni — raw, unfiltered */
-export function useAlumni(params?: GetAlumniParams) {
+export function useAlumni(params?: GetAlumniParams, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: alumniKeys.list(params),
     queryFn: () => alumniService.getAll(params),
+    enabled: options?.enabled ?? true,
     staleTime: 1000 * 60 * 5,
   });
 }

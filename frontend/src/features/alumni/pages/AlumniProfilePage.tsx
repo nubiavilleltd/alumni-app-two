@@ -220,7 +220,7 @@ export function AlumniProfilePage() {
                 data={profileData}
                 copyable={!isOwner && isSignedIn}
                 isOwner={isOwner}
-                protectContactInfo={!isOwner}
+                protectContactInfo={isSignedIn}
                 contactResourceType="alumni-profile"
                 contactResourceId={alumnus.memberId}
               />

@@ -23,7 +23,7 @@ type ContactMethod = {
   rel?: string;
   protectedContact?: {
     field: Extract<ProtectedContactField, 'email' | 'phone'>;
-    value: string;
+    available: boolean;
     resourceType: string;
     resourceId: string;
   };
@@ -154,7 +154,7 @@ export function ContactPageLayout({
                 </div>
                 {method.protectedContact ? (
                   <ProtectedContactValue
-                    value={method.protectedContact.value}
+                    available={method.protectedContact.available}
                     field={method.protectedContact.field}
                     label={method.label}
                     resourceType={method.protectedContact.resourceType}

@@ -1,10 +1,12 @@
 import { Icon } from '@iconify/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DatePicker } from '@/shared/components/ui/input/DatePicker';
 import { FormInput } from '@/shared/components/ui/input/FormInput';
 import { TextareaInput } from '@/shared/components/ui/TextAreaInput';
 import { SelectInput } from '@/shared/components/ui/SelectInput';
 import { ImageUpload } from '@/shared/components/ui/ImageUpload';
+import { useAlumni } from '@/features/alumni/hooks/useAlumni';
+import { getYearOptions } from '@/shared/utils/yearOptions';
 import { Modal } from '@/shared/components/ui/Modal';
 import {
   useCreateAnnouncement,
@@ -115,6 +117,7 @@ export function AnnouncementEditorModal({
 }) {
   const createAnnouncement = useCreateAnnouncement();
   const updateAnnouncement = useUpdateAnnouncement();
+  const { data: alumni = [] } = useAlumni({ action_type: 'approved' }, { enabled: isOpen });
 
   const [form, setForm] = useState<EditorState>(getInitialEditorState(announcement ?? undefined));
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -123,6 +126,10 @@ export function AnnouncementEditorModal({
 
   const isEditMode = Boolean(announcement);
   const isSubmitting = createAnnouncement.isPending || updateAnnouncement.isPending;
+  const yearOptions = useMemo(
+    () => getYearOptions([...alumni.map((entry) => entry.graduationYear), form.year]),
+    [alumni, form.year],
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -258,13 +265,12 @@ export function AnnouncementEditorModal({
             onChange={(event) => handleFieldChange('type', event.target.value as AnnouncementType)}
           />
 
-          <FormInput
+          <SelectInput
             label="Year"
+            options={yearOptions}
             value={form.year}
             onChange={(event) => handleFieldChange('year', event.target.value)}
-            placeholder="2026"
-            type="number"
-            min="1900"
+            placeholder="Select a year"
           />
         </div>
 

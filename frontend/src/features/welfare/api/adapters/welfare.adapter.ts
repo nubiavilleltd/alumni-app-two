@@ -13,6 +13,9 @@ const safeNum = (v: unknown, fallback = 0): number => {
 const safeStr = (v: unknown, fallback = ''): string =>
   v != null && String(v).trim() !== '' ? String(v).trim() : fallback;
 
+const readAvailability = (v: unknown): boolean =>
+  v === true || v === 1 || v === '1' || v === 'true';
+
 function mapCoordinator(raw: unknown): ZoneCoordinator | null {
   if (raw == null) return null;
   const d = raw as Record<string, any>;
@@ -25,8 +28,11 @@ function mapCoordinator(raw: unknown): ZoneCoordinator | null {
     name: safeStr(d.name),
     firstName: safeStr(d.first_name),
     lastName: safeStr(d.last_name),
-    phone: safeStr(d.phone),
-    email: safeStr(d.email),
+    // Public zone responses expose flags only. Contact values are fetched on demand.
+    phone: undefined,
+    email: undefined,
+    hasPhone: readAvailability(d.has_phone),
+    hasEmail: readAvailability(d.has_email),
     avatar: safeStr(d.avatar) || null,
   };
 }

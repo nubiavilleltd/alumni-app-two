@@ -197,6 +197,9 @@ export interface ProfileInfoData {
   email?: string;
   whatsapp?: string;
   altPhone?: string;
+  emailAvailable?: boolean;
+  whatsappAvailable?: boolean;
+  altPhoneAvailable?: boolean;
   dateOfBirth?: string;
   streetAddress?: string;
   area?: string;
@@ -224,8 +227,6 @@ interface ProfileInfoPanelProps {
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
-
-
 
 // ─── Section ──────────────────────────────────────────────────────────────────
 
@@ -304,15 +305,16 @@ export function ProfileInfoPanel({
   contactResourceType = 'alumni-profile',
   contactResourceId = '',
 }: ProfileInfoPanelProps) {
-  const hasBioFields = hasAny(
-    data.fullName,
-    data.maidenName,
-    data.nicknameInSchool,
-    data.email,
-    data.whatsapp,
-    data.altPhone,
-    data.dateOfBirth,
-  );
+  const hasBioFields =
+    hasAny(
+      data.fullName,
+      data.maidenName,
+      data.nicknameInSchool,
+      data.email,
+      data.whatsapp,
+      data.altPhone,
+      data.dateOfBirth,
+    ) || Boolean(data.emailAvailable || data.whatsappAvailable || data.altPhoneAvailable);
 
   const hasAddress = hasAny(data.streetAddress, data.area, data.state, data.city, data.zone);
 
@@ -323,13 +325,13 @@ export function ProfileInfoPanel({
     data.yearsOfExperience,
   );
 
+  const hasEmail = data.email !== undefined || Boolean(data.emailAvailable);
   const hasSocials = hasAny(
     data.instagram,
     data.facebook,
     data.twitter,
     data.tiktok,
     data.linkedin,
-    data.email,
   );
 
   return (
@@ -348,10 +350,10 @@ export function ProfileInfoPanel({
           <FieldRow label="Full Name" value={data.fullName} />
           <FieldRow label="Former Name" value={data.maidenName} />
           <FieldRow label="Preferred Nickname" value={data.nicknameInSchool} />
-          {hasSocials &&
+          {hasEmail &&
             (protectContactInfo && contactResourceId ? (
               <ProtectedContactValue
-                value={data.email}
+                available={Boolean(data.emailAvailable)}
                 field="email"
                 label="Email"
                 resourceType={contactResourceType}
@@ -365,7 +367,7 @@ export function ProfileInfoPanel({
           {protectContactInfo && contactResourceId ? (
             <>
               <ProtectedContactValue
-                value={data.whatsapp}
+                available={Boolean(data.whatsappAvailable)}
                 field="whatsapp"
                 label="WhatsApp"
                 resourceType={contactResourceType}
@@ -374,7 +376,7 @@ export function ProfileInfoPanel({
                 className="border-b border-gray-50"
               />
               <ProtectedContactValue
-                value={data.altPhone}
+                available={Boolean(data.altPhoneAvailable)}
                 field="alternativePhone"
                 label="Alt. Phone"
                 resourceType={contactResourceType}

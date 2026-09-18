@@ -105,6 +105,12 @@ export const API_ENDPOINTS = {
     CREATE: '/api/contact_us',
   },
 
+  // ─── Protected contacts ───────────────────────────────────────────────────
+  PROTECTED_CONTACT: {
+    GET: (resourceType: string, resourceId: string, field: string) =>
+      `/api/protected-contact/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/${encodeURIComponent(field)}`,
+  },
+
   // ─── JOB VACANCIES ─────────────────────────────────────────────────────────────
   JOB_VACANCIES: {
     GET: '/api/get_vacancies',

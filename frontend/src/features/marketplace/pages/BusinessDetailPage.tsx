@@ -337,21 +337,21 @@ export default function BusinessDetailPage() {
 
               <div className="space-y-3 text-sm font-medium text-gray-600">
                 <ProtectedContactValue
-                  value={business.phone}
+                  available={business.hasPhone ?? false}
                   field="phone"
                   label="Phone number"
                   resourceType="marketplace-business"
                   resourceId={business.businessId}
                 />
                 <ProtectedContactValue
-                  value={business.email}
+                  available={business.hasEmail ?? false}
                   field="email"
                   label="Email address"
                   resourceType="marketplace-business"
                   resourceId={business.businessId}
                 />
                 <ProtectedContactValue
-                  value={business.whatsapp}
+                  available={business.hasWhatsapp ?? false}
                   field="whatsapp"
                   label="WhatsApp number"
                   resourceType="marketplace-business"
@@ -434,7 +434,6 @@ export default function BusinessDetailPage() {
           </div>
         </section>
       </main>
-
     </>
   );
 }

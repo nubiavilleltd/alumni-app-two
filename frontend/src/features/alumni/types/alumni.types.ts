@@ -23,6 +23,9 @@ export interface Alumni {
   // ── Contact ───────────────────────────────────────────────────────────────
   whatsappPhone: string;
   alternativePhone?: string;
+  hasEmail?: boolean;
+  hasWhatsapp?: boolean;
+  hasAlternativePhone?: boolean;
 
   // ── Profile ───────────────────────────────────────────────────────────────
   photo: string;

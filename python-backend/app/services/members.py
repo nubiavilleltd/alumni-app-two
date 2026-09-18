@@ -32,6 +32,7 @@ from app.integrations.alumni_import import AlumniImportRow
 from app.integrations.geography_import import GeographyImportRow
 from app.integrations.mail import Mailer
 from app.integrations.uploads import AvatarStorage, PreparedAvatar
+from app.repositories.audit import AuditRepository
 from app.repositories.members import MemberRepository
 from app.schemas.members import (
     PROFILE_VISIBILITY_FIELDS,
@@ -2022,6 +2023,17 @@ class MemberService:
                     user_role=updated.get("user_role"),
                     active=bool(updated.get("active")),
                     profile_status=str(updated["profile_status"]),
+                ),
+            )
+            AuditRepository(self._session).record(
+                actor_user_id=actor_user_id,
+                action="member_role_changed" if role_changed else f"member_account_{action}",
+                target_type="user",
+                target_id=target_user_id,
+                details=(
+                    {"previous_role": previous_role, "requested_role": requested_role}
+                    if role_changed
+                    else {"previous_active": previous_active}
                 ),
             )
 

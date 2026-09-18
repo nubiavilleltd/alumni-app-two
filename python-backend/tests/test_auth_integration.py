@@ -45,6 +45,7 @@ from app.models.generated import (
     AlumniChapter,
     Announcements,
     Attachments,
+    AuditLog,
     Cities,
     EventAttendees,
     EventRegistrationAnswers,
@@ -134,6 +135,7 @@ MESSAGE_THREADS_TABLE = cast(Table, MessageThreads.__table__)
 MESSAGES_TABLE = cast(Table, Messages.__table__)
 THREAD_PARTICIPANTS_TABLE = cast(Table, ThreadParticipants.__table__)
 MESSAGE_ATTACHMENTS_TABLE = cast(Table, MessagesAttachments.__table__)
+AUDIT_LOG_TABLE = cast(Table, AuditLog.__table__)
 PASSPHRASE = "Correct horse battery staple!"
 REGISTRATION_PASSPHRASE = "Correct horse battery staple! 7"
 NEW_PASSPHRASE = "A different strong passphrase!"
@@ -584,6 +586,7 @@ class AuthHarness:
         ):
             return
         with self.engine.begin() as connection:
+            connection.execute(AUDIT_LOG_TABLE.delete())
             tracked_user_ids = set(self.user_ids)
             if self.emails:
                 tracked_user_ids.update(

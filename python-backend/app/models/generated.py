@@ -946,6 +946,26 @@ class NewsFeedsSetup(Base):
     )
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("idx_audit_log_actor", "actor_user_id"),
+        Index("idx_audit_log_action", "action"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        INTEGER(10, unsigned=True), primary_key=True, autoincrement=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(INTEGER(10, unsigned=True))
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(100))
+    target_id: Mapped[int | None] = mapped_column(INTEGER(10, unsigned=True))
+    details: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("current_timestamp()")
+    )
+
+
 class RegisterUserOtp(Base):
     __tablename__ = "register_user_otp"
 

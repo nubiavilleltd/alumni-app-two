@@ -27,6 +27,52 @@ class NotificationRepository:
         row = self._session.execute(statement.limit(1)).mappings().first()
         return dict(row) if row is not None else None
 
+    def actor_authority(self, user_id: int) -> dict[str, Any] | None:
+        """Load the facts required to derive the notification-creation permission."""
+        row = (
+            self._session.execute(
+                select(
+                    Users.id, Users.active, Users.user_role, Users.is_coordinator, Users.created_on
+                )
+                .where(Users.id == user_id)
+                .with_for_update()
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row is not None else None
+
+    def active_user_exists(self, user_id: int) -> bool:
+        """Confirm a notification target is an active account."""
+        return (
+            self._session.scalar(
+                select(Users.id).where(Users.id == user_id, Users.active == 1).limit(1)
+            )
+            is not None
+        )
+
+    def create(self, values: dict[str, Any]) -> int:
+        """Insert one per-user notification row and return its ID."""
+        result = cast(
+            CursorResult[Any],
+            self._session.execute(
+                NOTIFICATIONS_TABLE.insert().values(
+                    user_id=values["user_id"],
+                    type=values["type"],
+                    message=values["message"],
+                    link=values.get("link"),
+                    chapter_id=values.get("chapter_id"),
+                    year=values.get("year"),
+                    is_read=0,
+                )
+            ),
+        )
+        key = result.inserted_primary_key
+        if not key or key[0] is None:
+            raise RuntimeError("Notification insert did not return a primary key")
+        return int(key[0])
+
     @staticmethod
     def _eligible_conditions(user_id: int, account_created_at: datetime) -> tuple[Any, ...]:
         """Prevent reused identifiers from exposing rows older than the account."""

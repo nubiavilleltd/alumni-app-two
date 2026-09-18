@@ -38,6 +38,18 @@ RETIRED_ENDPOINTS = {
         "The insecure push-token route was removed; an authenticated self-service "
         "push-token contract is required before this feature can return"
     ),
+    "/api/create_privacy_policy": "Privacy policy is a static page; no editable storage exists",
+    "/api/manage_privacy_policy": "Privacy policy is a static page; no editable storage exists",
+    "/api/get_privacy_policy": "Privacy policy is a static page; no editable storage exists",
+    "/api/create_market": (
+        "The legacy market table was removed; use /api/create_listing on the marketplace"
+    ),
+    "/api/manage_market": (
+        "The legacy market table was removed; use /api/manage_listing on the marketplace"
+    ),
+    "/api/get_market": (
+        "The legacy market table was removed; use /api/get_listings on the marketplace"
+    ),
 }
 
 RETIRED_DYNAMIC_ENDPOINTS = {

@@ -20,6 +20,7 @@ from app.models.generated import (
     UserProfiles,
     Users,
     UsersGroups,
+    UserSocialAccounts,
     Vouches,
     Zones,
 )
@@ -32,6 +33,7 @@ VOUCHES_TABLE = cast(Table, Vouches.__table__)
 ATTACHMENTS_TABLE = cast(Table, Attachments.__table__)
 REFRESH_TOKENS_TABLE = cast(Table, JwtRefreshTokens.__table__)
 OTP_TABLE = cast(Table, RegisterUserOtp.__table__)
+SOCIAL_ACCOUNTS_TABLE = cast(Table, UserSocialAccounts.__table__)
 
 
 class AuthRepository:
@@ -471,6 +473,62 @@ class AuthRepository:
             REFRESH_TOKENS_TABLE.update()
             .where(JwtRefreshTokens.user_id == user_id, JwtRefreshTokens.revoked == 0)
             .values(revoked=1)
+        )
+
+    def social_account_by_provider(
+        self, provider: str, provider_user_id: str
+    ) -> dict[str, Any] | None:
+        """Find the user linked to a provider identity."""
+        row = (
+            self._session.execute(
+                select(UserSocialAccounts.__table__)
+                .where(
+                    UserSocialAccounts.provider == provider,
+                    UserSocialAccounts.provider_user_id == provider_user_id,
+                )
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        return self._as_dict(row)
+
+    def link_social_account(
+        self, user_id: int, provider: str, provider_user_id: str, email: str | None, now: datetime
+    ) -> None:
+        """Link a verified provider identity to a user account."""
+        self._session.execute(
+            SOCIAL_ACCOUNTS_TABLE.insert().values(
+                user_id=user_id,
+                provider=provider,
+                provider_user_id=provider_user_id,
+                email=email or None,
+                created_at=now,
+            )
+        )
+
+    def unlink_social_account(self, user_id: int, provider: str) -> bool:
+        """Remove one provider link; return whether a row was removed."""
+        result = cast(
+            CursorResult[Any],
+            self._session.execute(
+                SOCIAL_ACCOUNTS_TABLE.delete().where(
+                    UserSocialAccounts.user_id == user_id,
+                    UserSocialAccounts.provider == provider,
+                )
+            ),
+        )
+        return result.rowcount == 1
+
+    def social_account_count(self, user_id: int) -> int:
+        """Count the social providers linked to a user."""
+        return int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(UserSocialAccounts.__table__)
+                .where(UserSocialAccounts.user_id == user_id)
+            )
+            or 0
         )
 
     @staticmethod

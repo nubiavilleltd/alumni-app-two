@@ -25,7 +25,9 @@ from app.api.news import router as news_router
 from app.api.notifications import router as notifications_router
 from app.api.product import paystack_webhook_alias_router, product_router
 from app.api.projects import router as projects_router
+from app.api.push import router as push_router
 from app.api.retired import router as retired_router
+from app.api.social import router as social_router
 from app.api.vacancies import router as vacancies_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
@@ -96,7 +98,9 @@ def create_app(
     app.include_router(blog_router)
     app.include_router(news_router)
     app.include_router(notifications_router)
+    app.include_router(push_router)
     app.include_router(retired_router)
+    app.include_router(social_router)
     app.include_router(product_router)
     app.include_router(paystack_webhook_alias_router)
     app.mount(

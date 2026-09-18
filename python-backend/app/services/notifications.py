@@ -8,8 +8,10 @@ from typing import Any
 import structlog
 from sqlalchemy.orm import Session
 
+from app.authorization.policy import AuthorizationFacts, Permission, has_permission
 from app.repositories.notifications import NotificationRepository
 from app.schemas.notifications import (
+    CreateNotificationRequest,
     GetNotificationsRequest,
     NotificationItem,
     NotificationListResponse,
@@ -44,6 +46,42 @@ class NotificationService:
                 "notification_actor_unavailable", "Authentication required", 401
             )
         return actor
+
+    def create_notification(
+        self, actor_user_id: int, request: CreateNotificationRequest
+    ) -> NotificationReadResponse:
+        """Create one in-app notification for a reviewed, active recipient."""
+        with self._session.begin():
+            actor = self._active_actor(self._repository.actor_authority(actor_user_id))
+            facts = AuthorizationFacts(
+                actor_user_id,
+                actor.get("user_role"),
+                is_coordinator=bool(actor.get("is_coordinator")),
+            )
+            if not has_permission(facts, Permission.MANAGE_CONTENT):
+                raise NotificationError(
+                    "notification_forbidden", "You cannot send notifications", 403
+                )
+            if not self._repository.active_user_exists(request.user_id):
+                raise NotificationError(
+                    "notification_recipient_not_found", "Recipient not found", 404
+                )
+            self._repository.create(
+                {
+                    "user_id": request.user_id,
+                    "type": request.type,
+                    "message": request.message,
+                    "link": request.link,
+                }
+            )
+        logger.info(
+            "notification_created",
+            actor_user_id=actor_user_id,
+            recipient_user_id=request.user_id,
+        )
+        return NotificationReadResponse(
+            message="Notification created successfully", updated_count=1
+        )
 
     @staticmethod
     def _account_created_at(actor: dict[str, Any]) -> datetime:

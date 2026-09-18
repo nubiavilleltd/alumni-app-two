@@ -55,9 +55,13 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     vapid_public_key: str | None = None
     vapid_private_key: SecretStr | None = None
+    vapid_subject: str = "mailto:admin@alumni.example"
     upload_root: Path = Path("var/uploads")
     metrics_enabled: bool = False
     metrics_token: SecretStr | None = None
+    google_client_id: str | None = None
+    facebook_app_id: str | None = None
+    facebook_app_secret: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_environment_guards(self) -> Self:
@@ -101,6 +105,14 @@ class Settings(BaseSettings):
     def metrics_token_value(self) -> str | None:
         """Return the collector token for the /metrics endpoint, if configured."""
         return self.metrics_token.get_secret_value() if self.metrics_token else None
+
+    def facebook_app_secret_value(self) -> str | None:
+        """Return the Facebook app secret without including it in settings serialization."""
+        return self.facebook_app_secret.get_secret_value() if self.facebook_app_secret else None
+
+    def vapid_private_key_value(self) -> str | None:
+        """Return the VAPID private key without including it in settings serialization."""
+        return self.vapid_private_key.get_secret_value() if self.vapid_private_key else None
 
 
 @lru_cache(maxsize=1)

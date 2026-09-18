@@ -38,7 +38,7 @@ def test_all_legacy_tables_and_columns_are_mapped(schema_engine: Engine) -> None
     database_tables = set(inspector.get_table_names()) - {"alembic_version"}
     model_tables = set(Base.metadata.tables)
     assert model_tables == database_tables
-    assert len(model_tables) == 70
+    assert len(model_tables) == 71
 
     for table_name in sorted(database_tables):
         model_table = Base.metadata.tables[table_name]

@@ -24,6 +24,7 @@ from app.core.errors import (
 )
 from app.core.security import IssuedTokens, PasswordService, TokenService
 from app.integrations.mail import Mailer
+from app.integrations.social import SocialIdentity
 from app.integrations.uploads import AvatarStorage, PreparedAvatar
 from app.repositories.auth import AuthRepository
 from app.schemas.auth import (
@@ -33,6 +34,7 @@ from app.schemas.auth import (
     RegistrationRequest,
     RegistrationResponse,
 )
+from app.schemas.social import SocialSignupResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +77,25 @@ class RegistrationError(Exception):
         self.code = code
         self.message = message
         self.http_status = http_status
+
+
+class SocialAccountError(Exception):
+    """A provider identity could not be mapped to a signable-in account."""
+
+    def __init__(
+        self,
+        http_status: int,
+        body_status: int,
+        message: str,
+        user_id: int | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.body_status = body_status
+        self.message = message
+        self.user_id = user_id
+        self.extra = extra or {}
 
 
 class AuthService:
@@ -429,6 +450,194 @@ class AuthService:
             stored = self._repository.lock_refresh_token(token_hash)
             if stored is not None and not bool(stored["revoked"]):
                 self._repository.revoke_refresh_token(int(stored["id"]))
+
+    def social_login(self, identity: SocialIdentity) -> LoginResponse:
+        """Map a provider-verified identity to an existing account and issue tokens."""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with self._session.begin():
+            link = self._repository.social_account_by_provider(
+                identity.provider, identity.provider_user_id
+            )
+            if link is not None:
+                user = self._repository.user_by_id(int(link["user_id"]))
+                if user is None:
+                    raise SocialAccountError(
+                        500, 500, "Linked account is inconsistent. Please contact support."
+                    )
+            else:
+                email = (identity.email or "").strip().lower()
+                user = self._repository.user_by_email(email) if email else None
+                if user is None:
+                    raise SocialAccountError(
+                        406, 406, "No account found. Please sign up to continue."
+                    )
+                self._repository.link_social_account(
+                    int(user["id"]),
+                    identity.provider,
+                    identity.provider_user_id,
+                    email,
+                    now,
+                )
+
+            user_id = int(user["id"])
+            if not bool(user.get("onboarding_completion")):
+                tokens = self._issue_and_store(user)
+                raise SocialAccountError(
+                    406,
+                    406,
+                    "Account profile is incomplete. Please continue your onboarding process.",
+                    user_id,
+                    extra={
+                        "access_token": tokens.access_token,
+                        "refresh_token": tokens.refresh_token,
+                        "expires_in": tokens.access_expires_in,
+                        "email": str(user["email"]),
+                        "fullname": user.get("fullname"),
+                    },
+                )
+            if not bool(user.get("active")):
+                raise AccountStateError(
+                    423, 423, "Account has been deactivated. Please contact support.", user_id
+                )
+            if not bool(user.get("is_approved")):
+                raise AccountStateError(
+                    406,
+                    406,
+                    "Account pending admin approval. You will be notified once approved.",
+                    user_id,
+                )
+
+            self._repository.update_last_login(user_id, int(datetime.now(UTC).timestamp()))
+            tokens = self._issue_and_store(user)
+            profile = self._repository.profile_for_user(user_id)
+            roles = self._repository.roles_for_user(user_id)
+            zone = self._repository.zone_for_city(user.get("city"))
+            return self._login_response(user, profile, roles, zone, tokens)
+
+    def social_signup(self, identity: SocialIdentity) -> SocialSignupResponse:
+        """Create a minimal provider-linked account awaiting onboarding and approval."""
+        email = (identity.email or "").strip().lower()
+        if not email:
+            raise SocialAccountError(
+                422,
+                422,
+                f"Your {identity.provider} account has no verified email. "
+                "Please use email/password registration instead.",
+            )
+        name = (identity.name or "").strip() or email
+        parts = name.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with self._session.begin():
+            if (
+                self._repository.social_account_by_provider(
+                    identity.provider, identity.provider_user_id
+                )
+                is not None
+            ):
+                raise SocialAccountError(
+                    409, 409, "An account with this email already exists. Please sign in instead."
+                )
+            if self._repository.user_by_email(email) is not None:
+                raise SocialAccountError(
+                    409, 409, "An account with this email already exists. Please sign in instead."
+                )
+            random_hash = self._passwords.hash(secrets.token_urlsafe(32))
+            social_has_password = 0
+            social_verify_token: str | None = None
+            user_id = self._repository.insert_registration_user(
+                {
+                    "chapter_id": 1,
+                    "ip_address": "",
+                    "username": email,
+                    "email": email,
+                    "password": random_hash,
+                    "has_password": social_has_password,
+                    "onboarding_completion": 0,
+                    "nick_name": "",
+                    "state": "",
+                    "country": "Nigeria",
+                    "created_on": int(now.replace(tzinfo=UTC).timestamp()),
+                    "userAccessCode": "",
+                    "profile_status": "No",
+                    "voucher": "",
+                    "resetKey": "",
+                    "user_code": None,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "fullname": name,
+                    "phone": "",
+                    "user_role": "alumni",
+                    "graduation_year": None,
+                    "department": "",
+                    "email_verified": 1,
+                    "verify_token": social_verify_token,
+                    "is_approved": 0,
+                    "active": 0,
+                    "name_in_school": "",
+                    "alternative_phone": "",
+                    "birth_date": None,
+                    "house_color": "",
+                    "is_coordinator": 0,
+                    "residential_address": "",
+                    "area": "",
+                    "city": "",
+                    "employment_status": "",
+                    "occupation": "",
+                    "industry_sector": "",
+                    "years_of_experience": "",
+                    "is_volunteer": 0,
+                }
+            )
+            self._repository.add_user_to_group(user_id, _MEMBER_GROUP_ID)
+            self._repository.link_social_account(
+                user_id, identity.provider, identity.provider_user_id, email, now
+            )
+        return SocialSignupResponse(
+            status=201,
+            message="Account created successfully. Please complete your profile.",
+            user_id=user_id,
+            email=email,
+            fullname=name,
+        )
+
+    def social_link(self, user_id: int, identity: SocialIdentity) -> None:
+        """Link an additional provider identity to the authenticated account."""
+        with self._session.begin():
+            existing = self._repository.social_account_by_provider(
+                identity.provider, identity.provider_user_id
+            )
+            if existing is not None and int(existing["user_id"]) != user_id:
+                raise SocialAccountError(
+                    409,
+                    409,
+                    f"This {identity.provider} account is already linked to a different user.",
+                )
+            if existing is None:
+                self._repository.link_social_account(
+                    user_id,
+                    identity.provider,
+                    identity.provider_user_id,
+                    (identity.email or "").strip().lower() or None,
+                    datetime.now(UTC).replace(tzinfo=None),
+                )
+
+    def social_unlink(self, user_id: int, provider: str) -> None:
+        """Remove a provider link, refusing to strand an account with no sign-in method."""
+        with self._session.begin():
+            user = self._repository.user_by_id(user_id)
+            linked = self._repository.social_account_count(user_id)
+            has_password = bool(user and user.get("has_password"))
+            if linked <= 1 and not has_password:
+                raise SocialAccountError(
+                    400,
+                    400,
+                    "You must set a password or link another provider before removing "
+                    "your only sign-in method.",
+                )
+            if not self._repository.unlink_social_account(user_id, provider):
+                raise SocialAccountError(404, 404, f"{provider} account was not linked.")
 
     def request_password_reset(self, identity: str) -> None:
         """Create and deliver a finite reset token without revealing account existence."""

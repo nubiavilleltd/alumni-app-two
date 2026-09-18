@@ -117,6 +117,14 @@ The active goal is Goal 6 (Chat V2); do not advance to another goal until its ac
 
 ## Recent Changes
 
+- Goal 4 social login, Goal 9 notifications/push, Goal 10 audit+retention, and retirements (2026-09-18):
+  - Retired `privacy_policy` ×3 and legacy `market` ×3 with 410 tombstones.
+  - Built social login (`/socials/social_login|social_signup|link|unlink`) with server-side Google/Facebook token verification, auto-link, and minimal signup; `tests/test_social.py` (6).
+  - `POST /api/create_notification` (content-admin only) + VAPID Web Push (`get_vapid_key`, `register_push_subscription`, `pywebpush` sender); `tests/test_notifications.py` (3) + `tests/test_push.py` (3).
+  - Audit-log migration `e7f8a9b0c1d2` (secret-free `audit_log`) wired into account management; `docs/retention-policy.md`; `tests/test_audit.py` (1).
+  - Full suite **552 passed, 0 failed, 90.27% coverage**; Ruff/`mypy`/Bandit/`alembic check` clean at head `e7f8a9b0c1d2`.
+  - **Security note:** the PHP `Socials.php` controller hardcodes a real Facebook app secret. FastAPI loads it from `ALUMNI_FACEBOOK_APP_SECRET`; recommend rotating the committed value.
+
 - Goal 7 event guards + Goal 8 oversell fix + Goal 9 contact + Goal 10 security (2026-09-18):
   - `tests/test_events_edges.py` (20 tests) drove `app/services/events.py` from 79%→**89%**; event repo →84%, event api →92%.
   - Fixed a real stock-oversell defect in `app/repositories/store.py` (un-locked read-modify-write → conditional `UPDATE ... WHERE quantity >= :qty` + `InsufficientStockError`/HTTP 409/reconciliation). `tests/test_store_concurrency.py` (3 tests) proves one-paid/one-pending + stock 0 under serial and concurrent webhooks. Route-family inventory: all 24 PHP `Product` methods map 1:1 to 24 `/product/*` routes.

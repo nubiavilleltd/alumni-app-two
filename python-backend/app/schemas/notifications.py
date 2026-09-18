@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class GetNotificationsRequest(BaseModel):
@@ -15,6 +15,22 @@ class GetNotificationsRequest(BaseModel):
     page: int = Field(default=1, ge=1)
     limit: int = Field(default=20, ge=1, le=100)
     unread_only: bool = False
+
+
+class CreateNotificationRequest(BaseModel):
+    """An administrator-created in-app notification for one recipient."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    user_id: int = Field(gt=0, validation_alias=AliasChoices("user_id", "target_user_id", "userId"))
+    type: str = Field(min_length=1, max_length=50)
+    message: str = Field(min_length=1, max_length=10_000)
+    link: str | None = Field(default=None, max_length=255)
+
+    @field_validator("type", "message", "link", mode="before")
+    @classmethod
+    def trim_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class MarkNotificationReadRequest(BaseModel):

@@ -20,6 +20,7 @@ from app.authorization.dependencies import AccessPrincipal, require_access
 from app.db.session import Database
 from app.schemas.auth import StatusResponse
 from app.schemas.notifications import (
+    CreateNotificationRequest,
     GetNotificationsRequest,
     MarkNotificationReadRequest,
     NotificationListResponse,
@@ -50,6 +51,52 @@ async def _list_notifications(
             database,
             lambda session: NotificationService(session).list_notifications(
                 principal.user_id, filters
+            ),
+        )
+    except NotificationError as exc:
+        return json_response(
+            StatusResponse(status=exc.http_status, message=exc.message, code=exc.code),
+            exc.http_status,
+        )
+    return json_response(result, 200)
+
+
+@router.post(
+    "/create_notification",
+    response_model=NotificationReadResponse | StatusResponse,
+    openapi_extra=request_body_schema(CreateNotificationRequest),
+)
+async def create_notification(
+    request: Request,
+    principal: Annotated[AccessPrincipal, Depends(require_access)],
+) -> JSONResponse:
+    """Let a current content administrator create one in-app notification."""
+    try:
+        create_request = CreateNotificationRequest.model_validate(await body_mapping(request))
+    except ValidationError:
+        return json_response(
+            StatusResponse(
+                status=400,
+                message="Invalid notification fields",
+                code="notification_create_invalid",
+            ),
+            400,
+        )
+    await enforce_rate_limit(
+        request,
+        "create-notification",
+        principal.user_id,
+        limit=60,
+        window_seconds=15 * 60,
+        unavailable_message="Notification service is temporarily unavailable",
+    )
+    database: Database = request.app.state.database
+    try:
+        result = await run_in_threadpool(
+            with_session,
+            database,
+            lambda session: NotificationService(session).create_notification(
+                principal.user_id, create_request
             ),
         )
     except NotificationError as exc:

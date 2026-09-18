@@ -125,7 +125,7 @@ export function Footer() {
                 </div>
                 <div className="flex items-center gap-3">
                   <ProtectedContactValue
-                    value={config.contact?.email || 'info@alumniportal.org'}
+                    available
                     field="email"
                     label="Email address"
                     resourceType="organization-contact"
@@ -136,7 +136,7 @@ export function Footer() {
                 </div>
                 <div className="flex items-center gap-3">
                   <ProtectedContactValue
-                    value={config.contact?.phone || '+234 800 000 0000'}
+                    available
                     field="phone"
                     label="Phone number"
                     resourceType="organization-contact"

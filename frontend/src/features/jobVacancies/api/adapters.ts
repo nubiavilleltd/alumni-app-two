@@ -85,7 +85,7 @@ export function vacancyToViewModel(vacancy: JobVacancy): JobVacancyViewModel {
         ? String(createdAt)
         : undefined,
     salary: vacancy.salary,
-    currency: vacancy.currency ? String(vacancy.currency) : 'NGN',
+    currency: 'NGN',
     location,
     ...locationParts,
     tags: vacancy.keywords
@@ -114,7 +114,7 @@ export function createVacancyFormData(payload: CreateVacancyPayload): FormData {
   formData.append('level_of_expertise', payload.level_of_expertise);
   formData.append('location', payload.location);
   formData.append('salary', payload.salary);
-  if (payload.currency) formData.append('currency', String(payload.currency));
+  formData.append('currency', 'NGN');
   formData.append('application_deadline', payload.application_deadline);
   formData.append('keywords', payload.keywords ?? '');
   formData.append('about_role', payload.about_role);
@@ -142,6 +142,7 @@ export function createUpdateVacancyPayload(payload: UpdateVacancyPayload) {
   return {
     function_type: 'update' as const,
     ...payload,
+    currency: 'NGN' as const,
   };
 }
 

@@ -9,6 +9,9 @@ const safeString = (v: unknown, fallback = '') => (v ? String(v).trim() : fallba
 
 const optionalString = (v: unknown) => (v ? String(v).trim() : undefined);
 
+const readAvailability = (v: unknown): boolean =>
+  v === true || v === 1 || v === '1' || v === 'true';
+
 const parseArray = (v: unknown): string[] | undefined => {
   if (!v) return undefined;
   if (Array.isArray(v)) return v;
@@ -85,22 +88,25 @@ export function mapBackendAlumniToFrontend(raw: unknown): Alumni {
   // ✅ NEW: Privacy mapping
   // ═══════════════════════════════════════════════════════════════════════
 
-
   return {
     id: String(d.id ?? ''),
     memberId: String(d.id ?? ''),
     slug: generateSlug(name, d.id ?? '', 'alumni'),
 
     name,
-    email: safeString(d.email),
+    // Public profile responses expose availability flags, never raw contacts.
+    email: '',
 
     graduationYear: safeParseInt(d.graduation_year) ?? new Date().getFullYear(),
     nameInSchool: safeString(d.name_in_school),
     nickName: safeString(d.nick_name),
     houseColor: safeString(d.house_color),
 
-    whatsappPhone: safeString(d.phone),
-    alternativePhone: optionalString(d.alternative_phone),
+    whatsappPhone: '',
+    alternativePhone: undefined,
+    hasEmail: readAvailability(d.has_email),
+    hasWhatsapp: readAvailability(d.has_whatsapp ?? d.has_phone),
+    hasAlternativePhone: readAvailability(d.has_alternative_phone),
 
     // ✅ FIXED: Use proper photo resolution logic
     photo: resolvePhotoUrl(avatarField, name),
@@ -146,8 +152,6 @@ export function mapBackendAlumniToFrontend(raw: unknown): Alumni {
     privacy: mapBackendPrivacyToFrontend(profile),
   };
 }
-
-
 
 export function mapBackendAlumniList(raw: unknown): Alumni[] {
   if (!Array.isArray(raw)) return [];

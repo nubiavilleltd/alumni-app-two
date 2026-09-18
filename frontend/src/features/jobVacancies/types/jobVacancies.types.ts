@@ -5,7 +5,7 @@ export type WorkplaceType = 'remote' | 'hybrid' | 'on_site';
 export type LevelOfExpertise = 'entry_level' | 'mid_level' | 'senior_level' | 'executive';
 
 export type ApplicationType = 'email' | 'link';
-export type VacancyCurrency = 'NGN' | 'USD' | 'GBP' | 'EUR';
+export type VacancyCurrency = 'NGN';
 
 export type JobVacancy = {
   id: number | string;
@@ -111,11 +111,4 @@ export const LEVEL_OF_EXPERTISE_OPTIONS: VacancyOption<LevelOfExpertise>[] = [
 export const APPLICATION_TYPE_OPTIONS: VacancyOption<ApplicationType>[] = [
   { value: 'email', label: 'Email' },
   { value: 'link', label: 'Link' },
-];
-
-export const CURRENCY_OPTIONS: VacancyOption<VacancyCurrency>[] = [
-  { value: 'NGN', label: 'Nigerian Naira (NGN)' },
-  { value: 'USD', label: 'US Dollar (USD)' },
-  { value: 'GBP', label: 'British Pound (GBP)' },
-  { value: 'EUR', label: 'Euro (EUR)' },
 ];

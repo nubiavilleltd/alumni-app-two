@@ -5,8 +5,10 @@ export interface ZoneCoordinator {
   name: string;
   firstName: string;
   lastName: string;
-  phone: string;
-  email: string;
+  phone?: string;
+  email?: string;
+  hasPhone: boolean;
+  hasEmail: boolean;
   avatar: string | null;
 }
 

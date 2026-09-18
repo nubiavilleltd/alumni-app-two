@@ -515,6 +515,9 @@ export interface RawProfileSource {
   email?: string;
   whatsappPhone?: string;
   alternativePhone?: string;
+  hasEmail?: boolean;
+  hasWhatsapp?: boolean;
+  hasAlternativePhone?: boolean;
   birthDate?: string;
   residentialAddress?: string;
   area?: string;
@@ -543,6 +546,9 @@ export interface ResolvedProfileData {
   email?: string;
   whatsapp?: string;
   altPhone?: string;
+  emailAvailable?: boolean;
+  whatsappAvailable?: boolean;
+  altPhoneAvailable?: boolean;
   dateOfBirth?: string;
   streetAddress?: string;
   area?: string;
@@ -597,6 +603,11 @@ export function buildProfileData(
   const canSeeEmployment = isGroupVisible('employmentStatus', p, isOwner, isSignedIn);
   const canSeeSocials = isGroupVisible('socials', p, isOwner, isSignedIn);
   const canSeeYearsExp = isGroupVisible('yearsOfExperience', p, isOwner, isSignedIn);
+  // Email is not covered by per-field privacy yet; signed-in members may request it.
+  const emailAvailable = isSignedIn && (src.hasEmail ?? Boolean(src.email));
+  const whatsappAvailable = canSeeWhatsapp && (src.hasWhatsapp ?? Boolean(src.whatsappPhone));
+  const altPhoneAvailable =
+    canSeeAltPhone && (src.hasAlternativePhone ?? Boolean(src.alternativePhone));
 
   const occupationLabel = resolveLabel(src.occupations?.[0], occupationOptions);
   const employmentLabel = resolveLabel(src.employmentStatus, employmentStatusOptions);
@@ -627,6 +638,9 @@ export function buildProfileData(
 
     whatsapp: visibleOrUndefined(canSeeWhatsapp, isOwner, src.whatsappPhone),
     altPhone: visibleOrUndefined(canSeeAltPhone, isOwner, src.alternativePhone),
+    emailAvailable,
+    whatsappAvailable,
+    altPhoneAvailable,
     dateOfBirth: visibleOrUndefined(canSeeBirthDate, isOwner, formatDate(src.birthDate)),
 
     streetAddress: visibleOrUndefined(canSeeAddress, isOwner, src.residentialAddress),
@@ -645,7 +659,7 @@ export function buildProfileData(
     ),
 
     // Socials group — email included here per current ProfileInfoPanel grouping
-    email: visibleOrUndefined(canSeeSocials, isOwner, src.email),
+    email: isOwner ? src.email : undefined,
     instagram: visibleOrUndefined(canSeeSocials, isOwner, src.instagram),
     facebook: visibleOrUndefined(canSeeSocials, isOwner, src.facebook),
     twitter: visibleOrUndefined(canSeeSocials, isOwner, src.twitter),

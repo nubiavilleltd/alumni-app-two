@@ -40,7 +40,7 @@ export function formatMoneyAmount(
 }
 
 export function getSalaryDisplay(job: JobVacancyViewModel) {
-  return formatMoneyAmount(job.salary, job.currency, job.salary);
+  return formatMoneyAmount(job.salary, 'NGN', job.salary);
 }
 
 function getOptionLabel<T extends string>(options: { label: string; value: T }[], value?: T) {

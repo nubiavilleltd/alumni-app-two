@@ -36,6 +36,9 @@ export interface Business {
   email?: string;
   website?: string;
   whatsapp?: string;
+  hasPhone?: boolean;
+  hasEmail?: boolean;
+  hasWhatsapp?: boolean;
   socials?: Socials;
   messagePrompt?: string;
   images: string[];

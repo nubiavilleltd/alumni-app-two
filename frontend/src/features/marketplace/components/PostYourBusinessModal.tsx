@@ -21,6 +21,7 @@ import { FormInput } from '@/shared/components/ui/input/FormInput';
 import { PhoneNumberInput } from '@/shared/components/ui/input/PhoneNumberInput';
 import { TextareaInput } from '@/shared/components/ui/TextAreaInput';
 import { toTitleCase } from '@/shared/utils/textHelpers';
+import { fetchProtectedContact } from '@/shared/api/protectedContactApi';
 import { useLocations } from '@/shared/hooks/useLocations';
 import {
   useCreateListing,
@@ -242,7 +243,44 @@ export function PostBusinessModal({ isOpen, onClose, editData }: PostBusinessMod
   useEffect(() => {
     reset(toFormState(editData));
     resetImages(editData?.images ?? []);
-  }, [editData, reset, resetImages]);
+
+    if (!isOpen || !editData) return;
+
+    let cancelled = false;
+    const loadProtectedContacts = async () => {
+      const [phone, whatsapp] = await Promise.all([
+        editData.hasPhone
+          ? fetchProtectedContact({
+              resourceType: 'marketplace-business',
+              resourceId: editData.businessId,
+              field: 'phone',
+            }).catch(() => '')
+          : Promise.resolve(''),
+        editData.hasWhatsapp
+          ? fetchProtectedContact({
+              resourceType: 'marketplace-business',
+              resourceId: editData.businessId,
+              field: 'whatsapp',
+            }).catch(() => '')
+          : Promise.resolve(''),
+      ]);
+
+      if (cancelled) return;
+
+      const currentForm = toFormState(editData);
+      reset({
+        ...currentForm,
+        phone: phone ? parseStoredNigerianPhoneNumber(phone) : currentForm.phone,
+        whatsapp: whatsapp ? parseStoredNigerianPhoneNumber(whatsapp) : currentForm.whatsapp,
+      });
+    };
+
+    void loadProtectedContacts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editData, isOpen, reset, resetImages]);
 
   useEffect(() => {
     if (isOpen) {

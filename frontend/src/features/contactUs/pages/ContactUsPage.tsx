@@ -11,8 +11,6 @@ export function ContactUsPage() {
   const submitContactForm = useSubmitContactForm();
 
   const address = String(contactConfig.address ?? 'Lagos, Nigeria').trim();
-  const phone = String(contactConfig.phone ?? '+234 800 000 0000').trim();
-  const email = String(contactConfig.email ?? 'info@alumniportal.org').trim();
 
   const contactMethods = [
     {
@@ -29,7 +27,7 @@ export function ContactUsPage() {
       iconSrc: '/contactPhone.svg',
       protectedContact: {
         field: 'phone' as const,
-        value: phone,
+        available: true,
         resourceType: 'organization-contact',
         resourceId: 'site',
       },
@@ -40,7 +38,7 @@ export function ContactUsPage() {
       iconSrc: '/contactMessage.svg',
       protectedContact: {
         field: 'email' as const,
-        value: email,
+        available: true,
         resourceType: 'organization-contact',
         resourceId: 'site',
       },

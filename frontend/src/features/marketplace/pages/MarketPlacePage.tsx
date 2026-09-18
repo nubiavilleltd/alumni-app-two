@@ -276,10 +276,10 @@ function BusinessCard({
   const isOwnBusiness = business.ownerId === currentUserMemberId;
   const ownerInitials = getOwnerInitials(business.owner);
   const showOwnerPhoto = isRealProfilePhoto(ownerPhoto) && !ownerPhotoFailed;
-  const hasPhone = Boolean(business.phone.trim());
-  const hasEmail = Boolean(business.email?.trim());
+  const hasPhone = business.hasPhone ?? false;
+  const hasEmail = business.hasEmail ?? false;
   const hasWebsite = Boolean(business.website?.trim());
-  const hasWhatsapp = Boolean(business.whatsapp?.trim());
+  const hasWhatsapp = business.hasWhatsapp ?? false;
 
   const instagramHref = business.socials?.instagram?.trim();
   // const hashtags = parseHashtags(business.socials?.instagramHashtag);

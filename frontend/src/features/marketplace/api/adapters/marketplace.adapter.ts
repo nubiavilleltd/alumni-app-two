@@ -29,6 +29,10 @@ function getNestedRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function readAvailability(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
 function isRealPhotoUrl(value: unknown): value is string {
   const photo = typeof value === 'string' ? value.trim() : '';
 
@@ -75,36 +79,6 @@ function resolveOwnerPhoto(raw: Record<string, unknown>): string | undefined {
       profile.avatar ??
       profile.photo,
   );
-}
-
-function resolveListingEmail(raw: Record<string, unknown>): string | undefined {
-  const profile = getNestedRecord(raw.profile);
-  const user = getNestedRecord(raw.user);
-  const seller = getNestedRecord(raw.seller);
-  const owner = getNestedRecord(raw.owner);
-
-  const candidates = [
-    raw.email,
-    raw.contact_email,
-    raw.business_email,
-    raw.seller_email,
-    raw.owner_email,
-    raw.user_email,
-    seller.email,
-    owner.email,
-    user.email,
-    profile.email,
-  ];
-
-  for (const candidate of candidates) {
-    const value = typeof candidate === 'string' ? candidate.trim() : '';
-    if (value && value.includes('@')) return value;
-  }
-
-  const contactInfo = typeof raw.contact_info === 'string' ? raw.contact_info.trim() : '';
-  if (contactInfo && contactInfo.includes('@')) return contactInfo;
-
-  return undefined;
 }
 
 function resolveListingMessagePrompt(raw: Record<string, unknown>): string | undefined {
@@ -178,10 +152,14 @@ export function mapBackendListingToBusiness(raw: unknown): Business {
     description: String(d.description ?? ''),
     location,
     ...locationParts,
-    phone: String(d.phone ?? ''),
-    email: resolveListingEmail(d),
+    // Public listing responses contain availability flags, never raw contacts.
+    phone: '',
+    email: undefined,
     website: d.website ? String(d.website) : undefined,
-    whatsapp: d.whatsapp ? String(d.whatsapp) : undefined,
+    whatsapp: undefined,
+    hasPhone: readAvailability(d.has_phone),
+    hasEmail: readAvailability(d.has_email),
+    hasWhatsapp: readAvailability(d.has_whatsapp),
     socials: payloadFieldsToSocials(d),
     messagePrompt: resolveListingMessagePrompt(d),
     images: parseImages(d.images),

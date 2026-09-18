@@ -1,12 +1,12 @@
 import { Check, Copy, Mail, MessageCircle, Phone } from 'lucide-react';
 import { useState } from 'react';
+import axios from 'axios';
 import { fetchProtectedContact } from '@/shared/api/protectedContactApi';
 import type { ProtectedContactField } from '@/shared/api/protectedContactApi';
 import { toast } from './Toast';
 
 type ProtectedContactValueProps = {
-  value?: string | null;
-  available?: boolean;
+  available: boolean;
   field: ProtectedContactField;
   label: string;
   resourceType: string;
@@ -40,7 +40,6 @@ function maskedContactValue(field: ProtectedContactField) {
  * page markup.
  */
 export function ProtectedContactValue({
-  value,
   available,
   field,
   label,
@@ -55,16 +54,25 @@ export function ProtectedContactValue({
   const [isCopied, setIsCopied] = useState(false);
   const Icon = contactIcon(field);
 
-  const isAvailable = available ?? Boolean(value?.trim());
-  if (!isAvailable) return null;
+  if (!available) return null;
 
-  const resolveContactValue = () =>
-    fetchProtectedContact({
-      resourceType,
-      resourceId,
-      field,
-      fallbackValue: value,
-    });
+  const resolveContactValue = () => fetchProtectedContact({ resourceType, resourceId, field });
+
+  const showRequestError = (error: unknown) => {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+
+    if (status === 401) {
+      toast.error('Your session has expired. Please sign in again.');
+    } else if (status === 403) {
+      toast.info('This contact detail is private.');
+    } else if (status === 404) {
+      toast.info(`No ${label.toLowerCase()} is on file.`);
+    } else if (status === 429) {
+      toast.info('Please wait a moment before trying again.');
+    } else {
+      toast.error(`Unable to access the ${label.toLowerCase()} right now.`);
+    }
+  };
 
   const handleOpen = async () => {
     setIsOpening(true);
@@ -79,12 +87,16 @@ export function ProtectedContactValue({
       if (field === 'email') {
         window.location.assign(`mailto:${contactValue}`);
       } else if (field === 'whatsapp') {
-        window.open(`https://wa.me/${contactValue.replace(/\D/g, '')}`, '_blank', 'noopener,noreferrer');
+        window.open(
+          `https://wa.me/${contactValue.replace(/\D/g, '')}`,
+          '_blank',
+          'noopener,noreferrer',
+        );
       } else {
         window.location.assign(`tel:${contactValue.replace(/\s+/g, '')}`);
       }
-    } catch {
-      toast.error(`Unable to open the ${label.toLowerCase()} right now.`);
+    } catch (error) {
+      showRequestError(error);
     } finally {
       setIsOpening(false);
     }
@@ -105,8 +117,8 @@ export function ProtectedContactValue({
       setIsCopied(true);
       toast.success(`${label} copied`);
       window.setTimeout(() => setIsCopied(false), 2000);
-    } catch {
-      toast.error(`Unable to copy the ${label.toLowerCase()} right now.`);
+    } catch (error) {
+      showRequestError(error);
     } finally {
       setIsCopying(false);
     }

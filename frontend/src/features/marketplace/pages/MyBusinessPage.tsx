@@ -8,7 +8,6 @@ import {
   Globe,
   LoaderCircle,
   MapPin,
-  Phone,
   Plus,
   SearchX,
   SlidersHorizontal,
@@ -20,7 +19,6 @@ import {
   IconBrandInstagram,
   IconBrandLinkedin,
   IconBrandTiktok,
-  IconBrandWhatsapp,
   IconBrandX,
 } from '@tabler/icons-react';
 
@@ -49,6 +47,7 @@ import type { LocationGroup } from '@/shared/types/location.types';
 import { toTitleCase } from '@/shared/utils/textHelpers';
 import { normalizeLegacyHashtags, parseHashtags } from '../utils/hashtags';
 import { matchesLocationPart, normalizeLocationPart } from '@/shared/utils/location';
+import { ProtectedContactValue } from '@/shared/components/ui/ProtectedContactValue';
 const MY_BUSINESSES_PER_PAGE = 6;
 
 type MyBusinessFilterState = {
@@ -236,10 +235,10 @@ function MyBusinessCard({
   const [ownerPhotoFailed, setOwnerPhotoFailed] = useState(false);
   const ownerInitials = getOwnerInitials(business.owner);
   const showOwnerPhoto = isRealProfilePhoto(ownerPhoto) && !ownerPhotoFailed;
-  const hasPhone = Boolean(business.phone.trim());
+  const hasPhone = business.hasPhone ?? false;
   const hasWebsite = Boolean(business.website?.trim());
 
-  const hasWhatsapp = Boolean(business.whatsapp?.trim());
+  const hasWhatsapp = business.hasWhatsapp ?? false;
 
   const instagramHref = business.socials?.instagram?.trim();
   // const hashtags = parseHashtags(business.socials?.instagramHashtag);
@@ -386,22 +385,21 @@ function MyBusinessCard({
         </p>
 
         <div className="space-y-2 text-sm font-medium text-accent-500">
-          {hasPhone && (
-            <a
-              href={`tel:${business.phone.replace(/\s+/g, '')}`}
-              className="flex items-start gap-3 transition-colors hover:text-primary-600"
-            >
-              <Phone strokeWidth={2.6} className="mt-0.5 h-5 w-5 flex-shrink-0" />
-              <span className="min-w-0 break-words">{business.phone}</span>
-            </a>
-          )}
+          <ProtectedContactValue
+            available={hasPhone}
+            field="phone"
+            label="Phone number"
+            resourceType="marketplace-business"
+            resourceId={business.businessId}
+          />
 
-          {hasWhatsapp && (
-            <div className="flex items-start gap-3">
-              <IconBrandWhatsapp size={20} stroke={2.6} className="mt-0.5 flex-shrink-0" />
-              <span className="min-w-0 break-words">{business.whatsapp}</span>
-            </div>
-          )}
+          <ProtectedContactValue
+            available={hasWhatsapp}
+            field="whatsapp"
+            label="WhatsApp number"
+            resourceType="marketplace-business"
+            resourceId={business.businessId}
+          />
 
           <div className="flex items-start gap-3">
             <MapPin strokeWidth={2.6} className="mt-0.5 h-5 w-5 flex-shrink-0" />

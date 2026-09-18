@@ -23,6 +23,7 @@ import { resolveProfilePhoto, resolveVisibleField } from '@/features/user/utils/
 import { usePersistedFilters } from '@/shared/hooks/usePersistedFilters';
 import { useUrlPagination } from '@/shared/hooks/useUrlPagination';
 import { useLocations } from '@/shared/hooks/useLocations';
+import { getAvailableYears } from '@/shared/utils/yearOptions';
 import type { LocationGroup } from '@/shared/types/location.types';
 import { normalizeLocationPart } from '@/shared/utils/location';
 
@@ -333,7 +334,7 @@ export function AlumniDirectoryPage() {
   const { data: locations = [] } = useLocations();
 
   const years = useMemo(
-    () => [...new Set(alumni.map((e) => e.graduationYear))].sort((a, b) => b - a),
+    () => getAvailableYears(alumni.map((entry) => entry.graduationYear)),
     [alumni],
   );
 

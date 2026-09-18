@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiClient } from '@/lib/api/client';
 import { renderIcon } from '@/shared/utils/renderIcon';
 import { toast } from '@/shared/components/ui/Toast';
 import {
@@ -19,7 +20,10 @@ import {
   describeAttachmentForPreview,
 } from '../api/adapters/messages.adapter';
 import { useStartDirectConversation } from '../hooks/useStartDirectConversation';
-import { getMessageAttachmentPreviewUrl } from '../lib/messageAttachmentPreviewRegistry';
+import {
+  getMessageAttachmentPreviewUrl,
+  registerMessageAttachmentPreview,
+} from '../lib/messageAttachmentPreviewRegistry';
 import type {
   MessageAttachment,
   MessageDeliveryStatus,
@@ -488,6 +492,43 @@ function MessageImageGrid({
   );
 }
 
+function usePrivateAttachmentPreviews(attachments: MessageAttachment[]) {
+  const [revision, setRevision] = useState(0);
+  const previewKey = attachments
+    .map((attachment) => `${attachment.id}:${attachment.downloadPath ?? ''}`)
+    .join('|');
+
+  useEffect(() => {
+    let mounted = true;
+    const protectedAttachments = attachments.filter(
+      (attachment) =>
+        attachment.downloadPath && !attachment.url && !getMessageAttachmentPreviewUrl(attachment.id),
+    );
+    if (protectedAttachments.length === 0) return undefined;
+
+    void Promise.all(
+      protectedAttachments.map(async (attachment) => {
+        try {
+          const response = await apiClient.get<Blob>(attachment.downloadPath!, {
+            responseType: 'blob',
+          });
+          registerMessageAttachmentPreview(attachment.id, URL.createObjectURL(response.data));
+        } catch {
+          // Keep the attachment tile visible; the existing empty-preview state
+          // is safer than exposing a private URL without an authenticated fetch.
+        }
+      }),
+    ).finally(() => {
+      if (mounted) setRevision((current) => current + 1);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [attachments, previewKey]);
+
+  return revision;
+}
+
 export function MessageAttachments({
   attachments,
   isOwn,
@@ -497,6 +538,7 @@ export function MessageAttachments({
   isOwn: boolean;
   onOpenImage: (attachment: MessageAttachment) => void;
 }) {
+  usePrivateAttachmentPreviews(attachments);
   const images = attachments.filter(
     (attachment) =>
       attachment.kind === 'image' &&

@@ -10,6 +10,8 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "e2e:messages": "node e2e/messages-v2-inbox.mjs",
+    "e2e:store": "node e2e/store-journey.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"
@@ -42,6 +44,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/js-yaml": "^4.0.0",
     "@types/node": "^20.0.0",
     "@types/react": "^19.0.10",

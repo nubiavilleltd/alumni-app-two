@@ -1,8 +1,10 @@
-# Firebase Event Survey Implementation Plan
+# Firebase Event Survey Implementation Plan (Historical Fallback — Do Not Extend)
 
 ## Purpose
 
-This document explains the safest way to move the event survey / registration-form feature out of `localStorage` and into Firebase without changing the app's existing authentication flow.
+This document is retained only to explain the existing temporary Firebase survey implementation and to support a controlled historical-data export. It is **not** the current implementation plan.
+
+The current decision is to move event registration forms, form versions, RSVP submissions, and answers to FastAPI plus MariaDB as the canonical live system. Do not create new Firebase survey features, write new form/answer records to Firestore, or treat Firebase credentials as a prerequisite for FastAPI implementation. Firebase may be used later only for an approved sanitized, read-only historical export, explicit ID mapping, disposable-database import rehearsal, and final reconciliation. The current authoritative delivery plan is [the migration breakdown](../../PYTHON_FASTAPI_MIGRATION_TASK_BREAKDOWN.md) and the frontend cutover contract is [the event-registration handoff](backend-event-registration-handoff.md).
 
 This plan assumes:
 

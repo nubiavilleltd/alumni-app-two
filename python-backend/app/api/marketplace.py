@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -156,18 +156,18 @@ async def _manage(
     try:
         storage = MarketplaceStorage(settings.upload_root)
         if create:
-            assert isinstance(operation, MarketplaceCreateRequest)
+            create_operation = cast(MarketplaceCreateRequest, operation)
 
             def call(session: Any) -> MarketplaceMutationResponse:
                 return MarketplaceService(session, storage).create(
-                    principal.user_id, operation, prepared, payload
+                    principal.user_id, create_operation, prepared, payload
                 )
         else:
-            assert isinstance(operation, MarketplaceUpdateRequest)
+            update_operation = cast(MarketplaceUpdateRequest, operation)
 
             def call(session: Any) -> MarketplaceMutationResponse:
                 return MarketplaceService(session, storage).update(
-                    principal.user_id, operation, prepared, payload
+                    principal.user_id, update_operation, prepared, payload
                 )
 
         result = await run_in_threadpool(with_session, database, call)

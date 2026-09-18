@@ -521,14 +521,18 @@ function buildAttachmentFromBackendItem(
   }
 
   const attachmentUrl = extractAttachmentUrl(rawAttachment);
-  if (!attachmentUrl) {
+  const downloadPath =
+    typeof rawAttachment.download_path === 'string' && rawAttachment.download_path.trim()
+      ? rawAttachment.download_path
+      : undefined;
+  if (!attachmentUrl && !downloadPath) {
     return null;
   }
 
   const kind = getAttachmentKind(rawAttachment.kind ?? rawAttachment.attachment_type);
   const fileName =
     String(rawAttachment.file_name ?? rawAttachment.filename ?? '').trim() ||
-    attachmentUrl.split('/').pop()?.split('?')[0] ||
+    attachmentUrl?.split('/').pop()?.split('?')[0] ||
     describeAttachmentFallback(kind);
   const sizeInBytes =
     safeParseInt(
@@ -547,6 +551,7 @@ function buildAttachmentFromBackendItem(
     durationSeconds: safeParseInt(rawAttachment.duration_seconds),
     uploadState: 'uploaded',
     url: attachmentUrl,
+    downloadPath,
     waveform: kind === 'audio' ? buildAudioWaveform() : undefined,
   };
 }
@@ -914,8 +919,16 @@ function buildMessageItemsFromBackend(params: {
   );
 }
 
-async function fetchThreadsEnvelope() {
-  const response = await apiClient.post(API_ENDPOINTS.MESSAGES.THREADS, {});
+const BACKEND_THREAD_PAGE_LIMIT = 200;
+
+async function fetchThreadsEnvelope(limit?: number) {
+  // The backend pages the inbox, so forward a clamped limit when the caller asks
+  // for one and keep the default page when it does not.
+  const payload =
+    typeof limit === 'number' && Number.isFinite(limit)
+      ? { limit: Math.min(Math.max(Math.trunc(limit), 1), BACKEND_THREAD_PAGE_LIMIT) }
+      : {};
+  const response = await apiClient.post(API_ENDPOINTS.MESSAGES.THREADS, payload);
   console.log('[messages] listThreads response', response.data);
   return getEnvelopeData(response.data);
 }
@@ -1162,7 +1175,7 @@ async function resolveDirectThreadIdAfterFirstSend(params: {
 
 export const backendMessagesTransport: MessagesTransport = {
   async listThreads(request: ListMessageThreadsRequest): Promise<ListMessageThreadsResponse> {
-    const envelope = await fetchThreadsEnvelope();
+    const envelope = await fetchThreadsEnvelope(request.limit);
     const payload = extractObject(envelope, ['data']) ?? envelope ?? {};
     const rawThreads = extractList(payload, ['threads']).map(
       (thread) => thread as BackendThreadLike,
@@ -1278,9 +1291,8 @@ export const backendMessagesTransport: MessagesTransport = {
       attachmentPayload.attachment_id ?? attachmentPayload.id ?? createLocalAttachmentId(),
     );
     const kind = getAttachmentKind(attachmentPayload.kind ?? request.kind);
-    const uploadedUrl =
-      extractAttachmentUrl(attachmentPayload) ??
-      buildAttachmentFromBackendItem(attachmentPayload, attachmentId)?.url;
+    const builtAttachment = buildAttachmentFromBackendItem(attachmentPayload, attachmentId);
+    const uploadedUrl = extractAttachmentUrl(attachmentPayload) ?? builtAttachment?.url;
 
     return {
       attachment: {
@@ -1293,6 +1305,7 @@ export const backendMessagesTransport: MessagesTransport = {
         durationSeconds: request.durationSeconds,
         uploadState: 'uploaded',
         url: uploadedUrl,
+        downloadPath: builtAttachment?.downloadPath,
         waveform: kind === 'audio' ? buildAudioWaveform() : undefined,
       },
       serverTime: normalizeBackendTimestamp(

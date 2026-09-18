@@ -14,7 +14,7 @@ The goal is to make the custom backend the single source of truth for:
 - the optional additional-info note
 - attendee submission detail and export data
 
-The Firebase implementation should be retired after the custom API is live and the existing records have been migrated or intentionally archived.
+**Current architecture decision (2026-09-18):** FastAPI plus MariaDB is the canonical live system for forms, versions, RSVP records, and answers. Firebase/Firestore/Cloud Functions must not be extended or receive new live form/answer writes. They are retained only as a future approved, sanitized, read-only historical-export source until existing records are migrated or intentionally archived. This document describes the frontend cutover required to retire that temporary dependency.
 
 ## Affected APIs
 
@@ -689,20 +689,17 @@ If the event includes an uploaded banner and therefore uses `multipart/form-data
 - Add pagination to submission lists if the attendee list can become large, while preserving the current simple response for small lists during rollout.
 - Never expose draft or archived forms to normal registration users.
 
-## Firebase migration and frontend cutover
+## Firebase export migration and frontend cutover
 
-1. Create the backend tables and indexes.
-2. Implement the read endpoints and form validation.
-3. Implement form management for create/edit/archive/reorder.
-4. Implement transactional `/api/register_event` with answers.
-5. Implement submission list/detail for the attendee page.
-6. Add `has_registration_questions` and `registration_form_count` to `/api/get_events`.
-7. Migrate any existing Firebase form versions and submissions, preserving form/version/question IDs where possible. If IDs cannot be preserved, create a mapping table and rewrite the references in a one-time migration.
-8. Update frontend event hooks/services to use `apiClient` and the custom endpoints.
-9. Send `form_version` with each answer from the form version already present in the frontend form response.
-10. Remove the Firebase function calls and the local-storage availability bridge after production verification.
-11. Stop serializing structured answers into `additional_info`; keep that field for the optional note only.
-12. Remove Firebase survey configuration and functions only after reads, writes, admin review, and export have been verified against the custom backend.
+1. Treat the FastAPI/MariaDB implementation as the target live system; do not create or extend Firebase survey features.
+2. Obtain an approved sanitized, bounded, read-only Firebase export; never use production Firebase credentials or raw production data for development tests.
+3. Validate the export with the repository's read-only validator and provide explicit source-to-target event/user ID maps. Do not infer IDs.
+4. Rehearse import and rollback against a disposable MariaDB schema, preserving form/version/question provenance where possible and recording unmapped data.
+5. Update frontend event hooks/services to use `apiClient` and the custom endpoints, with `register_event_with_forms` as the single atomic RSVP-and-answer write.
+6. Send `form_version` with each answer from the form version already present in the frontend form response.
+7. Remove Firebase function calls and the local-storage availability bridge only after reads, writes, admin review, export, browser behavior, and rollback have been verified against the custom backend.
+8. Stop serializing structured answers into `additional_info`; keep that field for the optional note only.
+9. Remove Firebase survey configuration and Functions only after the agreed rollback window and final reconciliation.
 
 ## Acceptance checklist
 

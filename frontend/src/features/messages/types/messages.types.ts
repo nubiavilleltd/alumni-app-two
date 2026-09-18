@@ -42,6 +42,8 @@ export interface MessageAttachment {
   durationSeconds?: number;
   uploadState: 'uploaded' | 'processing';
   url?: string;
+  /** Authenticated backend path fetched into a short-lived browser Blob URL. */
+  downloadPath?: string;
   waveform?: number[];
 }
 

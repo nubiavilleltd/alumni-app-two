@@ -7,6 +7,7 @@ import os
 import time
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
@@ -32,8 +33,10 @@ from app.integrations.mail import Mailer
 from app.integrations.uploads import (
     AnnouncementStorage,
     AvatarStorage,
+    EventStorage,
     MarketplaceStorage,
     ProjectStorage,
+    VacancyStorage,
     prepare_avatar,
 )
 from app.main import create_app
@@ -43,15 +46,26 @@ from app.models.generated import (
     Announcements,
     Attachments,
     Cities,
+    EventAttendees,
+    EventRegistrationAnswers,
+    EventRegistrationFormQuestions,
+    EventRegistrationForms,
+    EventRegistrationFormVersions,
+    Events,
     Groups,
+    JobVacancies,
     JwtRefreshTokens,
     Leadership,
     MarketplaceListings,
+    Messages,
+    MessagesAttachments,
+    MessageThreads,
     Notifications,
     Projects,
     RegisterUserOtp,
     Roles,
     SetupParameters,
+    ThreadParticipants,
     UserProfiles,
     Users,
     UsersGroups,
@@ -60,12 +74,18 @@ from app.models.generated import (
 )
 from app.repositories.announcements import AnnouncementRepository
 from app.repositories.auth import AuthRepository
+from app.repositories.events import EventRepository
 from app.repositories.leadership import LeadershipRepository
 from app.repositories.marketplace import MarketplaceRepository
 from app.repositories.members import MemberRepository
 from app.repositories.notifications import NotificationRepository
 from app.repositories.projects import ProjectRepository
+from app.repositories.vacancies import VacancyRepository
 from app.schemas.announcements import AnnouncementCreateRequest
+from app.schemas.events import (
+    EventCreateRequest,
+    EventRegistrationRequest,
+)
 from app.schemas.leadership import LeadershipCreateRequest
 from app.schemas.marketplace import MarketplaceCreateRequest
 from app.schemas.members import (
@@ -75,13 +95,16 @@ from app.schemas.members import (
     VouchActionRequest,
 )
 from app.schemas.projects import ProjectCreateRequest
+from app.schemas.vacancies import VacancyCreateRequest
 from app.services import members as members_service_module
 from app.services.announcements import AnnouncementService
+from app.services.events import EventService
 from app.services.leadership import LeadershipService
 from app.services.marketplace import MarketplaceService
 from app.services.members import MemberService
 from app.services.notifications import NotificationService
 from app.services.projects import ProjectService
+from app.services.vacancies import VacancyService
 
 USERS_TABLE = cast(Table, Users.__table__)
 ALUMNI_CATEGORY_TABLE = cast(Table, AlumniCategory.__table__)
@@ -101,6 +124,16 @@ NOTIFICATIONS_TABLE = cast(Table, Notifications.__table__)
 MARKETPLACE_LISTINGS_TABLE = cast(Table, MarketplaceListings.__table__)
 PROJECTS_TABLE = cast(Table, Projects.__table__)
 LEADERSHIP_TABLE = cast(Table, Leadership.__table__)
+EVENTS_TABLE = cast(Table, Events.__table__)
+EVENT_ATTENDEES_TABLE = cast(Table, EventAttendees.__table__)
+EVENT_REGISTRATION_ANSWERS_TABLE = cast(Table, EventRegistrationAnswers.__table__)
+EVENT_REGISTRATION_FORMS_TABLE = cast(Table, EventRegistrationForms.__table__)
+EVENT_REGISTRATION_QUESTIONS_TABLE = cast(Table, EventRegistrationFormQuestions.__table__)
+EVENT_REGISTRATION_FORM_VERSIONS_TABLE = cast(Table, EventRegistrationFormVersions.__table__)
+MESSAGE_THREADS_TABLE = cast(Table, MessageThreads.__table__)
+MESSAGES_TABLE = cast(Table, Messages.__table__)
+THREAD_PARTICIPANTS_TABLE = cast(Table, ThreadParticipants.__table__)
+MESSAGE_ATTACHMENTS_TABLE = cast(Table, MessagesAttachments.__table__)
 PASSPHRASE = "Correct horse battery staple!"
 REGISTRATION_PASSPHRASE = "Correct horse battery staple! 7"
 NEW_PASSPHRASE = "A different strong passphrase!"
@@ -177,6 +210,8 @@ class RecordingMailer(Mailer):
     voucher_approval_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
     account_status_deliveries: list[tuple[str, str, str, str | None]] = field(default_factory=list)
     account_activity_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
+    order_status_deliveries: list[tuple[str, str, str, str]] = field(default_factory=list)
+    contact_deliveries: list[tuple[str, str, str, str, str]] = field(default_factory=list)
     fail: bool = False
 
     def send_password_reset(self, recipient: str, display_name: str, reset_url: str) -> None:
@@ -252,6 +287,37 @@ class RecordingMailer(Mailer):
         if self.fail:
             raise MailDeliveryError("synthetic delivery failure")
         self.account_activity_deliveries.append((recipient, display_name, action, actor_kind))
+
+    def send_order_status_email(
+        self,
+        recipient: str,
+        display_name: str = "",
+        order_number: str = "",
+        status: str = "",
+        delivery_type: str = "",
+        note: str = "",
+        rider_details: str = "",
+        *,
+        first_name: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Record an order status notification or provider failure."""
+        if self.fail:
+            raise MailDeliveryError("synthetic delivery failure")
+        self.order_status_deliveries.append((recipient, order_number, status, delivery_type))
+
+    def send_contact_form(
+        self,
+        recipient: str,
+        recipient_name: str,
+        full_name: str,
+        email: str,
+        message: str,
+    ) -> None:
+        """Record a contact-message notification or provider failure."""
+        if self.fail:
+            raise MailDeliveryError("synthetic delivery failure")
+        self.contact_deliveries.append((recipient, recipient_name, full_name, email, message))
 
 
 @dataclass(slots=True)
@@ -536,6 +602,33 @@ class AuthHarness:
                     )
                 )
             if tracked_user_ids:
+                tracked_event_ids = list(
+                    connection.scalars(
+                        select(Events.id).where(Events.created_by.in_(tracked_user_ids))
+                    )
+                )
+                if tracked_event_ids:
+                    tracked_form_ids = list(
+                        connection.scalars(
+                            select(EventRegistrationForms.id).where(
+                                EventRegistrationForms.event_id.in_(tracked_event_ids)
+                            )
+                        )
+                    )
+                    if tracked_form_ids:
+                        connection.execute(
+                            EVENT_REGISTRATION_QUESTIONS_TABLE.delete().where(
+                                EventRegistrationFormQuestions.form_id.in_(tracked_form_ids)
+                            )
+                        )
+                        connection.execute(
+                            EVENT_REGISTRATION_FORMS_TABLE.delete().where(
+                                EventRegistrationForms.id.in_(tracked_form_ids)
+                            )
+                        )
+                    connection.execute(
+                        EVENTS_TABLE.delete().where(Events.id.in_(tracked_event_ids))
+                    )
                 connection.execute(
                     ALUMNI_CATEGORY_TABLE.delete().where(
                         AlumniCategory.user_id.in_(tracked_user_ids)
@@ -4855,6 +4948,26 @@ def test_marketplace_listing_writes_use_server_ownership_and_current_store_permi
     assert allowed.status_code == 200
     assert allowed.json()["listing"]["title"] == "Current policy allowed"
 
+    replacement_image = BytesIO()
+    Image.new("RGB", (7, 7), color=(100, 90, 80)).save(replacement_image, format="PNG")
+    updated_images = auth_harness.client.post(
+        "/api/manage_listing",
+        headers=owner_headers,
+        data={"function_type": "update", "id": str(listing_id), "image_action": "replace"},
+        files={"images[]": ("listing.png", replacement_image.getvalue(), "image/png")},
+    )
+    assert updated_images.status_code == 200
+    listing_image = updated_images.json()["listing"]["images"][0]
+    listing_path = auth_harness.settings.upload_root / listing_image.removeprefix("uploads/")
+    assert listing_path.exists()
+    deleted_listing = auth_harness.client.post(
+        "/api/manage_listing",
+        headers=owner_headers,
+        json={"function_type": "delete", "id": listing_id},
+    )
+    assert deleted_listing.status_code == 200
+    assert not listing_path.exists()
+
 
 @pytest.mark.integration
 def test_marketplace_create_rolls_back_stored_images_on_database_failure(
@@ -4949,6 +5062,21 @@ def test_projects_use_current_content_policy_public_shaping_and_soft_deletion(
     assert "created_by" not in public.json()["project"]
     assert "email" not in public.json()["project"]
 
+    replacement_image = BytesIO()
+    Image.new("RGB", (7, 7), color=(100, 90, 80)).save(replacement_image, format="PNG")
+    replaced = auth_harness.client.post(
+        "/api/manage_project",
+        headers={"Authorization": f"Bearer {forged}"},
+        data={"function_type": "update", "id": str(project_id), "image_action": "replace"},
+        files={"images[]": ("replacement.png", replacement_image.getvalue(), "image/png")},
+    )
+    assert replaced.status_code == 200
+    replacement_path = auth_harness.settings.upload_root / replaced.json()["project"]["images"][
+        0
+    ].removeprefix("uploads/")
+    assert replacement_path.exists()
+    assert not image_path.exists()
+
     other_token = _access_token_for(auth_harness, other_id, other_email, user_role="content admin")
     denied_update = auth_harness.client.post(
         "/api/manage_project",
@@ -4974,7 +5102,7 @@ def test_projects_use_current_content_policy_public_shaping_and_soft_deletion(
         json={"function_type": "delete", "id": project_id},
     )
     assert deleted.status_code == 200
-    assert not image_path.exists()
+    assert not replacement_path.exists()
     with auth_harness.engine.connect() as connection:
         assert connection.scalar(select(Projects.is_deleted).where(Projects.id == project_id)) == 1
 
@@ -5060,11 +5188,41 @@ def test_leadership_uses_current_content_policy_public_shaping_and_soft_deletion
     leader_id = int(created.json()["leader"]["id"])
     assert created.json()["leader"]["position_title"] == "President"
 
+    photo = BytesIO()
+    Image.new("RGB", (7, 7), color=(100, 90, 80)).save(photo, format="PNG")
+    with_photo = auth_harness.client.post(
+        "/api/manage_leader",
+        headers={"Authorization": f"Bearer {forged}"},
+        data={"function_type": "update", "id": str(leader_id), "is_featured": "true"},
+        files={"leadership_photo": ("leader.png", photo.getvalue(), "image/png")},
+    )
+    assert with_photo.status_code == 200
+    leader_photo = with_photo.json()["leader"]["photo"]
+    assert leader_photo.startswith("uploads/leadership/")
+    photo_path = auth_harness.settings.upload_root / leader_photo.removeprefix("uploads/")
+    assert photo_path.exists()
+    reordered = auth_harness.client.post(
+        "/api/manage_leader",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"function_type": "reorder", "order": [{"id": leader_id, "sort_order": 0}]},
+    )
+    assert reordered.status_code == 200
+    photo_removed = auth_harness.client.post(
+        "/api/manage_leader",
+        headers={"Authorization": f"Bearer {forged}"},
+        json={"function_type": "update", "id": leader_id, "remove_photo": True},
+    )
+    assert photo_removed.status_code == 200
+    assert not photo_path.exists()
+
     public = auth_harness.client.post("/api/get_leadership", json={"id": leader_id})
     assert public.status_code == 200
     assert public.json()["leader"]["id"] == leader_id
     assert "email" not in public.json()["leader"]
     assert "phone" not in public.json()["leader"]
+    listed = auth_harness.client.post("/api/get_leadership", json={"chapter_id": chapter_id})
+    assert listed.status_code == 200
+    assert listed.json()["total"] >= 1
 
     other_token = _access_token_for(auth_harness, other_id, other_email, user_role="content admin")
     denied_update = auth_harness.client.post(
@@ -5129,6 +5287,798 @@ def test_leadership_create_rolls_back_stored_image_on_database_failure(
         )
     directory = auth_harness.settings.upload_root / "leadership"
     assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_vacancies_are_member_owned_and_derive_the_current_chapter(
+    auth_harness: AuthHarness,
+) -> None:
+    """The public job board retains its active contract without legacy IDOR writes."""
+    actor_chapter = auth_harness.create_chapter()
+    other_chapter = auth_harness.create_chapter()
+    owner_id, owner_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    admin_id, admin_email, _ = auth_harness.create_user(user_role="content admin")
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_((owner_id, other_id, admin_id)))
+            .values(chapter_id=actor_chapter)
+        )
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+    image_output = BytesIO()
+    Image.new("RGB", (8, 6), color=(6, 70, 120)).save(image_output, format="PNG")
+    created = auth_harness.client.post(
+        "/api/create_vacancy",
+        headers=owner_headers,
+        data={
+            "job_title": "  Community developer  ",
+            "company_name": "  Alumni Labs  ",
+            "chapter_id": str(other_chapter),
+            "currency": "USD",
+            "application_type": "email",
+            "application_email": "jobs@example.com",
+            "application_deadline": "2027-01-10",
+        },
+        files={"flyer": ("../../../vacancy.png", image_output.getvalue(), "image/png")},
+    )
+    assert created.status_code == 200
+    vacancy = created.json()["vacancy"]
+    vacancy_id = int(vacancy["id"])
+    assert vacancy["user_id"] == owner_id
+    assert vacancy["chapter_id"] == actor_chapter
+    assert vacancy["job_title"] == "Community developer"
+    assert vacancy["flyer"].startswith("uploads/vacancies/")
+    flyer_path = auth_harness.settings.upload_root / vacancy["flyer"].removeprefix("uploads/")
+    assert flyer_path.is_file()
+
+    public = auth_harness.client.post("/api/get_vacancies", json={"id": vacancy_id})
+    assert public.status_code == 200
+    assert public.json()["vacancy"]["posted_by"]
+    assert "email" not in public.json()["vacancy"]
+    listed = auth_harness.client.post(
+        "/api/get_vacancies", json={"search": "Community", "limit": 1, "offset": 0}
+    )
+    assert listed.status_code == 200
+    assert listed.json()["total"] >= 1
+
+    denied = auth_harness.client.post(
+        "/api/manage_vacancy",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, other_id, other_email)}"
+        },
+        json={"function_type": "update", "id": vacancy_id, "job_title": "Not allowed"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "vacancy_forbidden"
+
+    allowed = auth_harness.client.post(
+        "/api/manage_vacancy",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, admin_id, admin_email)}"
+        },
+        json={"function_type": "update", "id": vacancy_id, "job_title": "Reviewed role"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["vacancy"]["job_title"] == "Reviewed role"
+
+    replacement_image = BytesIO()
+    Image.new("RGB", (7, 7), color=(100, 90, 80)).save(replacement_image, format="PNG")
+    replaced = auth_harness.client.post(
+        "/api/manage_vacancy",
+        headers=owner_headers,
+        data={
+            "function_type": "update",
+            "id": str(vacancy_id),
+            "application_type": "link",
+            "application_link": "https://jobs.example.com/community-developer",
+        },
+        files={"flyer": ("replacement.png", replacement_image.getvalue(), "image/png")},
+    )
+    assert replaced.status_code == 200
+    replacement_flyer = replaced.json()["vacancy"]["flyer"]
+    assert replacement_flyer.startswith("uploads/vacancies/")
+    assert not flyer_path.exists()
+    replacement_path = auth_harness.settings.upload_root / replacement_flyer.removeprefix(
+        "uploads/"
+    )
+    assert replacement_path.exists()
+
+    flyer_removed = auth_harness.client.post(
+        "/api/manage_vacancy",
+        headers=owner_headers,
+        json={"function_type": "update", "id": vacancy_id, "remove_flyer": True},
+    )
+    assert flyer_removed.status_code == 200
+    assert "flyer" not in flyer_removed.json()["vacancy"]
+    assert not replacement_path.exists()
+
+    deleted = auth_harness.client.post(
+        "/api/manage_vacancy",
+        headers=owner_headers,
+        json={"function_type": "delete", "id": vacancy_id},
+    )
+    assert deleted.status_code == 200
+    assert not flyer_path.exists()
+    assert (
+        auth_harness.client.post("/api/get_vacancies", json={"id": vacancy_id}).status_code == 404
+    )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(select(JobVacancies.id).where(JobVacancies.id == vacancy_id)) is None
+        )
+
+
+@pytest.mark.integration
+def test_vacancy_create_rolls_back_stored_flyer_on_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed vacancy insert must leave neither a row nor a generated flyer."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, _email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(chapter_id=chapter_id)
+        )
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="PNG")
+    image = prepare_avatar("rollback.png", image_output.getvalue())
+    original = VacancyRepository.create
+
+    def fail_after_insert(self: VacancyRepository, values: dict[str, Any]) -> int:
+        original(self, values)
+        raise RuntimeError("synthetic vacancy insert failure")
+
+    monkeypatch.setattr(VacancyRepository, "create", fail_after_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic vacancy insert failure"),
+    ):
+        VacancyService(session, VacancyStorage(auth_harness.settings.upload_root)).create(
+            actor_id,
+            VacancyCreateRequest.model_validate(
+                {
+                    "job_title": "Rollback",
+                    "company_name": "Rollback",
+                    "application_email": "jobs@example.com",
+                }
+            ),
+            image,
+        )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(JobVacancies.id)).where(JobVacancies.user_id == actor_id)
+            )
+            == 0
+        )
+    directory = auth_harness.settings.upload_root / "vacancies"
+    assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_events_use_current_database_permission_and_public_safe_projections(
+    auth_harness: AuthHarness,
+) -> None:
+    """Event writes load the current role, while public reads expose no account identifiers."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, actor_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update()
+            .where(Users.id.in_((actor_id, other_id)))
+            .values(chapter_id=chapter_id)
+        )
+
+    payload = {
+        "title": "  Safe public event  ",
+        "start_date": "2027-01-10",
+        "location": "Alumni Hall",
+        "chapter_id": str(chapter_id),
+        "created_by": str(other_id),
+        "is_approved": "0",
+    }
+    forged = auth_harness.client.post(
+        "/api/create_event",
+        headers={
+            "Authorization": (
+                "Bearer "
+                f"{_access_token_for(auth_harness, actor_id, actor_email, user_role='event admin')}"
+            )
+        },
+        data=payload,
+    )
+    assert forged.status_code == 403
+    assert forged.json()["code"] == "event_forbidden"
+
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(user_role="event admin")
+        )
+    image_output = BytesIO()
+    Image.new("RGB", (8, 6), color=(6, 70, 120)).save(image_output, format="PNG")
+    stale = {
+        "Authorization": (
+            f"Bearer {_access_token_for(auth_harness, actor_id, actor_email, user_role='alumni')}"
+        )
+    }
+    created = auth_harness.client.post(
+        "/api/create_event",
+        headers=stale,
+        data=payload,
+        files={"event_banner": ("../../../event.png", image_output.getvalue(), "image/png")},
+    )
+    assert created.status_code == 200
+    event = created.json()["event"]
+    event_id = int(event["id"])
+    assert event["title"] == "Safe public event"
+    assert event["event_banner"].startswith("uploads/events/")
+    banner_path = auth_harness.settings.upload_root / event["event_banner"].removeprefix("uploads/")
+    assert banner_path.is_file()
+    with auth_harness.engine.connect() as connection:
+        row = connection.execute(
+            select(Events.created_by, Events.is_approved).where(Events.id == event_id)
+        ).one()
+        assert row.created_by == actor_id
+        assert row.is_approved == 1
+
+    public = auth_harness.client.post("/api/get_events", json={"id": event_id})
+    assert public.status_code == 200
+    public_event = public.json()["event"]
+    assert public_event["created_by_name"] == "Synthetic Member"
+    assert "email" not in public_event
+    assert "created_by" not in public_event
+
+    denied = auth_harness.client.post(
+        "/api/manage_event",
+        headers={
+            "Authorization": f"Bearer {_access_token_for(auth_harness, other_id, other_email)}"
+        },
+        json={"function_type": "update", "id": event_id, "title": "Not allowed"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["code"] == "event_forbidden"
+
+    hidden = auth_harness.client.post(
+        "/api/manage_event",
+        headers=stale,
+        json={"function_type": "update", "id": event_id, "status": "draft"},
+    )
+    assert hidden.status_code == 200
+    assert auth_harness.client.post("/api/get_events", json={"id": event_id}).status_code == 404
+
+    deleted = auth_harness.client.post(
+        "/api/manage_event",
+        headers=stale,
+        json={"function_type": "delete", "id": event_id},
+    )
+    assert deleted.status_code == 200
+    assert not banner_path.exists()
+    with auth_harness.engine.connect() as connection:
+        assert connection.scalar(select(Events.id).where(Events.id == event_id)) is None
+
+
+@pytest.mark.integration
+def test_event_create_rolls_back_stored_banner_on_database_failure(
+    auth_harness: AuthHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed event insert cannot leave an orphaned public banner or row."""
+    chapter_id = auth_harness.create_chapter()
+    actor_id, _email, _ = auth_harness.create_user(user_role="event admin")
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == actor_id).values(chapter_id=chapter_id)
+        )
+    image_output = BytesIO()
+    Image.new("RGB", (5, 5), color=(1, 2, 3)).save(image_output, format="PNG")
+    banner = prepare_avatar("rollback.png", image_output.getvalue())
+    original = EventRepository.create
+
+    def fail_after_insert(self: EventRepository, values: dict[str, Any]) -> int:
+        original(self, values)
+        raise RuntimeError("synthetic event insert failure")
+
+    monkeypatch.setattr(EventRepository, "create", fail_after_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic event insert failure"),
+    ):
+        EventService(session, EventStorage(auth_harness.settings.upload_root)).create(
+            actor_id,
+            EventCreateRequest.model_validate(
+                {"title": "Rollback", "start_date": date(2027, 1, 10)}
+            ),
+            banner,
+        )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(select(func.count(Events.id)).where(Events.created_by == actor_id))
+            == 0
+        )
+    directory = auth_harness.settings.upload_root / "events"
+    assert not directory.exists() or list(directory.iterdir()) == []
+
+
+@pytest.mark.integration
+def test_event_rsvps_are_owned_capacity_safe_and_attendee_pii_is_current_role_protected(
+    auth_harness: AuthHarness,
+) -> None:
+    """Legacy body user IDs cannot cross account boundaries or bypass current event permissions."""
+    organizer_id, organizer_email, _ = auth_harness.create_user()
+    member_id, member_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        inserted = connection.execute(
+            EVENTS_TABLE.insert().values(
+                title="Capacity-safe RSVP event",
+                event_banner="",
+                status="upcoming",
+                created_by=organizer_id,
+                event_date=date(2027, 1, 10),
+                start_date=date(2027, 1, 10),
+                visibility="public",
+                is_approved=1,
+                max_attendees=1,
+                year="2001",
+            )
+        )
+        inserted_key = inserted.inserted_primary_key
+        assert inserted_key is not None
+        event_id = int(inserted_key[0])
+
+    member_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, member_id, member_email)}"
+    }
+    other_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, other_id, other_email)}"
+    }
+    registered = auth_harness.client.post(
+        "/api/register_event",
+        headers=member_headers,
+        json={
+            "event_id": event_id,
+            "user_id": other_id,
+            "status": "going",
+            "additional_info": "Synthetic RSVP",
+        },
+    )
+    assert registered.status_code == 200
+    assert registered.json()["rsvp"]["user_id"] == member_id
+    assert registered.json()["rsvp"]["year"] == "2001"
+
+    duplicate = auth_harness.client.post(
+        "/api/register_event",
+        headers=member_headers,
+        json={"event_id": event_id, "status": "maybe"},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["rsvp"]["status"] == "maybe"
+    assert duplicate.json()["rsvp"]["additional_info"] == "Synthetic RSVP"
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(EventAttendees.id)).where(
+                    EventAttendees.event_id == event_id,
+                    EventAttendees.user_id == member_id,
+                )
+            )
+            == 1
+        )
+
+    other_registered = auth_harness.client.post(
+        "/api/register_event",
+        headers=other_headers,
+        json={"event_id": event_id, "status": "going"},
+    )
+    assert other_registered.status_code == 200
+    full = auth_harness.client.post(
+        "/api/manage_event_rsvp",
+        headers=member_headers,
+        json={"event_id": event_id, "function_type": "update", "status": "going"},
+    )
+    assert full.status_code == 409
+    assert full.json()["code"] == "event_full"
+
+    spoofed_cancel = auth_harness.client.post(
+        "/api/manage_event_rsvp",
+        headers=member_headers,
+        json={"event_id": event_id, "function_type": "cancel", "user_id": other_id},
+    )
+    assert spoofed_cancel.status_code == 200
+    with auth_harness.engine.connect() as connection:
+        statuses = {
+            int(row.user_id): str(row.status.value if hasattr(row.status, "value") else row.status)
+            for row in connection.execute(
+                select(EventAttendees.user_id, EventAttendees.status).where(
+                    EventAttendees.event_id == event_id
+                )
+            )
+        }
+    assert statuses == {member_id: "not_going", other_id: "going"}
+
+    member_attendees = auth_harness.client.post(
+        "/api/get_event_attendees", headers=member_headers, json={"event_id": event_id}
+    )
+    assert member_attendees.status_code == 403
+    assert member_attendees.json()["code"] == "event_forbidden"
+
+    stale_organizer_headers = {
+        "Authorization": (
+            "Bearer "
+            f"{
+                _access_token_for(
+                    auth_harness, organizer_id, organizer_email, user_role='event admin'
+                )
+            }"
+        )
+    }
+    forged = auth_harness.client.post(
+        "/api/get_event_attendees", headers=stale_organizer_headers, json={"event_id": event_id}
+    )
+    assert forged.status_code == 403
+    with auth_harness.engine.begin() as connection:
+        connection.execute(
+            USERS_TABLE.update().where(Users.id == organizer_id).values(user_role="event admin")
+        )
+    attendees = auth_harness.client.post(
+        "/api/get_event_attendees", headers=stale_organizer_headers, json={"event_id": event_id}
+    )
+    assert attendees.status_code == 200
+    body = attendees.json()
+    assert body["summary"] == {"going": 1, "maybe": 0, "not_going": 1, "total": 2}
+    assert {attendee["user_id"] for attendee in body["attendees"]} == {member_id, other_id}
+    assert all("email" in attendee and "phone" in attendee for attendee in body["attendees"])
+
+
+@pytest.mark.integration
+def test_event_rsvp_rolls_back_a_late_attendee_insert_failure(
+    auth_harness: AuthHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The registration transaction cannot leave an attendee row after a late repository error."""
+    organizer_id, _, _ = auth_harness.create_user(user_role="event admin")
+    member_id, _, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        inserted = connection.execute(
+            EVENTS_TABLE.insert().values(
+                title="RSVP rollback event",
+                event_banner="",
+                status="upcoming",
+                created_by=organizer_id,
+                start_date=date(2027, 1, 11),
+                visibility="public",
+                is_approved=1,
+                max_attendees=0,
+            )
+        )
+        inserted_key = inserted.inserted_primary_key
+        assert inserted_key is not None
+        event_id = int(inserted_key[0])
+
+    original = EventRepository.create_attendee
+
+    def fail_after_insert(repository: EventRepository, values: dict[str, Any]) -> int:
+        original(repository, values)
+        raise RuntimeError("synthetic attendee insert failure")
+
+    monkeypatch.setattr(EventRepository, "create_attendee", fail_after_insert)
+    with (
+        Session(auth_harness.engine) as session,
+        pytest.raises(RuntimeError, match="synthetic attendee insert failure"),
+    ):
+        EventService(session).register(
+            member_id,
+            EventRegistrationRequest(event_id=event_id, status="going"),
+        )
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(EventAttendees.id)).where(
+                    EventAttendees.event_id == event_id,
+                    EventAttendees.user_id == member_id,
+                )
+            )
+            == 0
+        )
+
+
+@pytest.mark.integration
+def test_event_registration_forms_are_permissioned_validated_and_snapshot_answers(
+    auth_harness: AuthHarness,
+) -> None:
+    """Forms are event-admin managed; a member RSVP and immutable answer snapshots are atomic."""
+    admin_id, admin_email, _ = auth_harness.create_user(user_role="event admin")
+    member_id, member_email, _ = auth_harness.create_user()
+    other_id, other_email, _ = auth_harness.create_user()
+    with auth_harness.engine.begin() as connection:
+        inserted = connection.execute(
+            EVENTS_TABLE.insert().values(
+                title="Structured answers event",
+                event_banner="",
+                status="upcoming",
+                created_by=admin_id,
+                start_date=date(2027, 1, 12),
+                visibility="public",
+                is_approved=1,
+                max_attendees=5,
+            )
+        )
+        inserted_key = inserted.inserted_primary_key
+        assert inserted_key is not None
+        event_id = int(inserted_key[0])
+    admin_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, admin_id, admin_email)}"
+    }
+    member_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, member_id, member_email)}"
+    }
+    other_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, other_id, other_email)}"
+    }
+
+    created = auth_harness.client.post(
+        "/api/create_event_registration_form",
+        headers=admin_headers,
+        json={
+            "event_id": event_id,
+            "name": "Food preferences",
+            "questions": [
+                {
+                    "label": "Meal",
+                    "type": "dropdown",
+                    "required": True,
+                    "options": ["Rice", "Pasta"],
+                    "sort_order": 0,
+                },
+                {
+                    "label": "Allergies",
+                    "type": "checkbox",
+                    "required": False,
+                    "options": ["Peanuts", "Dairy"],
+                    "maxSelections": 1,
+                    "sort_order": 1,
+                },
+            ],
+        },
+    )
+    assert created.status_code == 200
+    form = created.json()["form"]
+    form_id = int(form["id"])
+    meal_id = int(form["questions"][0]["id"])
+    allergies_id = int(form["questions"][1]["id"])
+    event_with_forms = auth_harness.client.post("/api/get_events", json={"id": event_id})
+    assert event_with_forms.status_code == 200
+    assert event_with_forms.json()["event"]["has_registration_questions"] is True
+    assert event_with_forms.json()["event"]["registration_form_count"] == 1
+
+    added_question = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={
+            "action": "add_question",
+            "formId": form_id,
+            "question": {"label": "Accessibility note", "type": "long_answer"},
+        },
+    )
+    assert added_question.status_code == 200
+    accessibility_id = int(added_question.json()["form"]["questions"][2]["id"])
+    updated_question = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={
+            "action": "update_question",
+            "form_id": form_id,
+            "question_id": accessibility_id,
+            "question": {"label": "Accessibility requirements", "type": "long_answer"},
+        },
+    )
+    assert updated_question.status_code == 200
+    reordered_questions = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={
+            "action": "reorder_questions",
+            "form_id": form_id,
+            "order": [accessibility_id, meal_id, allergies_id],
+        },
+    )
+    assert reordered_questions.status_code == 200
+    updated_form = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={
+            "action": "update_form",
+            "form_id": form_id,
+            "name": "Food and access preferences",
+            "description": "Used only to prepare this event.",
+        },
+    )
+    assert updated_form.status_code == 200
+    assert updated_form.json()["form"]["version"] == 5
+
+    second_form = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={
+            "action": "upsert",
+            "event_id": event_id,
+            "name": "Optional arrival details",
+            "sort_order": 1,
+            "questions": [{"label": "Arrival time", "type": "short_answer"}],
+        },
+    )
+    assert second_form.status_code == 200
+    second_form_id = int(second_form.json()["form"]["id"])
+    reordered_forms = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={
+            "action": "reorder_forms",
+            "eventId": event_id,
+            "forms": [
+                {"formId": form_id, "sortOrder": 0},
+                {"formId": second_form_id, "sortOrder": 1},
+            ],
+        },
+    )
+    assert reordered_forms.status_code == 200
+
+    member_forms = auth_harness.client.post(
+        "/api/get_event_registration_forms",
+        headers=member_headers,
+        json={"eventId": event_id},
+    )
+    assert member_forms.status_code == 200
+    assert [item["id"] for item in member_forms.json()["forms"]] == [form_id, second_form_id]
+    admin_forms = auth_harness.client.post(
+        "/api/get_event_registration_forms",
+        headers=admin_headers,
+        json={"event_id": event_id, "include_inactive": True},
+    )
+    assert len(admin_forms.json()["forms"]) == 2
+
+    missing_required = auth_harness.client.post(
+        "/api/register_event_with_forms",
+        headers=member_headers,
+        json={"event_id": event_id, "answers": []},
+    )
+    assert missing_required.status_code == 400
+    assert missing_required.json()["code"] == "event_form_answers_invalid"
+
+    too_many_checkbox_answers = auth_harness.client.post(
+        "/api/register_event_with_forms",
+        headers=member_headers,
+        json={
+            "event_id": event_id,
+            "answers": [
+                {"form_id": form_id, "question_id": meal_id, "value": "Rice"},
+                {
+                    "form_id": form_id,
+                    "question_id": allergies_id,
+                    "value": ["Peanuts", "Dairy"],
+                },
+            ],
+        },
+    )
+    assert too_many_checkbox_answers.status_code == 400
+    assert too_many_checkbox_answers.json()["code"] == "event_form_answers_invalid"
+
+    registered = auth_harness.client.post(
+        "/api/register_event_with_forms",
+        headers=member_headers,
+        json={
+            "eventId": event_id,
+            "rsvpStatus": "going",
+            "additionalInfo": "No extra note",
+            "user_id": other_id,
+            "answers": [
+                {"formId": form_id, "questionId": meal_id, "value": "Rice"},
+                {
+                    "formId": form_id,
+                    "questionId": allergies_id,
+                    "value": ["Peanuts"],
+                },
+            ],
+        },
+    )
+    assert registered.status_code == 200
+    attendee_id = int(registered.json()["rsvp"]["id"])
+    assert registered.json()["rsvp"]["user_id"] == member_id
+    assert registered.json()["answers_saved"] == 2
+
+    deleted_question = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={"action": "delete_question", "form_id": form_id, "question_id": accessibility_id},
+    )
+    assert deleted_question.status_code == 200
+    assert deleted_question.json()["form"]["version"] == 6
+
+    forbidden_submissions = auth_harness.client.post(
+        "/api/get_event_registration_submissions",
+        headers=other_headers,
+        json={"event_id": event_id},
+    )
+    assert forbidden_submissions.status_code == 403
+
+    submissions = auth_harness.client.post(
+        "/api/get_event_registration_submissions",
+        headers=admin_headers,
+        json={"event_id": event_id, "page": 1, "per_page": 20},
+    )
+    assert submissions.status_code == 200
+    assert submissions.json()["registrations"][0]["answer_count"] == 2
+    assert submissions.json()["registrations"][0]["has_form_answers"] is True
+
+    detail = auth_harness.client.post(
+        "/api/get_event_registration_submission_detail",
+        headers=admin_headers,
+        json={"eventId": event_id, "userId": member_id},
+    )
+    assert detail.status_code == 200
+    assert detail.json()["registration"]["attendee_id"] == attendee_id
+    answers = detail.json()["registration"]["forms"][0]["answers"]
+    assert [answer["answer"] for answer in answers] == ["Rice", ["Peanuts"]]
+    assert answers[0]["options"] == ["Rice", "Pasta"]
+    assert answers[1]["max_selections"] == 1
+
+    archived = auth_harness.client.post(
+        "/api/manage_event_registration_form",
+        headers=admin_headers,
+        json={"action": "archive", "form_id": form_id},
+    )
+    assert archived.status_code == 200
+    assert archived.json()["form"]["is_active"] is False
+    assert [
+        item["id"]
+        for item in auth_harness.client.post(
+            "/api/get_event_registration_forms", headers=member_headers, json={"event_id": event_id}
+        ).json()["forms"]
+    ] == [second_form_id]
+    preserved_detail = auth_harness.client.post(
+        "/api/get_event_registration_submission_detail",
+        headers=admin_headers,
+        json={"event_id": event_id, "attendee_id": attendee_id},
+    )
+    assert preserved_detail.status_code == 200
+    assert preserved_detail.json()["registration"]["forms"][0]["answers"][0]["label"] == "Meal"
+    with auth_harness.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count(EventRegistrationForms.id)).where(
+                    EventRegistrationForms.id == form_id
+                )
+            )
+            == 1
+        )
+        assert (
+            connection.scalar(
+                select(func.count(EventRegistrationFormQuestions.id)).where(
+                    EventRegistrationFormQuestions.form_id == form_id
+                )
+            )
+            == 2
+        )
+        assert (
+            connection.scalar(
+                select(func.count(EventRegistrationAnswers.id)).where(
+                    EventRegistrationAnswers.attendee_id == attendee_id
+                )
+            )
+            == 2
+        )
+        assert (
+            connection.scalar(
+                select(func.count(EventRegistrationFormVersions.id)).where(
+                    EventRegistrationFormVersions.form_id == form_id
+                )
+            )
+            == 6
+        )
 
 
 @pytest.mark.integration
@@ -6210,3 +7160,805 @@ def test_notification_routes_recheck_current_account_state_and_validate_input(
     marked = auth_harness.client.post("/api/mark_notification_read", headers=headers, json={})
     assert listed.status_code == marked.status_code == 401
     assert listed.json()["code"] == marked.json()["code"] == "notification_actor_unavailable"
+
+
+@pytest.mark.integration
+def test_v2_chat_core_is_participant_scoped_idempotent_and_sender_owned(
+    auth_harness: AuthHarness,
+) -> None:
+    """V2 chat denies cross-thread access and binds idempotency and deletion to the actor."""
+    sender_id, sender_email, _ = auth_harness.create_user(fullname="Synthetic Sender")
+    recipient_id, recipient_email, _ = auth_harness.create_user(fullname="Synthetic Recipient")
+    outsider_id, outsider_email, _ = auth_harness.create_user(fullname="Synthetic Outsider")
+    sender_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, sender_id, sender_email)}"
+    }
+    recipient_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, recipient_id, recipient_email)}"
+    }
+    outsider_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, outsider_id, outsider_email)}"
+    }
+    try:
+        first_send = auth_harness.client.post(
+            "/chat_api/v2_send_direct",
+            headers=sender_headers,
+            json={
+                "recipient_id": recipient_id,
+                "body": "A private synthetic message",
+                "client_generated_id": "synthetic-direct-1",
+            },
+        )
+        assert first_send.status_code == 200
+        direct_thread_id = int(first_send.json()["data"]["thread_id"])
+        direct_message_id = int(first_send.json()["data"]["message"]["id"])
+        duplicate = auth_harness.client.post(
+            "/chat_api/v2_send_direct",
+            headers=sender_headers,
+            json={
+                "recipient_id": recipient_id,
+                "body": "A private synthetic message",
+                "client_generated_id": "synthetic-direct-1",
+            },
+        )
+        assert duplicate.status_code == 200
+        assert int(duplicate.json()["data"]["thread_id"]) == direct_thread_id
+        assert int(duplicate.json()["data"]["message"]["id"]) == direct_message_id
+        inbox = auth_harness.client.post("/chat_api/v2_get_threads", headers=recipient_headers)
+        assert inbox.status_code == 200
+        assert [item["thread_id"] for item in inbox.json()["threads"]] == [direct_thread_id]
+        detail = auth_harness.client.post(
+            "/chat_api/v2_get_thread",
+            headers=recipient_headers,
+            json={"thread_id": direct_thread_id},
+        )
+        assert detail.status_code == 200
+        assert detail.json()["thread"]["messages"][0]["id"] == direct_message_id
+        assert detail.json()["thread"]["unread_count"] == 0
+
+        denied_detail = auth_harness.client.post(
+            "/chat_api/v2_get_thread",
+            headers=outsider_headers,
+            json={"thread_id": direct_thread_id},
+        )
+        assert denied_detail.status_code == 403
+        assert denied_detail.json()["code"] == "chat_membership_forbidden"
+
+        group = auth_harness.client.post(
+            "/chat_api/v2_create_group",
+            headers=sender_headers,
+            json={"title": "Synthetic group", "member_ids": [outsider_id]},
+        )
+        assert group.status_code == 200
+        assert group.json()["thread_id"] == group.json()["thread"]["thread_id"]
+        group_thread_id = int(group.json()["thread_id"])
+        cross_thread_reply = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=outsider_headers,
+            json={
+                "thread_id": group_thread_id,
+                "body": "Wrong-thread reply",
+                "reply_to_message_id": direct_message_id,
+            },
+        )
+        assert cross_thread_reply.status_code == 422
+        assert cross_thread_reply.json()["code"] == "chat_reply_invalid"
+
+        forbidden_delete = auth_harness.client.post(
+            "/chat_api/v2_delete_message",
+            headers=recipient_headers,
+            json={"message_id": direct_message_id},
+        )
+        assert forbidden_delete.status_code == 404
+        deleted = auth_harness.client.post(
+            "/chat_api/v2_delete_message",
+            headers=sender_headers,
+            json={"message_id": direct_message_id},
+        )
+        assert deleted.status_code == 200
+        marked = auth_harness.client.post(
+            "/chat_api/v2_mark_read",
+            headers=outsider_headers,
+            json={"thread_id": group_thread_id},
+        )
+        assert marked.status_code == 200
+        assert marked.json()["data"]["unread_count"] == 0
+        retired_sync = auth_harness.client.post(
+            "/chat_api/v2_sync_year_groups",
+            headers=sender_headers,
+            json={"sync_all": True},
+        )
+        assert retired_sync.status_code == 410
+        assert retired_sync.json()["code"] == "chat_year_sync_unavailable"
+        retired_legacy = auth_harness.client.post(
+            "/chat_api/get_threads",
+            headers=sender_headers,
+        )
+        assert retired_legacy.status_code == 410
+        assert retired_legacy.json()["code"] == "chat_legacy_unavailable"
+    finally:
+        with auth_harness.engine.begin() as connection:
+            thread_ids = list(
+                connection.scalars(
+                    select(MessageThreads.id).where(
+                        MessageThreads.created_by.in_([sender_id, recipient_id, outsider_id])
+                    )
+                )
+            )
+            if thread_ids:
+                connection.execute(
+                    MESSAGES_TABLE.delete().where(Messages.thread_id.in_(thread_ids))
+                )
+                connection.execute(
+                    THREAD_PARTICIPANTS_TABLE.delete().where(
+                        ThreadParticipants.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGE_THREADS_TABLE.delete().where(MessageThreads.id.in_(thread_ids))
+                )
+
+
+@pytest.mark.integration
+def test_v2_chat_inbox_is_bounded_and_reports_complete_unread_totals(
+    auth_harness: AuthHarness,
+) -> None:
+    """The inbox is bounded, ordered, page-complete, and badges cover every thread."""
+    owner_id, owner_email, _ = auth_harness.create_user(fullname="Synthetic Inbox Owner")
+    peer_id, peer_email, _ = auth_harness.create_user(fullname="Synthetic Inbox Peer")
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+    peer_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, peer_id, peer_email)}"
+    }
+    try:
+        thread_ids: list[int] = []
+        for index in range(4):
+            created = auth_harness.client.post(
+                "/chat_api/v2_create_group",
+                headers=owner_headers,
+                json={"title": f"Synthetic inbox {index}", "member_ids": [peer_id]},
+            )
+            assert created.status_code == 200
+            thread_id = int(created.json()["thread_id"])
+            thread_ids.append(thread_id)
+            for sequence in range(2):
+                sent = auth_harness.client.post(
+                    "/chat_api/v2_send_message",
+                    headers=peer_headers,
+                    json={"thread_id": thread_id, "body": f"Synthetic unread {index}-{sequence}"},
+                )
+                assert sent.status_code == 200
+
+        first_page = auth_harness.client.post(
+            "/chat_api/v2_get_threads", headers=owner_headers, json={"limit": 2}
+        )
+        assert first_page.status_code == 200
+        body = first_page.json()
+        assert body["count"] == 2
+        assert body["limit"] == 2
+        assert body["offset"] == 0
+        assert body["has_more"] is True
+        # Pinned first, then newest activity, so the two most recent groups lead.
+        assert [item["thread_id"] for item in body["threads"]] == [thread_ids[3], thread_ids[2]]
+        # The page carries two unread messages per thread, but the badges count the
+        # whole mailbox rather than only the rows on this page.
+        assert [item["unread_count"] for item in body["threads"]] == [2, 2]
+        assert body["unread_count"] == 8
+        assert body["unread_thread_count"] == 4
+        assert body["thread_total"] == 4
+        assert all(len(item["participants"]) == 2 for item in body["threads"])
+
+        second_page = auth_harness.client.post(
+            "/chat_api/v2_get_threads", headers=owner_headers, json={"limit": 2, "offset": 2}
+        )
+        assert second_page.status_code == 200
+        second_body = second_page.json()
+        assert second_body["has_more"] is False
+        assert second_body["count"] == 2
+        assert {item["thread_id"] for item in second_body["threads"]} == set(thread_ids[:2])
+        assert {item["thread_id"] for item in body["threads"]}.isdisjoint(
+            item["thread_id"] for item in second_body["threads"]
+        )
+
+        # A body-less legacy call keeps working and receives the default page.
+        default_page = auth_harness.client.post("/chat_api/v2_get_threads", headers=owner_headers)
+        assert default_page.status_code == 200
+        assert default_page.json()["limit"] == 100
+        assert {item["thread_id"] for item in default_page.json()["threads"]} == set(thread_ids)
+
+        rejected = auth_harness.client.post(
+            "/chat_api/v2_get_threads", headers=owner_headers, json={"limit": 500}
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["code"] == "chat_invalid_request"
+    finally:
+        with auth_harness.engine.begin() as connection:
+            tracked_threads = list(
+                connection.scalars(
+                    select(MessageThreads.id).where(
+                        MessageThreads.created_by.in_([owner_id, peer_id])
+                    )
+                )
+            )
+            if tracked_threads:
+                connection.execute(
+                    MESSAGES_TABLE.delete().where(Messages.thread_id.in_(tracked_threads))
+                )
+                connection.execute(
+                    THREAD_PARTICIPANTS_TABLE.delete().where(
+                        ThreadParticipants.thread_id.in_(tracked_threads)
+                    )
+                )
+                connection.execute(
+                    MESSAGE_THREADS_TABLE.delete().where(MessageThreads.id.in_(tracked_threads))
+                )
+
+
+@pytest.mark.integration
+def test_v2_chat_attachments_are_private_owned_and_linked_only_by_the_stager(
+    auth_harness: AuthHarness,
+) -> None:
+    """Chat uploads are content-checked, private, participant-gated, and one-message owned."""
+    owner_id, owner_email, _ = auth_harness.create_user(fullname="Synthetic Attachment Owner")
+    member_id, member_email, _ = auth_harness.create_user(fullname="Synthetic Attachment Member")
+    outsider_id, outsider_email, _ = auth_harness.create_user(
+        fullname="Synthetic Attachment Outsider"
+    )
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+    member_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, member_id, member_email)}"
+    }
+    outsider_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, outsider_id, outsider_email)}"
+    }
+    image_bytes = BytesIO()
+    Image.new("RGB", (6, 4), color=(8, 16, 32)).save(image_bytes, format="PNG")
+    try:
+        group = auth_harness.client.post(
+            "/chat_api/v2_create_group",
+            headers=owner_headers,
+            json={"title": "Synthetic private attachments", "member_ids": [member_id]},
+        )
+        assert group.status_code == 200
+        thread_id = int(group.json()["thread_id"])
+        empty_detail = auth_harness.client.post(
+            "/chat_api/v2_get_thread", headers=owner_headers, json={"thread_id": thread_id}
+        )
+        assert empty_detail.status_code == 200
+        assert empty_detail.json()["thread"]["messages"] == []
+        empty_read = auth_harness.client.post(
+            "/chat_api/v2_mark_read", headers=owner_headers, json={"thread_id": thread_id}
+        )
+        assert empty_read.status_code == 200
+        staged = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=owner_headers,
+            data={"thread_id": str(thread_id)},
+            files={"file": ("synthetic.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert staged.status_code == 200
+        attachment = staged.json()["data"]
+        attachment_id = int(attachment["attachment_id"])
+        assert attachment["download_path"] == f"/chat_api/v2_attachments/{attachment_id}"
+        assert "public_url" not in attachment
+        stored_files = list((auth_harness.settings.upload_root / "chat").glob("*"))
+        assert len(stored_files) == 1
+
+        staged_owner_download = auth_harness.client.get(
+            attachment["download_path"], headers=owner_headers
+        )
+        assert staged_owner_download.status_code == 200
+        assert staged_owner_download.headers["x-content-type-options"] == "nosniff"
+        assert staged_owner_download.headers["cache-control"] == "private, no-store"
+        staged_member_download = auth_harness.client.get(
+            attachment["download_path"], headers=member_headers
+        )
+        assert staged_member_download.status_code == 404
+
+        invalid_svg = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=owner_headers,
+            data={"thread_id": str(thread_id)},
+            files={"file": ("unsafe.svg", b"<svg onload='alert(1)'/>", "image/svg+xml")},
+        )
+        assert invalid_svg.status_code == 400
+        assert invalid_svg.json()["code"] == "chat_attachment_invalid_content"
+
+        second_group = auth_harness.client.post(
+            "/chat_api/v2_create_group",
+            headers=owner_headers,
+            json={"title": "Synthetic wrong thread", "member_ids": [member_id]},
+        )
+        assert second_group.status_code == 200
+        wrong_thread = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={
+                "thread_id": int(second_group.json()["thread_id"]),
+                "attachment_ids": [attachment_id],
+            },
+        )
+        assert wrong_thread.status_code == 403
+        assert wrong_thread.json()["code"] == "chat_attachment_forbidden"
+
+        sent = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={
+                "thread_id": thread_id,
+                "body": "Private image",
+                "attachment_ids": [attachment_id],
+            },
+        )
+        assert sent.status_code == 200
+        message = sent.json()["data"]["message"]
+        assert message["message_type"] == "mixed"
+        assert message["attachments"] == [
+            {
+                "attachment_id": attachment_id,
+                "thread_id": thread_id,
+                "kind": "image",
+                "file_name": "synthetic.png",
+                "mime_type": "image/png",
+                "size_in_bytes": attachment["size_in_bytes"],
+                "download_path": attachment["download_path"],
+            }
+        ]
+        assert "storage_path" not in message["attachments"][0]
+        recipient_download = auth_harness.client.get(
+            attachment["download_path"], headers=member_headers
+        )
+        assert recipient_download.status_code == 200
+        outsider_download = auth_harness.client.get(
+            attachment["download_path"], headers=outsider_headers
+        )
+        assert outsider_download.status_code == 403
+
+        reused = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "attachment_ids": [attachment_id]},
+        )
+        assert reused.status_code == 403
+        assert reused.json()["code"] == "chat_attachment_forbidden"
+    finally:
+        with auth_harness.engine.begin() as connection:
+            thread_ids = list(
+                connection.scalars(
+                    select(MessageThreads.id).where(
+                        MessageThreads.created_by.in_([owner_id, member_id, outsider_id])
+                    )
+                )
+            )
+            if thread_ids:
+                connection.execute(
+                    MESSAGE_ATTACHMENTS_TABLE.delete().where(
+                        MessagesAttachments.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGES_TABLE.delete().where(Messages.thread_id.in_(thread_ids))
+                )
+                connection.execute(
+                    THREAD_PARTICIPANTS_TABLE.delete().where(
+                        ThreadParticipants.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGE_THREADS_TABLE.delete().where(MessageThreads.id.in_(thread_ids))
+                )
+
+
+@pytest.mark.integration
+def test_v2_chat_attachment_failure_paths_keep_staging_private(
+    auth_harness: AuthHarness,
+) -> None:
+    """Invalid, expired, foreign, and disabled attachment writes never become messages."""
+    owner_id, owner_email, _ = auth_harness.create_user(fullname="Synthetic Attachment Errors")
+    member_id, member_email, _ = auth_harness.create_user(fullname="Synthetic Attachment Peer")
+    outsider_id, outsider_email, _ = auth_harness.create_user(
+        fullname="Synthetic Attachment Foreign"
+    )
+    owner_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, owner_id, owner_email)}"
+    }
+    member_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, member_id, member_email)}"
+    }
+    outsider_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, outsider_id, outsider_email)}"
+    }
+    image_bytes = BytesIO()
+    Image.new("RGB", (4, 4), color=(4, 8, 16)).save(image_bytes, format="PNG")
+    try:
+        malformed = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment", headers=owner_headers, data={"thread_id": "broken"}
+        )
+        assert malformed.status_code == 400
+        invalid_detail = auth_harness.client.post(
+            "/chat_api/v2_get_thread", headers=owner_headers, json={"thread_id": "broken"}
+        )
+        assert invalid_detail.status_code == 400
+        group = auth_harness.client.post(
+            "/chat_api/v2_create_group",
+            headers=owner_headers,
+            json={"title": "Synthetic attachment errors", "member_ids": [member_id]},
+        )
+        assert group.status_code == 200
+        thread_id = int(group.json()["thread_id"])
+        empty_message = auth_harness.client.post(
+            "/chat_api/v2_send_message", headers=owner_headers, json={"thread_id": thread_id}
+        )
+        assert empty_message.status_code == 422
+        missing_attachment = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "attachment_ids": [999_999_999]},
+        )
+        assert missing_attachment.status_code == 404
+        foreign_upload = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=outsider_headers,
+            data={"thread_id": str(thread_id)},
+            files={"file": ("foreign.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert foreign_upload.status_code == 403
+
+        staged = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=owner_headers,
+            data={"thread_id": str(thread_id)},
+            files={"file": ("owned.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert staged.status_code == 200
+        attachment_id = int(staged.json()["data"]["attachment_id"])
+        foreign_link = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=member_headers,
+            json={"thread_id": thread_id, "attachment_ids": [attachment_id]},
+        )
+        assert foreign_link.status_code == 403
+        with auth_harness.engine.begin() as connection:
+            connection.execute(
+                MESSAGE_ATTACHMENTS_TABLE.update()
+                .where(MessagesAttachments.id == attachment_id)
+                .values(expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1))
+            )
+        expired_download = auth_harness.client.get(
+            staged.json()["data"]["download_path"], headers=owner_headers
+        )
+        assert expired_download.status_code == 404
+        expired_link = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "attachment_ids": [attachment_id]},
+        )
+        assert expired_link.status_code == 403
+
+        direct_stage = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=owner_headers,
+            data={"recipient_id": str(member_id)},
+            files={"file": ("direct.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert direct_stage.status_code == 200
+        direct_thread_id = int(direct_stage.json()["data"]["thread_id"])
+        assert direct_thread_id != thread_id
+        direct_stage_reuse = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=owner_headers,
+            data={"recipient_id": str(member_id)},
+            files={"file": ("direct-again.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert direct_stage_reuse.status_code == 200
+        assert int(direct_stage_reuse.json()["data"]["thread_id"]) == direct_thread_id
+        direct_self = auth_harness.client.post(
+            "/chat_api/v2_send_direct",
+            headers=owner_headers,
+            json={"recipient_id": owner_id, "body": "Not permitted"},
+        )
+        assert direct_self.status_code == 422
+        direct_add_member = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=owner_headers,
+            json={"thread_id": direct_thread_id, "member_id": outsider_id},
+        )
+        assert direct_add_member.status_code == 422
+        direct_leave = auth_harness.client.post(
+            "/chat_api/v2_leave_group",
+            headers=owner_headers,
+            json={"thread_id": direct_thread_id},
+        )
+        assert direct_leave.status_code == 422
+        for endpoint, payload in (
+            ("/chat_api/v2_delete_message", {"message_id": 999_999_999}),
+            ("/chat_api/v2_pin_thread", {"thread_id": 999_999_999}),
+            (
+                "/chat_api/v2_mark_delivered",
+                {"thread_id": thread_id, "message_id": 999_999_999},
+            ),
+        ):
+            missing = auth_harness.client.post(endpoint, headers=owner_headers, json=payload)
+            assert missing.status_code == 404
+        invalid_reply = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "body": "No target", "reply_to_message_id": 999_999_999},
+        )
+        assert invalid_reply.status_code == 422
+        first_client_id = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=member_headers,
+            json={
+                "thread_id": thread_id,
+                "body": "Client key",
+                "client_generated_id": "shared-key",
+            },
+        )
+        assert first_client_id.status_code == 200
+        conflicting_client_id = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=owner_headers,
+            json={
+                "thread_id": thread_id,
+                "body": "Client key",
+                "client_generated_id": "shared-key",
+            },
+        )
+        assert conflicting_client_id.status_code == 409
+        added_member = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "member_id": outsider_id},
+        )
+        assert added_member.status_code == 200
+        left_member = auth_harness.client.post(
+            "/chat_api/v2_leave_group",
+            headers=outsider_headers,
+            json={"thread_id": thread_id},
+        )
+        assert left_member.status_code == 200
+        readded_member = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "member_id": outsider_id},
+        )
+        assert readded_member.status_code == 200
+        with auth_harness.engine.begin() as connection:
+            connection.execute(USERS_TABLE.update().where(Users.id == outsider_id).values(active=0))
+        inactive_member = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=owner_headers,
+            json={"thread_id": thread_id, "member_id": outsider_id},
+        )
+        assert inactive_member.status_code == 404
+        with auth_harness.engine.begin() as connection:
+            connection.execute(
+                MESSAGE_THREADS_TABLE.update()
+                .where(MessageThreads.id == thread_id)
+                .values(attachment_enabled=0)
+            )
+        disabled = auth_harness.client.post(
+            "/chat_api/v2_upload_attachment",
+            headers=owner_headers,
+            data={"thread_id": str(thread_id)},
+            files={"file": ("disabled.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert disabled.status_code == 422
+    finally:
+        with auth_harness.engine.begin() as connection:
+            thread_ids = list(
+                connection.scalars(
+                    select(MessageThreads.id).where(
+                        MessageThreads.created_by.in_([owner_id, member_id, outsider_id])
+                    )
+                )
+            )
+            if thread_ids:
+                connection.execute(
+                    MESSAGE_ATTACHMENTS_TABLE.delete().where(
+                        MessagesAttachments.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGES_TABLE.delete().where(Messages.thread_id.in_(thread_ids))
+                )
+                connection.execute(
+                    THREAD_PARTICIPANTS_TABLE.delete().where(
+                        ThreadParticipants.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGE_THREADS_TABLE.delete().where(MessageThreads.id.in_(thread_ids))
+                )
+
+
+@pytest.mark.integration
+def test_v2_chat_concurrent_first_direct_message_reuses_one_thread(
+    auth_harness: AuthHarness,
+) -> None:
+    """Two first sends in opposite directions converge on the direct-key thread."""
+    first_id, first_email, _ = auth_harness.create_user(fullname="Synthetic Concurrent One")
+    second_id, second_email, _ = auth_harness.create_user(fullname="Synthetic Concurrent Two")
+    first_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, first_id, first_email)}"
+    }
+    second_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, second_id, second_email)}"
+    }
+
+    def send(headers: dict[str, str], recipient_id: int, client_id: str) -> Any:
+        return auth_harness.client.post(
+            "/chat_api/v2_send_direct",
+            headers=headers,
+            json={
+                "recipient_id": recipient_id,
+                "body": "Concurrent synthetic direct message",
+                "client_generated_id": client_id,
+            },
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first, second = list(
+                executor.map(
+                    lambda args: send(*args),
+                    (
+                        (first_headers, second_id, "synthetic-concurrent-one"),
+                        (second_headers, first_id, "synthetic-concurrent-two"),
+                    ),
+                )
+            )
+        assert first.status_code == second.status_code == 200
+        assert first.json()["data"]["thread_id"] == second.json()["data"]["thread_id"]
+    finally:
+        with auth_harness.engine.begin() as connection:
+            thread_ids = list(
+                connection.scalars(
+                    select(MessageThreads.id).where(
+                        MessageThreads.created_by.in_([first_id, second_id])
+                    )
+                )
+            )
+            if thread_ids:
+                connection.execute(
+                    MESSAGES_TABLE.delete().where(Messages.thread_id.in_(thread_ids))
+                )
+                connection.execute(
+                    THREAD_PARTICIPANTS_TABLE.delete().where(
+                        ThreadParticipants.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGE_THREADS_TABLE.delete().where(MessageThreads.id.in_(thread_ids))
+                )
+
+
+@pytest.mark.integration
+def test_v2_chat_group_administration_delivery_pin_and_leave_are_member_scoped(
+    auth_harness: AuthHarness,
+) -> None:
+    """Group administration is admin-only and leaving removes future thread access."""
+    creator_id, creator_email, _ = auth_harness.create_user(fullname="Synthetic Chat Creator")
+    member_id, member_email, _ = auth_harness.create_user(fullname="Synthetic Chat Member")
+    third_id, third_email, _ = auth_harness.create_user(fullname="Synthetic Chat Third")
+    fourth_id, _, _ = auth_harness.create_user(fullname="Synthetic Chat Fourth")
+    creator_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, creator_id, creator_email)}"
+    }
+    member_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, member_id, member_email)}"
+    }
+    third_headers = {
+        "Authorization": f"Bearer {_access_token_for(auth_harness, third_id, third_email)}"
+    }
+    try:
+        group = auth_harness.client.post(
+            "/chat_api/v2_create_group",
+            headers=creator_headers,
+            json={"title": "Synthetic governed group", "member_ids": [member_id]},
+        )
+        assert group.status_code == 200
+        thread_id = int(group.json()["thread_id"])
+        sent = auth_harness.client.post(
+            "/chat_api/v2_send_message",
+            headers=creator_headers,
+            json={"thread_id": thread_id, "body": "Synthetic governed message"},
+        )
+        assert sent.status_code == 200
+        message_id = int(sent.json()["data"]["message"]["id"])
+
+        denied_add = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=member_headers,
+            json={"thread_id": thread_id, "member_id": third_id},
+        )
+        assert denied_add.status_code == 403
+        assert denied_add.json()["code"] == "chat_group_admin_required"
+        added = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=creator_headers,
+            json={"thread_id": thread_id, "user_id": third_id},
+        )
+        assert added.status_code == 200
+        assert added.json()["data"]["member_id"] == third_id
+        duplicate = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=creator_headers,
+            json={"thread_id": thread_id, "member_id": third_id},
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["code"] == "chat_member_exists"
+
+        delivered = auth_harness.client.post(
+            "/chat_api/v2_mark_delivered",
+            headers=third_headers,
+            json={"thread_id": thread_id, "message_id": message_id},
+        )
+        assert delivered.status_code == 200
+        assert delivered.json()["data"]["last_delivered_message_id"] == message_id
+        pinned = auth_harness.client.post(
+            "/chat_api/v2_pin_thread",
+            headers=third_headers,
+            json={"thread_id": thread_id, "pin": True},
+        )
+        assert pinned.status_code == 200
+        assert pinned.json()["data"]["is_pinned"] is True
+
+        left = auth_harness.client.post(
+            "/chat_api/v2_leave_group",
+            headers=creator_headers,
+            json={"thread_id": thread_id},
+        )
+        assert left.status_code == 200
+        denied_after_leave = auth_harness.client.post(
+            "/chat_api/v2_get_thread",
+            headers=creator_headers,
+            json={"thread_id": thread_id},
+        )
+        assert denied_after_leave.status_code == 403
+        assert denied_after_leave.json()["code"] == "chat_membership_forbidden"
+        promoted_add = auth_harness.client.post(
+            "/chat_api/v2_add_member",
+            headers=member_headers,
+            json={"thread_id": thread_id, "member_id": fourth_id},
+        )
+        assert promoted_add.status_code == 200
+        with auth_harness.engine.connect() as connection:
+            left_row = connection.execute(
+                select(ThreadParticipants.left_at).where(
+                    ThreadParticipants.thread_id == thread_id,
+                    ThreadParticipants.member_id == creator_id,
+                )
+            ).scalar_one()
+            successor_role = connection.execute(
+                select(ThreadParticipants.role).where(
+                    ThreadParticipants.thread_id == thread_id,
+                    ThreadParticipants.member_id == member_id,
+                )
+            ).scalar_one()
+        assert left_row is not None
+        assert successor_role == "admin"
+    finally:
+        with auth_harness.engine.begin() as connection:
+            thread_ids = list(
+                connection.scalars(
+                    select(MessageThreads.id).where(MessageThreads.created_by == creator_id)
+                )
+            )
+            if thread_ids:
+                connection.execute(
+                    MESSAGES_TABLE.delete().where(Messages.thread_id.in_(thread_ids))
+                )
+                connection.execute(
+                    THREAD_PARTICIPANTS_TABLE.delete().where(
+                        ThreadParticipants.thread_id.in_(thread_ids)
+                    )
+                )
+                connection.execute(
+                    MESSAGE_THREADS_TABLE.delete().where(MessageThreads.id.in_(thread_ids))
+                )

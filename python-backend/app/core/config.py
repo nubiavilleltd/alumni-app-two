@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     vapid_public_key: str | None = None
     vapid_private_key: SecretStr | None = None
     upload_root: Path = Path("var/uploads")
+    metrics_enabled: bool = False
+    metrics_token: SecretStr | None = None
 
     @model_validator(mode="after")
     def validate_environment_guards(self) -> Self:
@@ -91,6 +93,14 @@ class Settings(BaseSettings):
     def jwt_verification_key_value(self) -> str | None:
         """Return PEM verification material without including it in settings output."""
         return self.jwt_verification_key.get_secret_value() if self.jwt_verification_key else None
+
+    def paystack_secret_key_value(self) -> str | None:
+        """Return Paystack secret key without including it in settings serialization."""
+        return self.paystack_secret_key.get_secret_value() if self.paystack_secret_key else None
+
+    def metrics_token_value(self) -> str | None:
+        """Return the collector token for the /metrics endpoint, if configured."""
+        return self.metrics_token.get_secret_value() if self.metrics_token else None
 
 
 @lru_cache(maxsize=1)

@@ -224,6 +224,7 @@ class OrdersDeliveryType(str, enum.Enum):
 class OrdersStatus(str, enum.Enum):
     PENDING = "pending"
     PAID = "paid"
+    PROCESSING = "processing"
     SHIPPED = "shipped"
     DELIVERED = "delivered"
     FAILED = "failed"
@@ -465,7 +466,10 @@ class DeliveryZones(Base):
 
 class EventRegistrationFormQuestions(Base):
     __tablename__ = "event_registration_form_questions"
-    __table_args__ = (Index("idx_form_id", "form_id"),)
+    __table_args__ = (
+        Index("idx_form_id", "form_id"),
+        Index("uq_erfq_source_question_id", "source_question_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(
         INTEGER(10, unsigned=True), primary_key=True, autoincrement=True
@@ -491,11 +495,16 @@ class EventRegistrationFormQuestions(Base):
         LONGTEXT(charset="utf8mb4", collation="utf8mb4_bin")
     )
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime)
+    source_question_id: Mapped[str | None] = mapped_column(String(128))
+    max_selections: Mapped[int | None] = mapped_column(SMALLINT(5, unsigned=True))
 
 
 class EventRegistrationForms(Base):
     __tablename__ = "event_registration_forms"
-    __table_args__ = (Index("idx_event_id", "event_id"),)
+    __table_args__ = (
+        Index("idx_event_id", "event_id"),
+        Index("uq_erf_source_form_id", "source_form_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(
         INTEGER(10, unsigned=True), primary_key=True, autoincrement=True
@@ -515,6 +524,7 @@ class EventRegistrationForms(Base):
     )
     description: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime)
+    source_form_id: Mapped[str | None] = mapped_column(String(128))
 
 
 class Faqs(Base):
@@ -870,7 +880,14 @@ class Messages(Base):
 
 class MessagesAttachments(Base):
     __tablename__ = "messages_attachments"
-    __table_args__ = (Index("idx_message_id", "message_id"), Index("idx_thread_id", "thread_id"))
+    __table_args__ = (
+        Index("idx_message_id", "message_id"),
+        Index("idx_thread_id", "thread_id"),
+        Index(
+            "idx_msg_attachment_staged_expiry", "uploaded_by_member_id", "message_id", "expires_at"
+        ),
+        Index("idx_msg_attachment_staged_purge", "message_id", "expires_at"),
+    )
 
     id: Mapped[int] = mapped_column(
         INTEGER(10, unsigned=True), primary_key=True, autoincrement=True
@@ -887,6 +904,9 @@ class MessagesAttachments(Base):
     message_id: Mapped[int | None] = mapped_column(
         INTEGER(10, unsigned=True), comment="NULL until message is sent"
     )
+    uploaded_by_member_id: Mapped[int | None] = mapped_column(
+        INTEGER(10, unsigned=True), comment="Required for private staged-upload ownership"
+    )
     file_name: Mapped[str | None] = mapped_column(String(255))
     mime_type: Mapped[str | None] = mapped_column(String(100))
     size_in_bytes: Mapped[int | None] = mapped_column(BIGINT(20, unsigned=True))
@@ -894,6 +914,35 @@ class MessagesAttachments(Base):
     public_url: Mapped[str | None] = mapped_column(String(500))
     duration_seconds: Mapped[int | None] = mapped_column(
         INTEGER(10, unsigned=True), comment="Audio voice notes only"
+    )
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime, comment="Unsent private uploads expire and must be cleaned up"
+    )
+
+
+class NewsFeedsSetup(Base):
+    __tablename__ = "news_feeds_setup"
+    __table_args__ = (
+        Index("uq_news_feed_name", "feed_name", unique=True),
+        Index("idx_news_feed_active", "active", "sort_order"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        INTEGER(10, unsigned=True), primary_key=True, autoincrement=True
+    )
+    feed_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, comment="Shown as articles[].source"
+    )
+    feed_url: Mapped[str] = mapped_column(String(500), nullable=False, comment="RSS/Atom endpoint")
+    sort_order: Mapped[int] = mapped_column(SMALLINT(6), nullable=False, server_default=text("0"))
+    active: Mapped[int] = mapped_column(TINYINT(1), nullable=False, server_default=text("1"))
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP, nullable=False, server_default=text("current_timestamp()")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        TIMESTAMP,
+        nullable=False,
+        server_default=text("current_timestamp() ON UPDATE current_timestamp()"),
     )
 
 
@@ -966,6 +1015,7 @@ class SubscriptionPlans(Base):
 class ThreadParticipants(Base):
     __tablename__ = "thread_participants"
     __table_args__ = (
+        Index("idx_thread_participants_inbox", "member_id", "left_at", "is_pinned"),
         Index("idx_member_id", "member_id"),
         Index("idx_thread_id", "thread_id"),
         Index("uq_thread_member", "thread_id", "member_id", unique=True),
@@ -2626,9 +2676,40 @@ class EventRegistrationAnswers(Base):
     answer_json: Mapped[str | None] = mapped_column(
         LONGTEXT(charset="utf8mb4", collation="utf8mb4_bin")
     )
+    form_name_snapshot: Mapped[str | None] = mapped_column(String(255))
+    placeholder_snapshot: Mapped[str | None] = mapped_column(String(255))
+    options_json_snapshot: Mapped[str | None] = mapped_column(
+        LONGTEXT(charset="utf8mb4", collation="utf8mb4_bin")
+    )
+    max_selections_snapshot: Mapped[int | None] = mapped_column(SMALLINT(5, unsigned=True))
 
     attendee: Mapped["EventAttendees"] = relationship(
         "EventAttendees", back_populates="event_registration_answers"
+    )
+
+
+class EventRegistrationFormVersions(Base):
+    __tablename__ = "event_registration_form_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(["form_id"], ["event_registration_forms.id"], ondelete="CASCADE"),
+        Index("idx_erfv_form_id", "form_id"),
+        Index("uq_erfv_source_version_id", "source_version_id", unique=True),
+        Index("uq_erfv_form_version", "form_id", "version", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT(20, unsigned=True), primary_key=True, autoincrement=True)
+    form_id: Mapped[int] = mapped_column(INTEGER(10, unsigned=True), nullable=False)
+    version: Mapped[int] = mapped_column(SMALLINT(5, unsigned=True), nullable=False)
+    name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
+    description_snapshot: Mapped[str | None] = mapped_column(Text)
+    sort_order_snapshot: Mapped[int] = mapped_column(SMALLINT(5, unsigned=True), nullable=False)
+    questions_json: Mapped[str] = mapped_column(
+        LONGTEXT(charset="utf8mb4", collation="utf8mb4_bin"), nullable=False
+    )
+    source_version_id: Mapped[str | None] = mapped_column(String(128))
+    created_by: Mapped[int] = mapped_column(INTEGER(10, unsigned=True), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("current_timestamp()")
     )
 
 

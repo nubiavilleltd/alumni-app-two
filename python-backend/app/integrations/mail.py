@@ -5,7 +5,7 @@ from __future__ import annotations
 import smtplib
 import ssl
 from email.message import EmailMessage
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.core.config import Settings
 from app.core.errors import MailDeliveryError
@@ -64,6 +64,31 @@ class Mailer(Protocol):
         actor_kind: str,
     ) -> None:
         """Tell a member that their active account state changed."""
+
+    def send_order_status_email(
+        self,
+        recipient: str,
+        display_name: str = "",
+        order_number: str = "",
+        status: str = "",
+        delivery_type: str = "",
+        note: str = "",
+        rider_details: str = "",
+        *,
+        first_name: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Tell a customer that their order status has been updated."""
+
+    def send_contact_form(
+        self,
+        recipient: str,
+        recipient_name: str,
+        full_name: str,
+        email: str,
+        message: str,
+    ) -> None:
+        """Tell an account manager that a public contact message was submitted."""
 
 
 class SmtpMailer:
@@ -196,6 +221,93 @@ class SmtpMailer:
             f"Hello {safe_name},\n\n"
             f"Your Alumni Portal account was {outcome} by {actor_text}.\n\n"
             f"{next_step}",
+        )
+
+    def send_order_status_email(
+        self,
+        recipient: str,
+        display_name: str = "",
+        order_number: str = "",
+        status: str = "",
+        delivery_type: str = "",
+        note: str = "",
+        rider_details: str = "",
+        *,
+        first_name: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Send a plain-text order status update notification to the customer."""
+        safe_name = display_name.strip() or first_name.strip() or "customer"
+        extra = details or {}
+        rider_str = rider_details or str(extra.get("rider_details") or "")
+        note_str = note or str(extra.get("note") or "")
+        note_section = f"\n\nNote: {note_str}" if note_str.strip() else ""
+        rider_section = f"\n\nRider Details:\n{rider_str}" if rider_str.strip() else ""
+
+        if status == "pickup":
+            subject = "Your Order Is Ready for Pickup"
+            body = (
+                f"Hello {safe_name},\n\n"
+                f"We're pleased to let you know that your order #{order_number} is "
+                "ready for pickup.\n\n"
+                "Kindly collect your order from the designated pickup location during "
+                "pickup hours. "
+                "Please have your order number available for verification."
+                f"{note_section}\n\n"
+                "Thank you for shopping with the FGGC Alumni Association Store."
+            )
+        elif status in ("out_for_delivery", "shipped"):
+            subject = "Your Order Is Out for Delivery"
+            body = (
+                f"Hello {safe_name},\n\n"
+                f"We're pleased to let you know that your order #{order_number} is now "
+                "out for delivery."
+                f"{rider_section}"
+                f"{note_section}\n\n"
+                "Please ensure you are available to receive your order.\n\n"
+                "Thank you for shopping with the FGGC Alumni Association Store."
+            )
+        elif status in ("completed", "delivered"):
+            subject = "Your Order Has Been Completed"
+            body = (
+                f"Hello {safe_name},\n\n"
+                f"We're pleased to let you know that your order #{order_number} has been "
+                "marked as Completed."
+                f"{note_section}\n\n"
+                "We hope you love your purchase. If you have any questions or feedback, "
+                "please let us know.\n\n"
+                "Thank you for shopping with the FGGC Alumni Association Store."
+            )
+        else:
+            subject = f"Order #{order_number} Status Update"
+            body = (
+                f"Hello {safe_name},\n\n"
+                f"Your order #{order_number} status has been updated to {status}."
+                f"{rider_section}"
+                f"{note_section}\n\n"
+                "Thank you for shopping with the FGGC Alumni Association Store."
+            )
+
+        self._send(recipient, subject, body)
+
+    def send_contact_form(
+        self,
+        recipient: str,
+        recipient_name: str,
+        full_name: str,
+        email: str,
+        message: str,
+    ) -> None:
+        """Send a plain-text contact-message notification to an account manager."""
+        safe_name = recipient_name.strip() or "administrator"
+        self._send(
+            recipient,
+            "New Alumni Portal contact message",
+            f"Hello {safe_name},\n\n"
+            f"A new message was submitted via the Alumni Portal contact form.\n\n"
+            f"Name: {full_name.strip()}\n"
+            f"Email: {email}\n\n"
+            f"Message:\n{message.strip()}\n",
         )
 
     def _send(self, recipient: str, subject: str, body: str) -> None:

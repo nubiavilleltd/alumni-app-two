@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -168,18 +168,18 @@ async def _manage(
     try:
         storage = AnnouncementStorage(settings.upload_root)
         if create:
-            assert isinstance(operation, AnnouncementCreateRequest)
+            create_operation = cast(AnnouncementCreateRequest, operation)
 
             def call(session: Session) -> AnnouncementMutationResponse:
                 return AnnouncementService(session, storage).create(
-                    principal.user_id, operation, image
+                    principal.user_id, create_operation, image
                 )
         else:
-            assert isinstance(operation, AnnouncementUpdateRequest)
+            update_operation = cast(AnnouncementUpdateRequest, operation)
 
             def call(session: Session) -> AnnouncementMutationResponse:
                 return AnnouncementService(session, storage).update(
-                    principal.user_id, operation, image
+                    principal.user_id, update_operation, image
                 )
 
         result = await run_in_threadpool(

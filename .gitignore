@@ -4,6 +4,9 @@
 output/
 tmp/
 
+# Supplied production database dumps (real data — never commit)
+/alumni_portal_v2.sql
+
 # Python environments, caches, and local configuration
 python-backend/.venv/
 python-backend/.env

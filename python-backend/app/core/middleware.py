@@ -44,3 +44,36 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send_with_correlation_id)
         finally:
             structlog.contextvars.clear_contextvars()
+
+
+SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("x-content-type-options", "nosniff"),
+    ("x-frame-options", "DENY"),
+    ("referrer-policy", "no-referrer"),
+    ("permissions-policy", "geolocation=(), microphone=(), camera=()"),
+    ("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"),
+)
+
+
+class SecurityHeadersMiddleware:
+    """Add a minimal, fixed security-header baseline without overriding route headers."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_security_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {key.lower() for key, _ in headers}
+                for name, value in SECURITY_HEADERS:
+                    if name.encode("ascii") not in present:
+                        headers.append((name.encode("ascii"), value.encode("ascii")))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_security_headers)

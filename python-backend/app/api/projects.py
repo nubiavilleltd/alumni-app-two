@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -155,18 +155,18 @@ async def _manage(
     try:
         storage = ProjectStorage(settings.upload_root)
         if create:
-            assert isinstance(operation, ProjectCreateRequest)
+            create_operation = cast(ProjectCreateRequest, operation)
 
             def call(session: Any) -> ProjectMutationResponse:
                 return ProjectService(session, storage).create(
-                    principal.user_id, operation, prepared
+                    principal.user_id, create_operation, prepared
                 )
         else:
-            assert isinstance(operation, ProjectUpdateRequest)
+            update_operation = cast(ProjectUpdateRequest, operation)
 
             def call(session: Any) -> ProjectMutationResponse:
                 return ProjectService(session, storage).update(
-                    principal.user_id, operation, prepared
+                    principal.user_id, update_operation, prepared
                 )
 
         result = await run_in_threadpool(with_session, database, call)

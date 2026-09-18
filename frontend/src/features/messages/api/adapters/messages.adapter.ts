@@ -15,7 +15,6 @@ export const MESSAGE_MAX_BODY_LENGTH = 4_000;
 export const MESSAGE_ATTACHMENT_ALLOWED_MIME_TYPES = [
   'image/jpeg',
   'image/png',
-  'image/svg+xml',
   'image/webp',
   'image/gif',
   'application/pdf',
@@ -267,7 +266,7 @@ export async function buildRecordedVoiceNoteUploadRequest(params: {
   viewerMemberId: string;
   blob: Blob;
   durationSeconds: number;
-}): UploadMessageAttachmentRequest {
+}): Promise<UploadMessageAttachmentRequest> {
   const processedBlob = await convertRecordedAudioBlobToWav(params.blob).catch(() => params.blob);
   const normalizedMimeType = normalizeMessageAttachmentMimeType(processedBlob.type || 'audio/wav');
   const fileExtension = resolveAudioFileExtension(normalizedMimeType || 'audio/wav');

@@ -78,6 +78,7 @@ export const API_ENDPOINTS = {
     DELETE_MESSAGE: '/chat_api/v2_delete_message',
     MARK_READ: '/chat_api/v2_mark_read',
     ATTACHMENTS: '/chat_api/v2_upload_attachment',
+    ATTACHMENT_DOWNLOAD: '/chat_api/v2_attachments',
     POLL: '/chat_api/v2_get_threads',
   },
 

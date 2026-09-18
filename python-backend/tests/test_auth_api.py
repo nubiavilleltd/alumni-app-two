@@ -847,6 +847,166 @@ def test_member_listing_requires_bearer_and_publishes_bounded_filters(
     assert "200" in operation["responses"]
 
 
+def test_event_routes_protect_writes_and_publish_only_safe_public_fields(
+    auth_settings: Settings,
+) -> None:
+    """Event administration is Bearer-only and its public contract omits account fields."""
+    access_token = (
+        TokenService(auth_settings)
+        .issue({"id": 7, "email": "events@example.com", "user_role": "event admin"})
+        .access_token
+    )
+    app = create_app(auth_settings)
+    with TestClient(app) as client:
+        unauthenticated = client.post("/api/create_event", json={})
+        malformed_public = client.post("/api/get_events", json={"year": "not-a-year"})
+        malformed_write = client.post(
+            "/api/create_event",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={},
+        )
+
+    assert unauthenticated.status_code == 401
+    assert malformed_public.status_code == malformed_write.status_code == 400
+    assert malformed_public.json()["code"] == "event_filters_invalid"
+    assert malformed_write.json()["code"] == "event_invalid_request"
+
+    schema = app.openapi()
+    assert set(schema["paths"]["/api/get_events"]) == {"post"}
+    assert set(schema["paths"]["/api/create_event"]) == {"post"}
+    assert set(schema["paths"]["/api/manage_event"]) == {"post"}
+    create_content = schema["paths"]["/api/create_event"]["post"]["requestBody"]["content"]
+    assert set(create_content) == {
+        "application/json",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data",
+    }
+    create_fields = create_content["application/json"]["schema"]["properties"]
+    assert {"created_by", "is_approved", "token"}.isdisjoint(create_fields)
+    event_fields = schema["components"]["schemas"]["EventItem"]["properties"]
+    assert {"email", "created_by", "user_role", "password"}.isdisjoint(event_fields)
+
+
+def test_event_rsvp_routes_bind_members_to_their_own_identity_and_bound_attendee_data(
+    auth_settings: Settings,
+) -> None:
+    """RSVPs never accept a client-selected account, while attendee PII stays protected."""
+    access_token = (
+        TokenService(auth_settings)
+        .issue({"id": 7, "email": "member@example.com", "user_role": "alumni"})
+        .access_token
+    )
+    headers = {"Authorization": f"Bearer {access_token}"}
+    app = create_app(auth_settings)
+    with TestClient(app) as client:
+        unauthenticated = [
+            client.post(path, json={})
+            for path in (
+                "/api/register_event",
+                "/api/manage_event_rsvp",
+                "/api/get_event_attendees",
+            )
+        ]
+        invalid_registration = client.post(
+            "/api/register_event", headers=headers, json={"event_id": 0, "user_id": 99}
+        )
+        invalid_update = client.post(
+            "/api/manage_event_rsvp",
+            headers=headers,
+            json={"event_id": 1, "function_type": "update"},
+        )
+        invalid_attendees = client.post(
+            "/api/get_event_attendees", headers=headers, json={"event_id": 1, "limit": 101}
+        )
+
+    assert [response.status_code for response in unauthenticated] == [401, 401, 401]
+    assert (
+        invalid_registration.status_code
+        == invalid_update.status_code
+        == invalid_attendees.status_code
+        == 400
+    )
+    assert (
+        invalid_registration.json()["code"]
+        == invalid_update.json()["code"]
+        == "event_rsvp_invalid_request"
+    )
+    assert invalid_attendees.json()["code"] == "event_attendees_invalid_request"
+
+    schema = app.openapi()
+    for path in ("/api/register_event", "/api/manage_event_rsvp", "/api/get_event_attendees"):
+        assert set(schema["paths"][path]) == {"post"}
+    registration_fields = schema["paths"]["/api/register_event"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]["properties"]
+    update_fields = schema["paths"]["/api/manage_event_rsvp"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]["properties"]
+    assert "user_id" not in registration_fields
+    assert "user_id" not in update_fields
+    attendee_fields = schema["components"]["schemas"]["EventAttendee"]["properties"]
+    assert {"email", "phone", "avatar"}.issubset(attendee_fields)
+
+
+def test_event_registration_form_routes_are_bearer_only_bounded_and_do_not_expose_identity_fields(
+    auth_settings: Settings,
+) -> None:
+    """Registration forms reject malformed input before SQL and never trust body identities."""
+    access_token = (
+        TokenService(auth_settings)
+        .issue({"id": 7, "email": "member@example.com", "user_role": "alumni"})
+        .access_token
+    )
+    headers = {"Authorization": f"Bearer {access_token}"}
+    paths = (
+        "/api/create_event_registration_form",
+        "/api/manage_event_registration_form",
+        "/api/get_event_registration_forms",
+        "/api/register_event_with_forms",
+        "/api/get_event_registration_submissions",
+        "/api/get_event_registration_submission_detail",
+    )
+    app = create_app(auth_settings)
+    with TestClient(app) as client:
+        unauthenticated = [client.post(path, json={}) for path in paths]
+        invalid = [
+            client.post("/api/create_event_registration_form", headers=headers, json={}),
+            client.post(
+                "/api/manage_event_registration_form",
+                headers=headers,
+                json={"action": "archive"},
+            ),
+            client.post("/api/get_event_registration_forms", headers=headers, json={"event_id": 0}),
+            client.post("/api/register_event_with_forms", headers=headers, json={"event_id": 0}),
+            client.post(
+                "/api/get_event_registration_submissions",
+                headers=headers,
+                json={"event_id": 1, "per_page": 101},
+            ),
+            client.post(
+                "/api/get_event_registration_submission_detail",
+                headers=headers,
+                json={"event_id": 1},
+            ),
+        ]
+
+    assert [response.status_code for response in unauthenticated] == [401] * len(paths)
+    assert [response.status_code for response in invalid] == [400] * len(invalid)
+    assert invalid[3].json()["code"] == "event_form_answers_invalid"
+    assert invalid[0].json()["code"] == invalid[1].json()["code"] == "event_form_invalid_request"
+
+    schema = app.openapi()
+    assert all(set(schema["paths"][path]) == {"post"} for path in paths)
+    form_fields = schema["components"]["schemas"]["EventRegistrationForm"]["properties"]
+    answer_schema = schema["paths"]["/api/register_event_with_forms"]["post"]["requestBody"][
+        "content"
+    ]["application/json"]["schema"]
+    if "$ref" in answer_schema:
+        answer_schema = schema["components"]["schemas"][answer_schema["$ref"].rsplit("/", 1)[-1]]
+    assert {"created_by", "user_id", "email"}.isdisjoint(form_fields)
+    assert "user_id" not in answer_schema["properties"]
+
+
 def test_profile_update_requires_bearer_and_validates_fields_and_avatar(
     auth_settings: Settings,
 ) -> None:

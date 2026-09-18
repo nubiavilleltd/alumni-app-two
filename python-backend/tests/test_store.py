@@ -200,6 +200,8 @@ def test_store_openapi_route_registration(auth_settings: Settings) -> None:
     assert "post" in paths["/product/verify_payment"]
     assert "/product/paystack_webhook" in paths
     assert "post" in paths["/product/paystack_webhook"]
+    assert "/api/paystack/webhook" in paths
+    assert "post" in paths["/api/paystack/webhook"]
     assert "/product/fetch_orders" in paths
     assert "get" in paths["/product/fetch_orders"]
     assert "post" in paths["/product/fetch_orders"]

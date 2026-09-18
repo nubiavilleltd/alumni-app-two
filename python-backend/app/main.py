@@ -23,7 +23,7 @@ from app.api.members import router as members_router
 from app.api.metrics import router as metrics_router
 from app.api.news import router as news_router
 from app.api.notifications import router as notifications_router
-from app.api.product import product_router
+from app.api.product import paystack_webhook_alias_router, product_router
 from app.api.projects import router as projects_router
 from app.api.retired import router as retired_router
 from app.api.vacancies import router as vacancies_router
@@ -98,6 +98,7 @@ def create_app(
     app.include_router(notifications_router)
     app.include_router(retired_router)
     app.include_router(product_router)
+    app.include_router(paystack_webhook_alias_router)
     app.mount(
         "/uploads/profiles",
         StaticFiles(directory=resolved_settings.upload_root / "profiles", check_dir=False),

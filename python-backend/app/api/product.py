@@ -824,6 +824,19 @@ async def verify_payment(
         ) from exc
 
 
+async def _handle_paystack_webhook(request: Request, signature: str) -> Response:
+    """Verify and process a charge.success webhook, acknowledging any outcome."""
+    raw_body = await request.body()
+    try:
+        await _run_store(
+            request,
+            lambda svc: svc.process_paystack_webhook(raw_body, signature),
+        )
+        return PlainTextResponse("OK", status_code=200)
+    except PaystackSignatureError:
+        return PlainTextResponse("Invalid signature", status_code=401)
+
+
 @product_router.post(
     "/paystack_webhook",
     summary="Paystack webhook for charge.success events",
@@ -832,15 +845,7 @@ async def paystack_webhook(
     request: Request,
     x_paystack_signature: Annotated[str, Header(alias="X-Paystack-Signature")] = "",
 ) -> Response:
-    raw_body = await request.body()
-    try:
-        await _run_store(
-            request,
-            lambda svc: svc.process_paystack_webhook(raw_body, x_paystack_signature),
-        )
-        return PlainTextResponse("OK", status_code=200)
-    except PaystackSignatureError:
-        return PlainTextResponse("Invalid signature", status_code=401)
+    return await _handle_paystack_webhook(request, x_paystack_signature)
 
 
 @product_router.get(
@@ -991,3 +996,18 @@ async def update_order_status(
             status_code=exc.http_status,
             detail={"status": False, "message": exc.message},
         ) from exc
+
+
+paystack_webhook_alias_router = APIRouter(prefix="/api/paystack", tags=["Store & Orders"])
+
+
+@paystack_webhook_alias_router.post(
+    "/webhook",
+    summary="Paystack webhook alias for charge.success events",
+)
+async def paystack_webhook_alias(
+    request: Request,
+    x_paystack_signature: Annotated[str, Header(alias="X-Paystack-Signature")] = "",
+) -> Response:
+    """Serve the same webhook logic at the Paystack-configured ``/api/paystack/webhook`` path."""
+    return await _handle_paystack_webhook(request, x_paystack_signature)

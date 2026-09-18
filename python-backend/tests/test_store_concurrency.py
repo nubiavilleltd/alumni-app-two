@@ -152,3 +152,30 @@ def test_replayed_webhook_does_not_double_deduct(store_harness: StoreHarness) ->
 
     assert _stock(store_harness, product_id) == 3
     assert _order_statuses(store_harness, [reference])[reference] == "paid"
+
+
+def test_paystack_webhook_alias_route_matches_primary(store_harness: StoreHarness) -> None:
+    """The Paystack-configured /api/paystack/webhook path behaves like /product/paystack_webhook."""
+    body = json.dumps(
+        {
+            "event": "charge.success",
+            "data": {"reference": "NONEXISTENT", "status": "success", "amount": 0},
+        }
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    invalid = store_harness.client.post(
+        "/api/paystack/webhook",
+        content=body,
+        headers={**headers, "X-Paystack-Signature": "bad-signature"},
+    )
+    assert invalid.status_code == 401
+    valid_signature = hmac.new(
+        store_harness.paystack_test_key.encode("utf-8"), body, hashlib.sha512
+    ).hexdigest()
+    acknowledged = store_harness.client.post(
+        "/api/paystack/webhook",
+        content=body,
+        headers={**headers, "X-Paystack-Signature": valid_signature},
+    )
+    assert acknowledged.status_code == 200
+    assert acknowledged.text == "OK"
